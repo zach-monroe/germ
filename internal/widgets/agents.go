@@ -38,7 +38,7 @@ func (a *agents) Update(context.Context) error {
 		if err != nil {
 			continue
 		}
-		resp, err := c.Call(control.Request{Cmd: control.CmdListPanes})
+		resp, err := c.Call(control.Request{Cmd: control.CmdListPanes, History: true})
 		c.Close()
 		if err != nil {
 			continue
@@ -111,10 +111,21 @@ func (a *agents) Draw(w, h int, err error) []string {
 			where = r.session + ":" + where
 		}
 		dir := filepath.Base(r.Cwd)
-		left := fmt.Sprintf(" %s%s %s%-8s%s %s", mark, reset, bold, truncate(r.Agent, 8), reset, truncate(dir, 20))
+		left := fmt.Sprintf(" %s%s %s%-8s%s %-14s", mark, reset, bold, truncate(r.Agent, 8), reset, truncate(dir, 14))
 		right := state + reset + "  " + dim + where + reset
-		pad := w - width(left) - width(right) - 1
-		lines = append(lines, left+strings.Repeat(" ", max(1, pad))+right)
+		// The timeline fills the space between, one cell per minute.
+		room := w - width(left) - width(right) - 3
+		strip := ""
+		if room >= 6 {
+			strip = " " + timeline(r.History, min(room, 30)) + " "
+		}
+		pad := w - width(left) - width(strip) - width(right) - 1
+		row := left + strip + strings.Repeat(" ", max(1, pad)) + right
+		ref := r.Tmux
+		if ref == "" {
+			ref = fmt.Sprint(r.ID)
+		}
+		lines = append(lines, link(fmt.Sprintf("germ-pane:%d/%s", r.window, ref), row))
 		if r.State == "waiting" && r.Message != "" && len(lines) < h-1 {
 			lines = append(lines, "     "+dim+truncate(r.Message, w-6)+reset)
 		}
@@ -123,4 +134,38 @@ func (a *agents) Draw(w, h int, err error) []string {
 		}
 	}
 	return fill(lines, h, errLine(err, w))
+}
+
+// timeline draws the last n minutes of an agent's history (10-second
+// buckets, see control.PaneInfo.History), newest on the right.
+func timeline(hist string, n int) string {
+	const perMin = 6
+	var b strings.Builder
+	for i := n; i > 0; i-- {
+		end := len(hist) - (i-1)*perMin
+		start := end - perMin
+		if start < 0 {
+			b.WriteByte(' ')
+			continue
+		}
+		best := byte(' ')
+		for _, c := range []byte(hist[start:end]) {
+			if strings.IndexByte(" idw!", c) > strings.IndexByte(" idw!", best) {
+				best = c
+			}
+		}
+		switch best {
+		case '!':
+			b.WriteString(yellow + bold + "▇" + reset)
+		case 'w':
+			b.WriteString(cyan + "▅" + reset)
+		case 'd':
+			b.WriteString(green + "▂" + reset)
+		case 'i':
+			b.WriteString(dim + "▁" + reset)
+		default:
+			b.WriteString(dim + "·" + reset)
+		}
+	}
+	return b.String()
 }

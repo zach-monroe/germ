@@ -2,8 +2,12 @@ package app
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/zach-monroe/germ/internal/config"
+	"github.com/zach-monroe/germ/internal/term"
 )
 
 func TestMatchAgent(t *testing.T) {
@@ -59,5 +63,46 @@ func TestPaneState(t *testing.T) {
 	p.agent.needsYou = true
 	if p.state(now) != stateWaiting {
 		t.Error("want waiting")
+	}
+}
+
+func TestScanScreen(t *testing.T) {
+	a := &App{cfg: config.Default()}
+	p := &pane{term: term.New(60, 10, term.Options{})}
+	p.agent.name = "claude"
+	p.term.Write([]byte("> fix the bug\r\n\r\n✻ Thinking… (3s · esc to interrupt)\r\n"))
+	a.scanScreen(p)
+	if !p.agent.screenWorking || p.agent.screenWaiting {
+		t.Errorf("working screen: working %v waiting %v", p.agent.screenWorking, p.agent.screenWaiting)
+	}
+	if p.state(time.Now()) != stateWorking {
+		t.Error("want working")
+	}
+	p.term.Write([]byte("\x1b[2J\x1b[H╭──╮\r\n│ Do you want to make this edit to main.go? │\r\n│ ❯ 1. Yes │\r\n"))
+	prompt := a.scanScreen(p)
+	if p.agent.screenWorking || !p.agent.screenWaiting || prompt != "Do you want to make this edit to main.go?" {
+		t.Errorf("prompt %q, working %v waiting %v", prompt, p.agent.screenWorking, p.agent.screenWaiting)
+	}
+	if p.state(time.Now()) != stateWaiting {
+		t.Error("want waiting")
+	}
+}
+
+func TestHistory(t *testing.T) {
+	p := &pane{}
+	ag := &p.agent
+	push := func(s agentState, n int) {
+		for i := 0; i < n; i++ {
+			ag.hist[ag.histPos] = s
+			ag.histPos = (ag.histPos + 1) % histLen
+			ag.histN = min(ag.histN+1, histLen)
+		}
+	}
+	push(stateWorking, 25)
+	push(stateWaiting, 1)
+	push(stateIdle, 4) // 30 s of samples
+	h := p.history()
+	if len(h) != 180 || strings.TrimLeft(h, " ") != "ww!" { // 10-second buckets, most urgent wins
+		t.Errorf("history tail %q", strings.TrimLeft(h, " "))
 	}
 }

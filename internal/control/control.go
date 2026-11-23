@@ -48,8 +48,9 @@ type Request struct {
 	Where   string   `json:"where,omitempty"` // "tab" (default), "right", "down"
 	Cwd     string   `json:"cwd,omitempty"`
 	Focus   bool     `json:"focus,omitempty"`
-	Size    int      `json:"size,omitempty"` // split: percent of the target for the new pane
-	TTL     int      `json:"ttl,omitempty"`  // set_status: seconds to show it
+	Size    int      `json:"size,omitempty"`    // split: percent of the target for the new pane
+	TTL     int      `json:"ttl,omitempty"`     // set_status: seconds to show it
+	History bool     `json:"history,omitempty"` // list_panes: include agent History
 }
 
 // PaneInfo describes a pane.
@@ -65,10 +66,13 @@ type PaneInfo struct {
 	State    string `json:"state,omitempty"`    // agent state: idle, working, done, waiting
 	Message  string `json:"message,omitempty"`  // last notification
 	StateMs  int64  `json:"state_ms,omitempty"` // how long the agent has been working / done
-	Active   bool   `json:"active"`             // focused pane of its tab
-	Visible  bool   `json:"visible"`            // on screen now
-	Cols     int    `json:"cols"`
-	Rows     int    `json:"rows"`
+	// History is the agent's last 30 minutes, one character per 10 s,
+	// oldest first: '!' waiting, 'w' working, 'd' done, 'i' idle, ' ' none.
+	History string `json:"history,omitempty"`
+	Active  bool   `json:"active"`  // focused pane of its tab
+	Visible bool   `json:"visible"` // on screen now
+	Cols    int    `json:"cols"`
+	Rows    int    `json:"rows"`
 	// IdleMs is how long since the pane last produced output.
 	IdleMs int64 `json:"idle_ms"`
 }

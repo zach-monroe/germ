@@ -185,7 +185,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **13. Coworking** ✅ | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
 | **14. Coworking v2** ✅ | Remove/ban guests from the share pane, rotate links; guests navigate tabs independently (grouped tmux sessions) with a follow-the-host toggle; "who's typing" presence; automatic reconnect for guests and host | A guest's Wi-Fi blips and they're back a few seconds later; you remove one guest without stopping the share |
 | **15. Daily-driver polish** ✅ | Drag separators to resize; OSC 8 hyperlinks; combining characters; zsh/bash shell integration | Your zsh gets prompt jumping, command marks, and notifications like fish |
-| **16. Agent tuning** | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
+| **16. Agent tuning** ✅ | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -235,6 +235,12 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 16)
+- Agent state also comes from the screen: the bottom 12 non-blank lines are matched against `[agents] working_patterns` ("esc to interrupt", which Claude Code and Codex show while working) and `waiting_patterns` (permission/question prompts). A prompt appearing acts like a notification (desktop notify when not visible; the question line becomes the message) and shows as waiting while it lasts. Works without the agent's notification setup.
+- Per-second state history (30 min ring) → `PaneInfo.History` (10 s buckets) with `list_panes {"history": true}`; the agents widget draws a one-cell-per-minute timeline.
+- `germ-pane:PID/PANE` hyperlinks focus a pane via that window's control socket (raising the window); agents widget rows use them.
+- Verified on Xvfb with a fake Claude Code UI: working held across slow updates, prompt → waiting with the question as message, click → focused.
 
 ## Status (after Phase 15)
 - Shell integration for zsh (ZDOTDIR bootstrap that restores ZDOTDIR and sources the user's .zshenv; zle line-init hook after `zmodload zsh/zle`, plus a PS1 suffix since Oh My Zsh replaces zle-line-init) and bash (PROMPT_COMMAND bootstrap + DEBUG-trap preexec). tmux mode sets the variables on germ's session too. Tests run real interactive shells in a pty.

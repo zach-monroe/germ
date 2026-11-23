@@ -15,7 +15,8 @@ type hyperlinks struct {
 
 // allowedSchemes are the links germ will open: ones a click can't turn into
 // something surprising.
-var allowedSchemes = []string{"http://", "https://", "mailto:", "file://", "ftp://", "sftp://", "ssh://", "man:"}
+var allowedSchemes = []string{"http://", "https://", "mailto:", "file://", "ftp://", "sftp://", "ssh://", "man:",
+	"germ-pane:"} // germ-pane:PID/PANE focuses a pane (agents widget)
 
 func (t *Terminal) oscHyperlink(rest string) {
 	params, uri, ok := strings.Cut(rest, ";")

@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/zach-monroe/germ/internal/control"
 	"github.com/zach-monroe/germ/internal/input"
 	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/term"
@@ -619,8 +620,13 @@ func findFile(t *term.Terminal, row int64, col int, dir string) (*fileRef, rende
 	return nil, render.Link{}
 }
 
-// openURL opens a link with $BROWSER if set, else xdg-open.
+// openURL opens a link with $BROWSER if set, else xdg-open. germ-pane:
+// links focus a pane in a germ window instead.
 func openURL(url string) {
+	if ref, ok := strings.CutPrefix(url, "germ-pane:"); ok {
+		go focusRemotePane(ref)
+		return
+	}
 	argv := []string{"xdg-open"}
 	if b := strings.Fields(os.Getenv("BROWSER")); len(b) > 0 {
 		argv = b
@@ -664,3 +670,23 @@ func (a *App) setHandCursor(on bool) {
 		a.win.SetCursor(nil)
 	}
 }
+
+// focusRemotePane handles germ-pane:PID/PANE: focus that pane in the germ
+// window with that process ID (possibly this one), via its control socket.
+func focusRemotePane(ref string) {
+	pid, pane, ok := strings.Cut(ref, "/")
+	if !ok {
+		return
+	}
+	if _, err := strconv.Atoi(pid); err != nil {
+		return
+	}
+	c, err := control.Dial(control.SocketPath(atoi(pid)))
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	c.Call(control.Request{Cmd: control.CmdFocusPane, Pane: pane})
+}
+
+func atoi(s string) int { n, _ := strconv.Atoi(s); return n }

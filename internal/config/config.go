@@ -98,6 +98,11 @@ type Agents struct {
 	// Resume restarts the agent in the same worktree, continuing its
 	// conversation (default for claude: claude --continue).
 	Resume []string `toml:"resume"`
+	// WorkingPatterns and WaitingPatterns are matched (case-insensitively)
+	// against the bottom of an agent's screen: text an agent shows while
+	// working, and text of prompts that wait for you.
+	WorkingPatterns []string `toml:"working_patterns"`
+	WaitingPatterns []string `toml:"waiting_patterns"`
 	// ShiftEnter makes Shift+Enter insert a newline in agent panes (sends
 	// ESC CR) when the agent hasn't enabled an extended key protocol.
 	ShiftEnter bool `toml:"shift_enter_newline"`
@@ -193,8 +198,11 @@ func Default() Config {
 		Control: Control{Enabled: true, AllowInput: true},
 		Agents: Agents{Notify: true, Commands: []string{"claude", "codex", "aider", "gemini",
 			"opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"},
-			ShiftEnter: true,
-			Launch:     []string{"claude", "{task}"}, Resume: []string{"claude", "--continue"}},
+			ShiftEnter:      true,
+			WorkingPatterns: []string{"esc to interrupt", "ctrl+c to interrupt", "esc to cancel"},
+			WaitingPatterns: []string{"do you want to", "would you like to", "❯ 1. yes", "allow this",
+				"(y/n)", "[y/n]", "press enter to continue", "waiting for your"},
+			Launch: []string{"claude", "{task}"}, Resume: []string{"claude", "--continue"}},
 		Shells: ShellIntegration{Mode: "auto"},
 	}
 }

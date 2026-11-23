@@ -19,23 +19,41 @@ pane isn't on screen, germ also sends a desktop notification (via
 `notify-send`) with the agent's message and marks the window urgent.
 
 The **agents** widget on the home tab lists every agent in every germ
-window, most urgent first, with its message ("Claude needs your
-permission to use Bash"), how long it's been working, and where it is.
+window, most urgent first, with its message ("Do you want to make this
+edit to parser.go?"), how long it's been working, where it is, and a
+**timeline** of its last 30 minutes, one cell per minute: ▅ working,
+▇ waiting for you, ▂ done, ▁ idle. **Click an agent** to jump to its pane,
+even in another germ window (which comes to the front).
 
 How germ knows:
 - **Which panes are agents**: the pane's foreground process is matched
   against `[agents] commands` (for `node`/`python` scripts, the script name
   counts).
-- **Needs you**: notifications agents already send: OSC 9 (iTerm2),
-  OSC 777 (rxvt/Ghostty), OSC 99 (kitty), and the bell. In tmux mode germ
-  sees these even though tmux itself would swallow them.
-- **Working**: recent output that isn't just the echo of your typing, or an
-  OSC 9;4 progress report.
+- **Working**: the agent's screen shows its working line (Claude Code and
+  Codex print "esc to interrupt"), or it's producing output that isn't just
+  the echo of your typing, or it sent an OSC 9;4 progress report.
+- **Needs you**: a prompt on the agent's screen ("Do you want to make this
+  edit…?", "❯ 1. Yes", "(y/n)", ...), or a notification it sent: OSC 9
+  (iTerm2), OSC 777 (rxvt/Ghostty), OSC 99 (kitty), or the bell. Reading
+  the screen means this works even when the agent isn't set up to send
+  notifications. In tmux mode germ sees everything even though tmux itself
+  would swallow notifications.
+
+The screen patterns are configurable (matched case-insensitively against
+the bottom of the agent's screen):
+
+```toml
+[agents]
+working_patterns = ["esc to interrupt", "ctrl+c to interrupt", "esc to cancel"]
+waiting_patterns = ["do you want to", "would you like to", "❯ 1. yes", "allow this",
+                    "(y/n)", "[y/n]", "press enter to continue", "waiting for your"]
+```
 
 ### Claude Code setup
 
-Claude Code only sends notifications to terminals it recognizes. Tell it
-to use the iTerm2 protocol (OSC 9), which germ understands:
+germ reads Claude Code's screen, so badges work with no setup. For desktop
+notifications with Claude's own wording, also tell it to use the iTerm2
+protocol (OSC 9), which germ understands:
 
 ```sh
 claude config set --global preferredNotifChannel iterm2

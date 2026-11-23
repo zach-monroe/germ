@@ -140,7 +140,11 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 			}
 			for _, n := range t.root.leaves(nil) {
 				if p := t.panes[n.id]; p != nil {
-					out = append(out, a.paneInfo(p))
+					info := a.paneInfo(p)
+					if req.History && p.agent.name != "" {
+						info.History = p.history()
+					}
+					out = append(out, info)
 				}
 			}
 		}
@@ -187,6 +191,8 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		ok(&control.Response{})
 	case control.CmdFocusPane:
 		a.focusPane(p)
+		a.win.Show()
+		a.win.Focus() // come to the front (e.g. a click in another window's agents widget)
 		ok(&control.Response{})
 	case control.CmdOpenPane:
 		if !a.cfg.Control.AllowInput {

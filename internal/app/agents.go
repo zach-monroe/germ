@@ -54,11 +54,25 @@ type paneAgent struct {
 	message  string // last notification text
 	worked   bool   // worked since last viewed
 	since    time.Time
+
+	// From the agent's screen (see scanScreen): "esc to interrupt" means
+	// working, a permission/question prompt means it's waiting for you.
+	screenWorking bool
+	screenWaiting bool
+
+	// hist is one state sample per second for the last histLen seconds
+	// (a ring; histPos is the next slot), for the agents widget timeline.
+	hist    [histLen]agentState
+	histPos int
+	histN   int
 }
+
+const histLen = 30 * 60
 
 type agentNote struct {
 	title, body string
 	bell        bool
+	screen      bool // seen on screen rather than sent
 }
 
 const (
@@ -75,6 +89,9 @@ func (p *pane) state(now time.Time) agentState {
 	if ag.name == "" {
 		return stateNone
 	}
+	if ag.screenWaiting && !ag.screenWorking {
+		return stateWaiting
+	}
 	if p.working(now) {
 		return stateWorking
 	}
@@ -86,6 +103,9 @@ func (p *pane) state(now time.Time) agentState {
 
 func (p *pane) working(now time.Time) bool {
 	ag := &p.agent
+	if ag.screenWorking {
+		return true
+	}
 	switch ag.progress.Load() {
 	case 1, 3, 4:
 		return true
@@ -121,12 +141,26 @@ func (a *App) agentTick(detect bool) (animating bool) {
 		if n := ag.note.Swap(nil); n != nil {
 			a.onAgentNote(p, n, visible[p])
 		}
+		if detect && ag.name != "" {
+			wasWaiting := ag.screenWaiting && !ag.screenWorking
+			prompt := a.scanScreen(p)
+			if ag.screenWaiting && !ag.screenWorking && !wasWaiting {
+				// A prompt appeared: like a notification, for agents that
+				// don't send one.
+				a.onAgentNote(p, &agentNote{body: prompt, screen: true}, visible[p])
+			}
+		}
 		if ag.name != "" && p.working(now) {
 			if !ag.worked {
 				ag.since = now
 			}
 			ag.worked = true
 			animating = true
+		}
+		if detect && ag.name != "" {
+			ag.hist[ag.histPos] = p.state(now)
+			ag.histPos = (ag.histPos + 1) % histLen
+			ag.histN = min(ag.histN+1, histLen)
 		}
 		if visible[p] {
 			if ag.needsYou || ag.worked && !p.working(now) {
@@ -148,7 +182,9 @@ func (a *App) onAgentNote(p *pane, n *agentNote, visible bool) {
 	if visible {
 		return // you're looking at it
 	}
-	ag.needsYou = true
+	if !n.screen {
+		ag.needsYou = true // a screen prompt shows as waiting while it lasts
+	}
 	a.forceRedraw = true
 	isBell := n.bell
 	if isBell && ag.name == "" {
@@ -290,4 +326,77 @@ func (a *App) startAgentTicker() {
 			glfw.PostEmptyEvent()
 		}
 	}()
+}
+
+// scanScreen looks at the bottom of an agent's screen for its working
+// indicator and for prompts waiting on you, returning the prompt's line.
+func (a *App) scanScreen(p *pane) string {
+	ag := &p.agent
+	lines := screenTail(p, 12)
+	ag.screenWorking, ag.screenWaiting = false, false
+	prompt := ""
+	for _, l := range lines {
+		low := strings.ToLower(l)
+		for _, pat := range a.cfg.Agents.WorkingPatterns {
+			if pat != "" && strings.Contains(low, strings.ToLower(pat)) {
+				ag.screenWorking = true
+			}
+		}
+		for _, pat := range a.cfg.Agents.WaitingPatterns {
+			if pat != "" && strings.Contains(low, strings.ToLower(pat)) {
+				ag.screenWaiting = true
+				// Prefer the question over the options below it.
+				if text := strings.TrimSpace(strings.Trim(strings.TrimSpace(l), "│╭╮╰╯─┃")); prompt == "" ||
+					strings.Contains(text, "?") && !strings.Contains(prompt, "?") {
+					prompt = text
+				}
+			}
+		}
+	}
+	return prompt
+}
+
+// screenTail is the last n non-blank lines of a pane's screen.
+func screenTail(p *pane, n int) []string {
+	p.term.Lock()
+	defer p.term.Unlock()
+	cols, rows := p.term.Size()
+	top := p.term.Pushed()
+	var out []string
+	for y := rows - 1; y >= 0 && len(out) < n; y-- {
+		l := p.term.TextRange(top+int64(y), 0, top+int64(y), cols)
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// history summarizes the last 30 minutes in 10-second buckets, oldest
+// first: one character per bucket, the most urgent state in it
+// ('!' waiting, 'w' working, 'd' done, 'i' idle, ' ' no agent).
+func (p *pane) history() string {
+	ag := &p.agent
+	const bucket = 10
+	out := make([]byte, histLen/bucket)
+	for b := range out {
+		best := stateNone
+		for i := 0; i < bucket; i++ {
+			age := histLen - (b*bucket + i) // seconds ago
+			if age > ag.histN {
+				continue
+			}
+			s := ag.hist[((ag.histPos-age)%histLen+histLen)%histLen]
+			if rank(s) > rank(best) {
+				best = s
+			}
+		}
+		out[b] = " iwd!"[map[agentState]int{stateNone: 0, stateIdle: 1, stateWorking: 2, stateDone: 3, stateWaiting: 4}[best]]
+	}
+	return string(out)
+}
+
+// rank orders states by how much they matter in a summary.
+func rank(s agentState) int {
+	return map[agentState]int{stateNone: 0, stateIdle: 1, stateDone: 2, stateWorking: 3, stateWaiting: 4}[s]
 }

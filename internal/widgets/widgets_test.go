@@ -60,3 +60,15 @@ func TestWidthSkipsHyperlinks(t *testing.T) {
 		t.Errorf("width = %d", n)
 	}
 }
+
+func TestTimeline(t *testing.T) {
+	hist := strings.Repeat(" ", 168) + "wwwwww" + "iiii!i" // last two minutes
+	got := width(timeline(hist, 3))
+	if got != 3 {
+		t.Errorf("width %d", got)
+	}
+	s := timeline(hist, 2)
+	if !strings.Contains(s, "▅") || !strings.Contains(s, "▇") {
+		t.Errorf("timeline %q", s)
+	}
+}
