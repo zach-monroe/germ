@@ -55,8 +55,22 @@ type App struct {
 	// hasn't drawn for yet.
 	wakePending atomic.Bool
 
+	// Main-thread state below.
 	focused     bool
 	forceRedraw bool
+	scale       float32 // content scale (DPI / 96)
+	fontSize    float64
+
+	offset     int   // lines scrolled back into history
+	lastPushed int64 // term.Pushed() at the last draw, to keep the view anchored
+	scrollAcc  float64
+
+	sel     selection
+	mouse   mouseState
+	link    render.Link
+	linkURL string
+
+	suppressChar bool // the current key press was already encoded
 }
 
 // Run opens the window and blocks until it is closed or the child exits.
@@ -115,7 +129,11 @@ func Run(opts Options) error {
 	}
 	defer sess.Close()
 
-	a := &App{opts: opts, win: win, sess: sess, render: rnd, input: make(chan []byte, 256), focused: true, forceRedraw: true}
+	a := &App{
+		opts: opts, win: win, sess: sess, render: rnd,
+		input: make(chan []byte, 256), focused: true, forceRedraw: true,
+		scale: scale, fontSize: opts.FontSize,
+	}
 	a.term = term.New(cols, rows, term.Options{
 		Scrollback: 10000,
 		Responder:  chanWriter(a.input),
@@ -124,9 +142,12 @@ func Run(opts Options) error {
 	go a.writeLoop()
 	win.SetCharModsCallback(a.onChar)
 	win.SetKeyCallback(a.onKey)
+	win.SetMouseButtonCallback(a.onMouseButton)
+	win.SetCursorPosCallback(a.onCursorPos)
+	win.SetScrollCallback(a.onScroll)
 	win.SetFramebufferSizeCallback(a.onResize)
 	win.SetRefreshCallback(func(*glfw.Window) { a.forceRedraw = true; a.draw() })
-	win.SetFocusCallback(func(_ *glfw.Window, f bool) { a.focused = f; a.forceRedraw = true })
+	win.SetFocusCallback(a.onFocus)
 
 	go a.readLoop()
 
@@ -157,7 +178,8 @@ func Run(opts Options) error {
 
 // screenshot redraws into the back buffer and saves it as a PNG.
 func (a *App) screenshot(path string) error {
-	a.render.Draw(a.term, a.focused, true)
+	a.forceRedraw = true
+	a.render.Draw(a.term, a.view())
 	w, h := a.win.GetFramebufferSize()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	gl.ReadBuffer(gl.BACK)
@@ -227,72 +249,98 @@ func (a *App) log(p []byte) {
 	}
 }
 
+// send queues bytes for the child. Safe from any goroutine.
 func (a *App) send(p []byte) {
+	if len(p) == 0 {
+		return
+	}
 	select {
 	case a.input <- p:
 	default:
-		fmt.Fprintln(os.Stderr, "germ: input queue full, dropping keystroke")
+		fmt.Fprintln(os.Stderr, "germ: input queue full, dropping input")
+	}
+}
+
+// sendUser sends input typed or pasted by the user: it also snaps the
+// view back to the live screen.
+func (a *App) sendUser(p []byte) {
+	if len(p) == 0 {
+		return
+	}
+	if a.offset != 0 {
+		a.offset = 0
+		a.forceRedraw = true
+	}
+	a.send(p)
+}
+
+func (a *App) view() render.View {
+	return render.View{
+		Offset:    a.offset,
+		Focused:   a.focused,
+		Selection: a.sel.render(a.term),
+		Link:      a.link,
+		Force:     a.forceRedraw,
 	}
 }
 
 func (a *App) draw() {
 	a.wakePending.Store(false)
-	if a.render.Draw(a.term, a.focused, a.forceRedraw) {
+
+	// Keep a scrolled-back view anchored on the same text as new lines
+	// arrive, and drop a selection on the alternate screen when it closes.
+	a.term.Lock()
+	pushed, sbLen := a.term.Pushed(), a.term.ScrollbackLen()
+	a.term.Unlock()
+	if a.offset > 0 {
+		a.offset = min(a.offset+int(pushed-a.lastPushed), sbLen)
+	}
+	a.lastPushed = pushed
+
+	if a.render.Draw(a.term, a.view()) {
 		a.win.SwapBuffers()
 	}
 	a.forceRedraw = false
 }
 
 func (a *App) onResize(_ *glfw.Window, w, h int) {
+	a.resizeGrid(w, h)
+}
+
+func (a *App) resizeGrid(w, h int) {
 	cols, rows := a.render.Resize(w, h)
 	a.term.Resize(cols, rows)
+	a.sel.clear() // absolute rows are renumbered by reflow
+	a.offset = 0
+	a.term.Lock()
+	a.lastPushed = a.term.Pushed()
+	a.term.Unlock()
 	a.forceRedraw = true
 	if err := a.sess.Resize(uint16(cols), uint16(rows)); err != nil {
 		fmt.Fprintln(os.Stderr, "germ: resize:", err)
 	}
 }
 
-// onChar handles printable text (already composed by the OS/IME).
-func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
-	if mods&glfw.ModAlt != 0 {
-		a.send([]byte{0x1b}) // Alt prefixes ESC (xterm "metaSendsEscape")
-	}
-	a.send([]byte(string(r)))
-}
-
-// onKey handles non-text keys and Ctrl combos. Minimal legacy xterm encoding;
-// the full encoder (incl. kitty keyboard protocol) lands in Phase 3.
-func (a *App) onKey(_ *glfw.Window, key glfw.Key, _ int, action glfw.Action, mods glfw.ModifierKey) {
-	if action == glfw.Release {
-		return
-	}
-	if mods&glfw.ModControl != 0 && key >= glfw.KeyA && key <= glfw.KeyZ {
-		b := []byte{byte(key-glfw.KeyA) + 1}
-		if mods&glfw.ModAlt != 0 {
-			b = append([]byte{0x1b}, b...)
-		}
-		a.send(b)
-		return
-	}
-	if seq, ok := keySeq[key]; ok {
-		a.send([]byte(seq))
+func (a *App) onFocus(_ *glfw.Window, focused bool) {
+	a.focused = focused
+	a.forceRedraw = true
+	a.term.Lock()
+	report := a.term.Modes().FocusEvents
+	a.term.Unlock()
+	if report {
+		a.send(inputFocus(focused))
 	}
 }
 
-var keySeq = map[glfw.Key]string{
-	glfw.KeyEnter:     "\r",
-	glfw.KeyKPEnter:   "\r",
-	glfw.KeyTab:       "\t",
-	glfw.KeyBackspace: "\x7f",
-	glfw.KeyEscape:    "\x1b",
-	glfw.KeyUp:        "\x1b[A",
-	glfw.KeyDown:      "\x1b[B",
-	glfw.KeyRight:     "\x1b[C",
-	glfw.KeyLeft:      "\x1b[D",
-	glfw.KeyHome:      "\x1b[H",
-	glfw.KeyEnd:       "\x1b[F",
-	glfw.KeyInsert:    "\x1b[2~",
-	glfw.KeyDelete:    "\x1b[3~",
-	glfw.KeyPageUp:    "\x1b[5~",
-	glfw.KeyPageDown:  "\x1b[6~",
+// setFontSize reloads fonts at a new size and refits the grid.
+func (a *App) setFontSize(size float64) {
+	size = max(4, min(size, 96))
+	fonts, err := font.Load(a.opts.FontFamily, size, 96*float64(a.scale))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "germ:", err)
+		return
+	}
+	a.fontSize = size
+	a.render.SetFonts(fonts)
+	a.resizeGrid(a.win.GetFramebufferSize())
 }

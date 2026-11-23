@@ -171,7 +171,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **0. Skeleton** ✅ | `go mod init`, a GLFW window, spawn `$SHELL` on a PTY, log output to stdout | Typing in the window reaches the shell |
 | **1. VT core** ✅ | Parser, grid, cursor movement, SGR, scroll regions, alt screen, line wrap, resize/reflow | Headless unit tests pass; `vim`, `htop`, `less` look right in a debug text dump |
 | **2. Renderer** ✅ | Font loading, glyph atlas, instanced quads, cursor, dirty-row rendering | A usable daily terminal at 60+ fps |
-| **3. Input & UX** | Full key encoding, mouse reporting, selection, clipboard, scrollback, URL detection | Comfortable for daily use |
+| **3. Input & UX** ✅ | Full key encoding, mouse reporting, selection, clipboard, scrollback, URL detection | Comfortable for daily use |
 | **4. Config & themes** | TOML config, bundled themes, hot reload, OSC color queries | Changing the theme file recolors the window live |
 | **4.5 fish integration** | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
 | **5. tmux Level 1** | terminfo, true color through tmux, OSC 52, CSI u, sync output | `tmux` + `nvim` looks and behaves perfectly |
@@ -191,7 +191,16 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status / known gaps (updated after Phase 2)
+## Status / known gaps (updated after Phase 3)
+- Input: full xterm legacy key encoding plus the kitty keyboard protocol (flags 1, 2, 8; per-screen flag stack; fish 4 enables it automatically).
+- Mouse: X10/normal/button/any reporting with default, UTF-8, SGR, URXVT, and SGR-pixel encodings; Shift bypasses reporting.
+- Selection: drag, double-click word, triple-click line; copies to PRIMARY (xclip/xsel) on select; Ctrl+Shift+C/V clipboard; middle-click pastes PRIMARY; bracketed paste with end-marker stripping.
+- Scrollback viewing: wheel / Shift+PgUp/PgDn, anchored while new output arrives; alt screen wheel sends arrows (mode 1007).
+- Ctrl+hover underlines URLs, Ctrl+click opens them (xdg-open). Ctrl+Shift+=/-/0 zoom.
+- E2E: `scripts/e2e/xtest.sh` drives germ on Xvfb with xdotool and logs the bytes it sends.
+- TODO: kitty flags 4 (alternate keys) and 16 (associated text); OSC 8 hyperlinks; cursor blink; selection auto-scroll while dragging past the edge.
+
+## Status / known gaps (after Phase 2)
 - Renderer: three instanced draw calls per frame (backgrounds, glyphs, decorations) with per-row instance caches rebuilt only for dirty rows; idle = 0 CPU; synchronized output (2026) holds frames up to 200 ms.
 - Box drawing (U+2500–257F) and block elements (U+2580–259F) are drawn procedurally so tmux borders join seamlessly.
 - End-to-end `cat` of a 22 MB file: ~4 s, versus ~3.5 s for a do-nothing PTY reader on the same machine — the kernel PTY is the bottleneck.

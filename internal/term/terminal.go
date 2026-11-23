@@ -71,6 +71,7 @@ type Modes struct {
 	FocusEvents     bool // ?1004
 	BracketedPaste  bool // ?2004
 	SyncOutput      bool // ?2026
+	AltScroll       bool // ?1007: wheel sends arrow keys on the alt screen
 	Mouse           MouseMode
 	MouseEncoding   MouseEncoding
 }
@@ -101,6 +102,9 @@ type savedCursor struct {
 type screen struct {
 	lines []Line
 	saved savedCursor
+	// kbd is the kitty keyboard protocol flag stack (each screen has its
+	// own, per the spec). The top entry is in effect.
+	kbd []uint8
 }
 
 // Terminal is the emulated terminal. All methods are safe for concurrent
@@ -126,6 +130,11 @@ type Terminal struct {
 	allDirty    bool
 
 	resp []byte // pending responses, flushed after unlocking
+
+	// pushed counts lines ever pushed into scrollback. Together with the
+	// scrollback length it gives every line a stable absolute row number,
+	// so selections survive new output.
+	pushed int64
 }
 
 // New creates a terminal of the given size.
@@ -154,7 +163,8 @@ func makeLines(cols, rows int) []Line {
 // resetState puts modes, cursor, margins, and tabs in their power-on state
 // without touching screen contents.
 func (t *Terminal) resetState() {
-	t.modes = Modes{Autowrap: true, CursorVisible: true}
+	t.modes = Modes{Autowrap: true, CursorVisible: true, AltScroll: true}
+	t.primary.kbd, t.alt.kbd = nil, nil
 	t.cur = Cursor{}
 	t.top, t.bottom = 0, t.rows-1
 	t.resetTabs()
@@ -243,6 +253,95 @@ func (t *Terminal) markRangeDirty(from, to int) {
 	for y := from; y <= to; y++ {
 		t.dirty[y] = true
 	}
+}
+
+// KeyboardFlags returns the kitty keyboard protocol flags in effect.
+// Caller must hold the lock.
+func (t *Terminal) KeyboardFlags() uint8 {
+	if k := t.active.kbd; len(k) > 0 {
+		return k[len(k)-1]
+	}
+	return 0
+}
+
+// ---- scrollback viewing and absolute rows ----------------------------
+//
+// An absolute row numbers every line ever shown: scrollback line i (0 =
+// oldest retained) is row pushed-len+i, and screen row y is row pushed+y.
+// A viewport scrolled back by offset lines shows rows starting at
+// pushed-offset. All of these require the lock.
+
+// ScrollbackLen returns how many lines can be scrolled back (0 on the
+// alternate screen).
+func (t *Terminal) ScrollbackLen() int {
+	if t.active == &t.alt {
+		return 0
+	}
+	return t.scrollback.Len()
+}
+
+// Pushed returns the number of lines ever pushed to scrollback.
+func (t *Terminal) Pushed() int64 { return t.pushed }
+
+// AbsRow returns the absolute row shown at viewport row y.
+func (t *Terminal) AbsRow(y, offset int) int64 {
+	return t.pushed - int64(offset) + int64(y)
+}
+
+// LineAt returns the line at an absolute row, or nil if it is no longer
+// retained (or not yet written).
+func (t *Terminal) LineAt(abs int64) *Line {
+	rel := abs - t.pushed
+	switch {
+	case rel >= 0 && rel < int64(t.rows):
+		return &t.active.lines[rel]
+	case rel < 0 && t.active == &t.primary:
+		i := int64(t.scrollback.Len()) + rel
+		if i >= 0 {
+			return t.scrollback.At(int(i))
+		}
+	}
+	return nil
+}
+
+// TextRange extracts text between two absolute positions (inclusive, in
+// reading order). Soft-wrapped lines are joined; hard line ends become
+// newlines with trailing blanks trimmed.
+func (t *Terminal) TextRange(startRow int64, startCol int, endRow int64, endCol int) string {
+	var b strings.Builder
+	for row := startRow; row <= endRow; row++ {
+		l := t.LineAt(row)
+		if l == nil {
+			continue
+		}
+		from, to := 0, len(l.Cells)-1
+		if row == startRow {
+			from = startCol
+		}
+		if row == endRow {
+			to = min(endCol, to)
+		}
+		var seg strings.Builder
+		for x := max(from, 0); x <= to; x++ {
+			c := l.Cells[x]
+			switch {
+			case c.Attrs&(AttrWideSpacer|attrWrapPad) != 0:
+			case c.Rune == 0:
+				seg.WriteByte(' ')
+			default:
+				seg.WriteRune(c.Rune)
+			}
+		}
+		if l.Wrapped && row != endRow {
+			b.WriteString(seg.String())
+			continue
+		}
+		b.WriteString(strings.TrimRight(seg.String(), " "))
+		if row != endRow {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // Text returns the visible screen as plain text, one line per row with
@@ -365,6 +464,7 @@ func (t *Terminal) scrollUp(n int) {
 		old := lines[top]
 		if toScrollback {
 			old = t.scrollback.push(old)
+			t.pushed++
 		}
 		copy(lines[top:bot], lines[top+1:bot+1])
 		lines[bot] = t.resetLine(old)

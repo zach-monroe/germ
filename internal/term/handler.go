@@ -12,6 +12,21 @@ import (
 // Version is reported by XTVERSION.
 const Version = "0.1.0"
 
+// Kitty keyboard protocol flags.
+const (
+	KittyDisambiguate  = 1
+	KittyEventTypes    = 2
+	KittyAlternateKeys = 4
+	KittyAllKeys       = 8
+	KittyText          = 16
+
+	// KittySupported is the subset germ implements; others are masked off
+	// so the query reply is honest.
+	KittySupported = KittyDisambiguate | KittyEventTypes | KittyAllKeys
+
+	maxKbdStack = 16
+)
+
 // handler adapts Terminal to vt.Handler without exporting the methods on
 // Terminal itself. The parser runs with t.mu held.
 type handler Terminal
@@ -128,11 +143,40 @@ func (h *handler) CsiDispatch(s *vt.Seq, final byte) {
 			if p.Raw(0) == 0 {
 				t.respond("\x1bP>|germ " + Version + "\x1b\\")
 			}
+		case 'u': // kitty keyboard: push flags
+			k := &t.active.kbd
+			if len(*k) >= maxKbdStack {
+				*k = (*k)[1:]
+			}
+			*k = append(*k, uint8(p.Raw(0))&KittySupported)
+		}
+		return
+	case '<':
+		if final == 'u' { // kitty keyboard: pop n entries
+			k := &t.active.kbd
+			*k = (*k)[:max(0, len(*k)-int(p.Get(0, 1)))]
+		}
+		return
+	case '=':
+		if final == 'u' { // kitty keyboard: set flags (mode 1 set, 2 or, 3 and-not)
+			k := &t.active.kbd
+			if len(*k) == 0 {
+				*k = append(*k, 0)
+			}
+			f, top := uint8(p.Raw(0))&KittySupported, &(*k)[len(*k)-1]
+			switch p.Get(1, 1) {
+			case 1:
+				*top = f
+			case 2:
+				*top |= f
+			case 3:
+				*top &^= f
+			}
 		}
 		return
 	case 0:
 	default:
-		return // '<' and '=' sequences are not supported yet
+		return
 	}
 
 	switch s.Intermediate() {
@@ -301,9 +345,8 @@ func (h *handler) csiPrivate(s *vt.Seq, final byte) {
 		t.eraseDisplay(int(p.Raw(0)))
 	case 'K': // DECSEL
 		t.eraseLine(int(p.Raw(0)))
-	case 'u':
-		// Kitty keyboard protocol query: deliberately unanswered until
-		// the protocol is implemented (Phase 3), so apps fall back.
+	case 'u': // kitty keyboard: query flags
+		t.respond(fmt.Sprintf("\x1b[?%du", t.KeyboardFlags()))
 	}
 }
 
@@ -391,6 +434,8 @@ func (h *handler) setDECMode(mode int, on bool) {
 			t.exitAltScreen()
 			t.restoreCursor()
 		}
+	case 1007:
+		m.AltScroll = on
 	case 2004:
 		m.BracketedPaste = on
 	case 2026:
@@ -446,6 +491,8 @@ func (h *handler) modeState(mode int, dec bool) (bool, bool) {
 		return m.MouseEncoding == MouseEncSGRPixels, true
 	case 47, 1047, 1049:
 		return t.active == &t.alt, true
+	case 1007:
+		return m.AltScroll, true
 	case 2004:
 		return m.BracketedPaste, true
 	case 2026:

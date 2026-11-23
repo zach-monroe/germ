@@ -279,7 +279,11 @@ func TestResponses(t *testing.T) {
 		{"\x1b[4$p", "\x1b[4;2$y"},
 		{"\x1b[>q", "\x1bP>|germ " + Version + "\x1b\\"},
 		{"\x1b[18t", "\x1b[8;24;80t"},
-		{"\x1b[?u", ""}, // kitty keyboard: not yet supported
+		{"\x1b[?u", "\x1b[?0u"},
+		{"\x1b[>11u\x1b[?u", "\x1b[?11u"},
+		{"\x1b[>1u\x1b[>5u\x1b[<u\x1b[?u", "\x1b[?1u"}, // 4 is unsupported: masked
+		{"\x1b[=1u\x1b[=2;2u\x1b[?u", "\x1b[?3u"},
+		{"\x1b[=3u\x1b[=1;3u\x1b[?u", "\x1b[?2u"},
 	}
 	for _, tt := range tests {
 		tm, resp := newTerm(80, 24)
@@ -406,5 +410,38 @@ func BenchmarkThroughputSGR(b *testing.B) {
 	b.SetBytes(int64(len(in)))
 	for b.Loop() {
 		tm.Write(in)
+	}
+}
+
+func TestKittyFlagsPerScreen(t *testing.T) {
+	tm, _ := newTerm(10, 3)
+	feed(tm, "\x1b[>1u\x1b[?1049h")
+	if f := tm.KeyboardFlags(); f != 0 {
+		t.Errorf("alt screen inherited flags %d", f)
+	}
+	feed(tm, "\x1b[>8u\x1b[?1049l")
+	if f := tm.KeyboardFlags(); f != 1 {
+		t.Errorf("primary flags = %d, want 1", f)
+	}
+}
+
+func TestAbsRowsAndTextRange(t *testing.T) {
+	tm, _ := newTerm(5, 2)
+	feed(tm, "one\r\ntwo\r\nthreefour\r\nx")
+	// scrollback: one, two, three(wrapped) ; screen: four, x
+	tm.Lock()
+	defer tm.Unlock()
+	if tm.ScrollbackLen() != 3 || tm.Pushed() != 3 {
+		t.Fatalf("sb=%d pushed=%d", tm.ScrollbackLen(), tm.Pushed())
+	}
+	if l := tm.LineAt(tm.AbsRow(0, 3)); l == nil || l.Cells[0].Rune != 'o' {
+		t.Errorf("top of fully scrolled view should be 'one'")
+	}
+	got := tm.TextRange(1, 1, 4, 0) // "wo" .. "x"
+	if want := "wo\nthreefour\nx"; got != want {
+		t.Errorf("TextRange = %q, want %q", got, want)
+	}
+	if tm.LineAt(-1) != nil || tm.LineAt(99) != nil {
+		t.Error("out-of-range rows should be nil")
 	}
 }

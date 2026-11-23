@@ -39,6 +39,43 @@ type rowCache struct {
 	glyphs   []glyphInst
 }
 
+// Selection is a range of absolute positions (see term.AbsRow), inclusive
+// and normalized so Start comes first in reading order.
+type Selection struct {
+	Active           bool
+	StartRow, EndRow int64
+	StartCol, EndCol int
+}
+
+func (s *Selection) contains(row int64, col int) bool {
+	if !s.Active || row < s.StartRow || row > s.EndRow {
+		return false
+	}
+	if row == s.StartRow && col < s.StartCol {
+		return false
+	}
+	if row == s.EndRow && col > s.EndCol {
+		return false
+	}
+	return true
+}
+
+// Link is a hovered hyperlink span to underline.
+type Link struct {
+	Active           bool
+	Row              int64
+	StartCol, EndCol int
+}
+
+// View is how the terminal should be shown.
+type View struct {
+	Offset    int // lines scrolled back into history (0 = live)
+	Focused   bool
+	Selection Selection
+	Link      Link
+	Force     bool // redraw even if nothing changed
+}
+
 type cursorState struct {
 	x, y    int
 	visible bool
@@ -66,6 +103,8 @@ type Renderer struct {
 	cols          int
 	cursor        cursorState
 	reverse       bool
+	view          View
+	pushed        int64
 	syncSince     time.Time
 
 	bg, deco []rectInst
@@ -138,6 +177,15 @@ func newGlyphBuffer() instanceBuffer {
 	return b
 }
 
+// SetFonts switches to a new font set (e.g. after a zoom). The caller
+// should call Resize afterwards since the cell size changes.
+func (r *Renderer) SetFonts(fonts *font.Set) {
+	gl.DeleteTextures(1, &r.atlas.tex)
+	r.fonts, r.m = fonts, fonts.Metrics()
+	r.atlas = newAtlas(fonts)
+	r.rows = nil // force a full rebuild
+}
+
 // CellSize returns the cell size in pixels.
 func (r *Renderer) CellSize() (w, h int) { return r.m.CellW, r.m.CellH }
 
@@ -158,9 +206,10 @@ func (r *Renderer) GridSize(width, height int) (cols, rows int) {
 	return cols, rows
 }
 
-// Draw renders t if anything changed (or force is set). It returns false
-// if nothing was drawn, in which case the caller should not swap buffers.
-func (r *Renderer) Draw(t *term.Terminal, focused, force bool) bool {
+// Draw renders t if anything changed (or v.Force is set). It returns
+// false if nothing was drawn, in which case the caller should not swap.
+func (r *Renderer) Draw(t *term.Terminal, v View) bool {
+	force, focused := v.Force, v.Focused
 	t.Lock()
 	modes := t.Modes()
 	if modes.SyncOutput && !force {
@@ -177,9 +226,19 @@ func (r *Renderer) Draw(t *term.Terminal, focused, force bool) bool {
 
 	cols, rows := t.Size()
 	dirty, all := t.TakeDirty()
-	if force || rows != len(r.rows) || cols != r.cols || modes.ReverseVideo != r.reverse {
+	v.Offset = min(v.Offset, t.ScrollbackLen())
+	pushed := t.Pushed()
+	viewChanged := v.Offset != r.view.Offset || v.Selection != r.view.Selection || v.Link != r.view.Link
+	if force || viewChanged || rows != len(r.rows) || cols != r.cols || modes.ReverseVideo != r.reverse {
 		all = true
 	}
+	if v.Offset != 0 && (pushed != r.pushed || anyTrue(dirty)) {
+		// Dirty flags are in screen coordinates; when scrolled back the
+		// mapping to viewport rows shifts, so just redraw everything.
+		all = true
+	}
+	v.Force = false
+	r.view, r.pushed = v, pushed
 	if rows != len(r.rows) {
 		r.rows = make([]rowCache, rows)
 	}
@@ -187,21 +246,25 @@ func (r *Renderer) Draw(t *term.Terminal, focused, force bool) bool {
 	r.reverse = modes.ReverseVideo
 
 	c := t.Cursor()
-	cur := cursorState{x: c.X, y: c.Y, visible: modes.CursorVisible, style: t.CursorStyle(), focused: focused}
+	cy := c.Y + v.Offset // the cursor moves down as the view scrolls back
+	cur := cursorState{x: c.X, y: cy, visible: modes.CursorVisible && cy < rows, style: t.CursorStyle(), focused: focused}
 	changed := all
 	if cur != r.cursor {
 		// Rebuild the rows the cursor left and entered.
 		if r.cursor.y < rows {
 			dirty[r.cursor.y] = true
 		}
-		dirty[cur.y] = true
+		if cur.y < rows {
+			dirty[cur.y] = true
+		}
 		r.cursor = cur
 	}
 	for {
 		gen := r.atlas.gen
 		for y := 0; y < rows; y++ {
 			if all || dirty[y] {
-				r.buildRow(y, t.Line(y))
+				abs := t.AbsRow(y, v.Offset)
+				r.buildRow(y, abs, t.LineAt(abs))
 				dirty[y] = false
 				changed = true
 			}
@@ -325,10 +388,29 @@ func styleOf(a term.Attr) font.Style {
 	return s
 }
 
-// buildRow regenerates the instance data for row y.
-func (r *Renderer) buildRow(y int, line *term.Line) {
+func anyTrue(b []bool) bool {
+	for _, v := range b {
+		if v {
+			return true
+		}
+	}
+	return false
+}
+
+var emptyLine term.Line
+
+// buildRow regenerates the instance data for viewport row y, which shows
+// absolute row abs (line may be nil for rows with no content).
+func (r *Renderer) buildRow(y int, abs int64, line *term.Line) {
 	rc := &r.rows[y]
 	rc.bg, rc.deco, rc.glyphs = rc.bg[:0], rc.deco[:0], rc.glyphs[:0]
+	if line == nil {
+		line = &emptyLine
+	}
+	sel := &r.view.Selection
+	selHere := sel.Active && abs >= sel.StartRow && abs <= sel.EndRow
+	link := r.view.Link
+	linkHere := link.Active && link.Row == abs
 	cw, ch := r.m.CellW, r.m.CellH
 	py := r.pad + y*ch
 
@@ -340,9 +422,15 @@ func (r *Renderer) buildRow(y int, line *term.Line) {
 	// Cells past the line's extent are empty; only the cursor can need
 	// drawing there.
 	cells := line.Cells
-	end := line.Extent()
+	if len(cells) > r.cols {
+		cells = cells[:r.cols]
+	}
+	end := min(line.Extent(), len(cells))
 	if block {
 		end = max(end, min(cur.x+1, len(cells)))
+	}
+	if selHere {
+		end = len(cells) // selection paints empty cells too
 	}
 	for x := 0; x < end; x++ {
 		c := &cells[x]
@@ -355,6 +443,9 @@ func (r *Renderer) buildRow(y int, line *term.Line) {
 		}
 		px := r.pad + x*cw
 		fg, bg, paintBG := r.cellColors(c)
+		if selHere && sel.contains(abs, x) {
+			fg, bg, paintBG = r.theme.SelectionFG, r.theme.SelectionBG, true
+		}
 		if block && (x == cur.x || (w == 2 && x+1 == cur.x)) {
 			fg, bg, paintBG = r.theme.CursorText, r.theme.Cursor, true
 		}
@@ -381,6 +472,9 @@ func (r *Renderer) buildRow(y int, line *term.Line) {
 			}
 		}
 		r.decorations(rc, c, px, py, w*cw, fg)
+		if linkHere && x >= link.StartCol && x <= link.EndCol && c.Underline == term.UnderlineNone {
+			rc.deco = append(rc.deco, rectInst{float32(px), float32(py + r.m.Underline), float32(w * cw), float32(r.m.Thickness), toRGBA(fg)})
+		}
 	}
 
 	if cursorHere && !block {
