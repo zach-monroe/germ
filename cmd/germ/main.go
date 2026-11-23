@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"runtime/pprof"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/zach-monroe/germ/internal/app"
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/mcp"
+	"github.com/zach-monroe/germ/internal/share"
 	"github.com/zach-monroe/germ/internal/theme"
 	"github.com/zach-monroe/germ/internal/widgets"
 )
@@ -26,6 +28,22 @@ func main() {
 	// `germ widget NAME` runs a built-in home-screen widget (germ starts
 	// these itself in the home tab; running one by hand is handy for
 	// testing).
+	if len(os.Args) >= 2 && os.Args[1] == "share" {
+		os.Exit(runShare(os.Args[2:]))
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "setup" {
+		if err := ensureURLHandler(false); err != nil {
+			fmt.Fprintln(os.Stderr, "germ setup:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	// `germ join LINK [flags]` opens a window on someone's shared session.
+	joinLink := ""
+	if len(os.Args) >= 3 && os.Args[1] == "join" {
+		joinLink = os.Args[2]
+		os.Args = append([]string{os.Args[0]}, os.Args[3:]...)
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "agent" {
 		os.Exit(runAgent(os.Args[2:]))
 	}
@@ -104,6 +122,9 @@ func main() {
 	}
 	shellCmd := append([]string{sh}, cfg.Shell.Args...)
 	cmd := flag.Args()
+	if joinLink == "" && len(cmd) >= 2 && cmd[0] == "join" { // germ [flags] join LINK
+		joinLink, cmd = cmd[1], nil
+	}
 	if len(cmd) == 0 {
 		cmd = shellCmd
 	}
@@ -117,15 +138,29 @@ func main() {
 	}
 
 	// tmux is the default; an explicit command runs without it.
-	useTmux := (*tmuxFlag || *session != "" || cfg.Tmux.Enabled) && !*noTmux && len(flag.Args()) == 0
+	useTmux := (*tmuxFlag || *session != "" || cfg.Tmux.Enabled) && !*noTmux && (len(flag.Args()) == 0 || joinLink != "")
 	tmuxSession := cfg.Tmux.Session
 	if *session != "" {
 		tmuxSession = *session
 	}
 
+	var remote *share.Guest
+	if joinLink != "" {
+		g, err := prepareJoin(joinLink)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "germ join:", err)
+			if p, lerr := exec.LookPath("notify-send"); lerr == nil { // launched from a browser: no terminal
+				exec.Command(p, "--app-name=germ", "germ: couldn't join", err.Error()).Run()
+			}
+			os.Exit(1)
+		}
+		remote = g
+		useTmux = false
+	}
+
 	if err := app.Run(app.Options{
 		Command: cmd, ShellCommand: shellCmd, Out: os.Stdout, Quote: *quote, Dump: *dump,
-		Config: cfg, ConfigPath: *configPath, Overrides: over, UseTmux: useTmux, TmuxSession: tmuxSession,
+		Config: cfg, ConfigPath: *configPath, Overrides: over, UseTmux: useTmux, TmuxSession: tmuxSession, Remote: remote,
 		Screenshot: *shot, ScreenshotDelay: *shotDelay,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)

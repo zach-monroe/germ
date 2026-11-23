@@ -182,7 +182,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **10. germ as a tool for agents** ✅ | Control socket + `germ ctl` CLI + `germ mcp` MCP server: list/read/send/open panes | Claude Code, connected to `germ mcp`, reads the test-runner pane and starts a build in a new pane |
 | **11. Parallel agents** ✅ | Ctrl+Shift+A: task → `git worktree` → tmux window running the agent; live diff-stat side pane; clickable `file:line` → `$EDITOR` | One key spawns an isolated agent; its changes are visible at a glance |
 | **12. Agent input polish** ✅ | Shift+Enter newlines, image paste, "send selection to agent pane" | Multi-line prompts and screenshots just work in agent UIs |
-| **13. Coworking** | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
+| **13. Coworking** ✅ | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -232,6 +232,13 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 13)
+- `germ share` / Ctrl+Shift+P: per-guest `tmux -C attach` tunnelled over WebSocket through `germ-relay`; two links (can-type / watch-only) with separate AES-256-GCM keys in the URL fragment; host-side command filter (allowlist for watchers, denylist for typists, no `;` or `#(`); presence in the tab bar via `set_status`.
+- `germ join LINK`: germ's tmux controller runs over the tunnel (no pane PIDs or local file links for remote panes). `germ setup` registers `germ://` links. Join page served by the relay.
+- `cmd/germ-relay` (pure Go) + `deploy/relay` (Dockerfile, fly.toml). `docs/coworking.md`.
+- Verified: `internal/share` in-process test with real tmux; `scripts/e2e/share.sh` (relay + host + two guests on Xvfb).
+- TODO: prebuilt binaries so guests can install without Go; per-guest independent window (grouped sessions); host UI to kick guests; guest cursors.
 
 ## Status (after Phase 12)
 - Shift+Enter → ESC CR in agent panes when no extended key protocol is on (`[agents] shift_enter_newline`).

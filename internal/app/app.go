@@ -23,6 +23,7 @@ import (
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/font"
 	"github.com/zach-monroe/germ/internal/render"
+	"github.com/zach-monroe/germ/internal/share"
 	"github.com/zach-monroe/germ/internal/shellint"
 	"github.com/zach-monroe/germ/internal/terminfo"
 	"github.com/zach-monroe/germ/internal/theme"
@@ -42,7 +43,9 @@ type Options struct {
 
 	// UseTmux attaches to tmux in control mode instead of running Command.
 	// TmuxSession names the session; empty picks a free germ-N session.
-	UseTmux     bool
+	UseTmux bool
+	// Remote, if set, shows someone else's shared session (germ join).
+	Remote      *share.Guest
 	TmuxSession string
 
 	// Screenshot, if set, saves the window contents as PNG to this path
@@ -84,8 +87,10 @@ type App struct {
 	attention   atomic.Bool
 	agentPoll   atomic.Bool // time to re-detect agents
 	ctl         *ctlServer
-	prevTab     *tab // the tab shown before the last switch (for toggle_home)
-	animating   bool // a working agent's spinner is showing
+	prevTab     *tab                       // the tab shown before the last switch (for toggle_home)
+	status      atomic.Pointer[statusText] // right side of the tab bar
+	redrawAll   atomic.Bool                // set off the main thread
+	animating   bool                       // a working agent's spinner is showing
 	clipboard   atomic.Pointer[string]
 
 	// Main-thread state.
@@ -195,7 +200,10 @@ func Run(opts Options) error {
 		a.tabs = []*tab{h}
 	}
 	tmuxStarted := false
-	if opts.UseTmux {
+	if opts.Remote != nil {
+		a.startRemote(opts.Remote)
+		tmuxStarted = true
+	} else if opts.UseTmux {
 		if err := a.startTmux(opts.TmuxSession); err != nil {
 			fmt.Fprintln(os.Stderr, "germ:", err, "(starting a plain shell instead)")
 		} else {
@@ -249,6 +257,9 @@ func Run(opts Options) error {
 			a.tmux.process()
 		}
 		a.processControl()
+		if a.redrawAll.Swap(false) {
+			a.forceRedraw = true
+		}
 		if a.paneExited.Swap(false) && !a.reapPanes() {
 			break
 		}

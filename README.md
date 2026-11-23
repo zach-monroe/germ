@@ -11,6 +11,10 @@ built-in tmux and fish integration.
   splits — with germ's own scrollback, selection, and clipboard. Your tmux
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
+- **Coworking**: Ctrl+Shift+P shares your session as a link (can-type or
+  watch-only), end-to-end encrypted through a tiny relay you host; guests
+  get it as native tabs and splits in their own germ. See
+  [docs/coworking.md](docs/coworking.md).
 - **Built for coding agents**: tab badges show which agent is working,
   done, or needs you (with desktop notifications), a home-screen widget
   lists every agent, and `germ mcp` lets agents read and drive your other
@@ -49,6 +53,8 @@ germ htop            # run a program instead of the shell
 germ -list-themes
 germ widget weather  # run a home-screen widget on its own
 germ agent "fix the flaky test"   # agent on a fresh worktree + branch
+germ share          # share this tmux session (or Ctrl+Shift+P)
+germ join LINK      # join someone's shared session
 germ ctl list        # script the window: list/read/send/open/wait panes
 germ mcp             # MCP server for coding agents (see docs/agents.md)
 ```
@@ -87,6 +93,7 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+\` | home tab ↔ last tab |
 | Ctrl+Shift+A | new agent on its own git worktree (see docs/agents.md) |
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
+| Ctrl+Shift+P | share this session (invite links) |
 | Ctrl+click | open URL, or `file:line` in `$EDITOR` |
 
 Rebind or remove any of these under `[keybindings]`.
@@ -96,5 +103,6 @@ Rebind or remove any of these under `[keybindings]`.
 - [docs/tmux.md](docs/tmux.md) — tmux setup and control mode
 - [docs/widgets.md](docs/widgets.md) — the home screen and writing widgets
 - [docs/agents.md](docs/agents.md) — agent attention, `germ mcp`, `germ ctl`
+- [docs/coworking.md](docs/coworking.md) — sharing sessions, the relay, security
 - [PLAN.md](PLAN.md) — design, architecture, and project status
 - `scripts/e2e/` — end-to-end tests on a virtual X server

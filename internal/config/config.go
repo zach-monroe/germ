@@ -29,6 +29,7 @@ type Config struct {
 	Home        Home              `toml:"home"`
 	Agents      Agents            `toml:"agents"`
 	Control     Control           `toml:"control"`
+	Share       Share             `toml:"share"`
 	// Widgets configures home-screen widgets by name. Keys other than
 	// command and interval are passed to the widget as GERM_WIDGET_<KEY>.
 	Widgets map[string]map[string]any `toml:"widgets"`
@@ -112,6 +113,13 @@ type Control struct {
 	// AllowInput lets clients type into panes and open new ones (reading
 	// is always allowed when enabled).
 	AllowInput bool `toml:"allow_input"`
+}
+
+// Share configures session sharing (germ share / germ join).
+type Share struct {
+	// Relay is the relay's public URL, e.g. https://germ-relay.fly.dev
+	// (see deploy/relay).
+	Relay string `toml:"relay"`
 }
 
 // Widget is a resolved widget definition.
@@ -313,6 +321,7 @@ const (
 	ActionHome           Action = "toggle_home"
 	ActionNewAgent       Action = "new_agent"
 	ActionSendToAgent    Action = "send_to_agent"
+	ActionShare          Action = "share_session"
 )
 
 var actions = map[Action]bool{}
@@ -323,7 +332,7 @@ func init() {
 		ActionScrollTop, ActionScrollBottom, ActionPrevPrompt, ActionNextPrompt, ActionCopyLastOutput,
 		ActionNewTab, ActionCloseTab, ActionNextTab, ActionPrevTab, ActionSplitRight, ActionSplitDown,
 		ActionClosePane, ActionFocusLeft, ActionFocusRight, ActionFocusUp, ActionFocusDown,
-		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent} {
+		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent, ActionShare} {
 		actions[a] = true
 	}
 }
@@ -449,6 +458,7 @@ func DefaultBindings() map[string]Action {
 		"ctrl+shift+grave":       ActionHome,
 		"ctrl+shift+a":           ActionNewAgent,
 		"ctrl+shift+s":           ActionSendToAgent,
+		"ctrl+shift+p":           ActionShare,
 	}
 }
 

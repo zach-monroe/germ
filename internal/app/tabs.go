@@ -452,6 +452,16 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 			x++ // gap
 		}
 	}
+	// Status (sharing, who's here) on the right.
+	if st := a.statusLine(); st != "" {
+		r := []rune(" " + st + " ")
+		start := cols - len(r)
+		if start > x+1 {
+			for i, ch := range r {
+				cells[start+i] = term.Cell{Rune: ch, FG: rgb(th.Background), BG: rgb(th.Palette[5]), Attrs: term.AttrBold}
+			}
+		}
+	}
 	return term.NewLine(cells), spans
 }
 

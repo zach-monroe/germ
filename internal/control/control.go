@@ -29,6 +29,9 @@ const (
 	CmdFocusPane = "focus_pane"
 	CmdRenameTab = "rename_tab" // Text is the new name of Pane's tab
 	CmdClosePane = "close_pane"
+	// CmdSetStatus shows Text on the right of the tab bar for TTL seconds
+	// (0: until replaced; empty Text clears it).
+	CmdSetStatus = "set_status"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or
@@ -46,6 +49,7 @@ type Request struct {
 	Cwd     string   `json:"cwd,omitempty"`
 	Focus   bool     `json:"focus,omitempty"`
 	Size    int      `json:"size,omitempty"` // split: percent of the target for the new pane
+	TTL     int      `json:"ttl,omitempty"`  // set_status: seconds to show it
 }
 
 // PaneInfo describes a pane.

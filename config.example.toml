@@ -74,6 +74,9 @@ resume = ["claude", "--continue"]   # "resume" in the post-agent menu
 enabled = true          # control socket for `germ ctl` / `germ mcp` (docs/agents.md)
 allow_input = true      # let clients type into panes and open new ones
 
+[share]
+# relay = "https://your-relay.fly.dev"   # for Ctrl+Shift+P / germ share (see docs/coworking.md)
+
 # Key bindings: "chord" = "action". Use "none" to remove a default.
 # Actions: copy, paste, paste_primary, zoom_in, zoom_out, zoom_reset,
 #   scroll_page_up, scroll_page_down, scroll_top, scroll_bottom,

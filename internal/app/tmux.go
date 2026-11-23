@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
+
+	"github.com/zach-monroe/germ/internal/share"
 )
 
 // tmux control mode: germ runs `tmux -C new-session -A -s NAME` and speaks
@@ -36,7 +38,7 @@ type tmuxEvent struct {
 
 type tmuxController struct {
 	a       *App
-	cmd     *exec.Cmd
+	wait    func() // waits for the tmux client to finish
 	stdin   io.WriteCloser
 	session string
 
@@ -60,6 +62,9 @@ type tmuxController struct {
 	// wantWindow is a window tmux switched to before announcing it
 	// (%session-window-changed precedes %window-add), or -1.
 	wantWindow int
+
+	// remote is set when attached to someone else's shared session.
+	remote *share.Guest
 
 	// Key bindings (see tmuxkeys.go).
 	client        string // this control client's name
@@ -117,22 +122,32 @@ func (a *App) startTmux(session string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start tmux: %w", err)
 	}
-	c := &tmuxController{
-		a: a, cmd: cmd, stdin: stdin, session: session,
-		terms: map[int]*pane{}, pending: map[int][]byte{},
-		tabs: map[int]*tab{}, panes: map[int]*pane{}, wantActive: map[int]int{}, wantWindow: -1,
-	}
-	a.tmux = c
-	go c.readLoop(stdout)
+	c := a.newTmuxController(stdin, stdout, session, func() { cmd.Wait() })
 	if a.ctl != nil {
 		// New panes in this session find this window; a running tmux server
 		// may predate it.
 		c.command("set-environment GERM_SOCKET "+tmuxQuote(a.ctl.path), nil)
 	}
-	c.queryKeys()
-	c.clientSize(a.content())
-	c.refresh()
+	c.begin()
 	return nil
+}
+
+func (a *App) newTmuxController(stdin io.WriteCloser, stdout io.Reader, session string, wait func()) *tmuxController {
+	c := &tmuxController{
+		a: a, wait: wait, stdin: stdin, session: session,
+		terms: map[int]*pane{}, pending: map[int][]byte{},
+		tabs: map[int]*tab{}, panes: map[int]*pane{}, wantActive: map[int]int{}, wantWindow: -1,
+	}
+	a.tmux = c
+	go c.readLoop(stdout)
+	return c
+}
+
+// begin asks for the initial state.
+func (c *tmuxController) begin() {
+	c.queryKeys()
+	c.clientSize(c.a.content())
+	c.refresh()
 }
 
 // listSessions returns the server's sessions and how many clients each
@@ -360,6 +375,14 @@ func (c *tmuxController) notification(line string) {
 		c.done = true
 		c.mu.Unlock()
 		c.a.quitting = true
+		if c.remote != nil {
+			reason := c.remote.Reason()
+			if reason == "" || reason == "guest left" {
+				reason = "the shared session ended"
+			}
+			fmt.Fprintln(os.Stderr, "germ:", reason)
+			go desktopNotify("germ", reason)
+		}
 	}
 }
 
@@ -595,6 +618,9 @@ func (c *tmuxController) newPane(id, cols, rows int) *pane {
 		p.term.Write(buf)
 	}
 	c.capture(id, p)
+	if c.remote != nil {
+		return p // its processes are on the host's machine, not ours
+	}
 	be := p.be.(*tmuxBackend)
 	c.command(fmt.Sprintf(`display -p -t %%%d "#{pane_pid}"`, id), func(lines []string, failed bool) {
 		if !failed && len(lines) > 0 {
@@ -725,5 +751,5 @@ func (c *tmuxController) killWindow(t *tab) {
 func (c *tmuxController) detach() {
 	c.command("detach-client", nil)
 	c.stdin.Close()
-	_ = c.cmd.Wait()
+	c.wait()
 }

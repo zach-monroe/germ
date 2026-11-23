@@ -52,6 +52,9 @@ func (a *App) doExtended(act config.Action) bool {
 		return true
 	case config.ActionSendToAgent:
 		return a.sendToAgent()
+	case config.ActionShare:
+		a.shareSession()
+		return true
 	case config.ActionHome:
 		return a.toggleHome()
 	case config.ActionNewAgent:

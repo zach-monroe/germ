@@ -444,7 +444,7 @@ func (a *App) updateLinkHover() {
 		abs := p.term.AbsRow(row, p.offset)
 		url, link = findURL(p.term, abs, col)
 		p.term.Unlock()
-		if url == "" {
+		if url == "" && (a.tmux == nil || a.tmux.remote == nil) { // remote paths aren't ours
 			dir := paneDir(p)
 			p.term.Lock()
 			ref, l := findFile(p.term, abs, col, dir)

@@ -127,6 +127,11 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		reply(r)
 	}
 	switch req.Cmd {
+	case control.CmdSetStatus:
+		ttl := time.Duration(req.TTL) * time.Second
+		a.setStatus(req.Text, ttl)
+		ok(&control.Response{})
+		return
 	case control.CmdListPanes:
 		var out []control.PaneInfo
 		for _, t := range a.tabs {
