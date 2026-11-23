@@ -23,6 +23,7 @@ import (
 	"github.com/zach-monroe/germ/internal/font"
 	"github.com/zach-monroe/germ/internal/pty"
 	"github.com/zach-monroe/germ/internal/render"
+	"github.com/zach-monroe/germ/internal/shellint"
 	"github.com/zach-monroe/germ/internal/term"
 	"github.com/zach-monroe/germ/internal/theme"
 )
@@ -85,6 +86,8 @@ type App struct {
 	cfg         config.Config
 	bindings    map[config.Chord]config.Action
 	reload      atomic.Bool // set by the config watcher
+	focusedA    atomic.Bool // focus state readable from other goroutines
+	attention   atomic.Bool // request window attention on the main thread
 
 	offset     int   // lines scrolled back into history
 	lastPushed int64 // term.Pushed() at the last draw, to keep the view anchored
@@ -157,7 +160,11 @@ func Run(opts Options) error {
 	fbw, fbh = settleSize(win)
 	cols, rows := rnd.Resize(fbw, fbh)
 
-	sess, err := pty.Start(opts.Command, uint16(cols), uint16(rows))
+	var env []string
+	if cfg.Shells.Mode != "off" {
+		env = shellint.Env(opts.Command)
+	}
+	sess, err := pty.Start(opts.Command, uint16(cols), uint16(rows), env...)
 	if err != nil {
 		return err
 	}
@@ -168,11 +175,13 @@ func Run(opts Options) error {
 		input: make(chan []byte, 256), focused: true, forceRedraw: true,
 		scale: scale, fontSize: cfg.Font.Size, cfg: cfg, bindings: bindings,
 	}
+	a.focusedA.Store(true)
 	a.term = term.New(cols, rows, term.Options{
-		Scrollback: cfg.Scrollback.Lines,
-		Theme:      th,
-		Responder:  chanWriter(a.input),
-		OnTitle:    func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
+		Scrollback:    cfg.Scrollback.Lines,
+		Theme:         th,
+		Responder:     chanWriter(a.input),
+		OnTitle:       func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
+		OnCommandDone: a.onCommandDone,
 	})
 	go a.writeLoop()
 	win.SetCharModsCallback(a.onChar)
@@ -205,6 +214,9 @@ func Run(opts Options) error {
 		}
 		if t := a.title.Swap(nil); t != nil {
 			win.SetTitle(*t)
+		}
+		if a.attention.Swap(false) {
+			win.RequestAttention()
 		}
 		if a.reload.Swap(false) {
 			a.reloadConfig()
@@ -384,6 +396,7 @@ func (a *App) resizeGrid(w, h int) {
 
 func (a *App) onFocus(_ *glfw.Window, focused bool) {
 	a.focused = focused
+	a.focusedA.Store(focused)
 	a.forceRedraw = true
 	a.term.Lock()
 	report := a.term.Modes().FocusEvents

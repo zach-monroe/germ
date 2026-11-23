@@ -4,6 +4,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zach-monroe/germ/internal/theme"
 	"github.com/zach-monroe/germ/internal/vt"
@@ -23,6 +24,9 @@ type Options struct {
 	// not call back into the Terminal.
 	OnBell  func()
 	OnTitle func(string)
+	// OnCommandDone is called when the shell reports a command finished
+	// (OSC 133;D), with the lock held.
+	OnCommandDone func(exit int, d time.Duration)
 }
 
 // MouseMode is the active mouse reporting mode.
@@ -140,6 +144,10 @@ type Terminal struct {
 	pushed int64
 
 	colors colorState
+
+	// Shell integration state (OSC 7 and OSC 133).
+	cwd   string
+	shell shellMarks
 }
 
 // New creates a terminal of the given size.
@@ -444,7 +452,7 @@ func (t *Terminal) resetLine(l Line) Line {
 		l.n = len(full)
 	}
 	l.Cells = full[:t.cols]
-	l.Wrapped = false
+	l.Wrapped, l.Prompt, l.HasExit, l.Exit = false, false, false, 0
 	return l
 }
 

@@ -75,3 +75,34 @@ func TestFindURLWrapped(t *testing.T) {
 		t.Errorf("highlight on row 0 = %+v", l0)
 	}
 }
+
+func TestJumpPrompt(t *testing.T) {
+	tm := term.New(10, 3, term.Options{Scrollback: 100})
+	for _, cmd := range []string{"a", "b", "c"} {
+		tm.Write([]byte("\x1b]133;A\x07$ " + cmd + "\r\nout\r\nout\r\n"))
+	}
+	// Rows: 0 "$ a", 3 "$ b", 6 "$ c", 9 (cursor, live top is row 7).
+	a := &App{term: tm}
+	a.jumpPrompt(-1)
+	tm.Lock()
+	top := tm.AbsRow(0, a.offset)
+	tm.Unlock()
+	if top != 6 {
+		t.Fatalf("first jump: top row %d, want 6", top)
+	}
+	a.jumpPrompt(-1)
+	a.jumpPrompt(-1)
+	tm.Lock()
+	top = tm.AbsRow(0, a.offset)
+	tm.Unlock()
+	if top != 0 {
+		t.Fatalf("third jump: top row %d, want 0", top)
+	}
+	a.jumpPrompt(1)
+	tm.Lock()
+	top = tm.AbsRow(0, a.offset)
+	tm.Unlock()
+	if top != 3 {
+		t.Errorf("jump forward: top row %d, want 3", top)
+	}
+}

@@ -85,13 +85,18 @@ func (t *Terminal) reflowPrimary(cols, rows int, cur *Cursor) {
 		curOff++
 	}
 
+	t.shell.invalidate() // absolute rows are renumbered below
 	var (
 		out     []Line
 		logical []Cell
+		lmeta   Line // marks of the logical line's first row
 		curRow  = -1
 		curCol  = 0
 	)
 	for i, l := range src {
+		if len(logical) == 0 {
+			lmeta = Line{Prompt: l.Prompt, HasExit: l.HasExit, Exit: l.Exit}
+		}
 		if i == curLine {
 			// Cursor offset within the logical line being assembled.
 			curOff += len(logical)
@@ -106,7 +111,9 @@ func (t *Terminal) reflowPrimary(cols, rows int, cur *Cursor) {
 		}
 		logical = append(logical, l.Cells[:l.textLen()]...)
 		hasCursor := i >= curLine && curRow < 0
+		first := len(out)
 		out, curRow, curCol = rewrap(out, logical, cols, hasCursor, curOff, curRow, curCol)
+		out[first].Prompt, out[first].HasExit, out[first].Exit = lmeta.Prompt, lmeta.HasExit, lmeta.Exit
 		logical = logical[:0]
 	}
 	if curRow < 0 { // cursor below all content (shouldn't happen)
@@ -129,6 +136,7 @@ func (t *Terminal) reflowPrimary(cols, rows int, cur *Cursor) {
 	for y := start; y < end; y++ {
 		copy(lines[y-start].Cells, out[y].Cells)
 		lines[y-start].Wrapped = out[y].Wrapped
+		lines[y-start].Prompt, lines[y-start].HasExit, lines[y-start].Exit = out[y].Prompt, out[y].HasExit, out[y].Exit
 		lines[y-start].n = cols
 	}
 

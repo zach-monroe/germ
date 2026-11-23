@@ -538,8 +538,12 @@ func (h *handler) OscDispatch(data []byte) {
 		}
 	case 4, 10, 11, 12, 104, 110, 111, 112:
 		t.oscColor(code, string(rest))
+	case 7:
+		t.oscCWD(string(rest))
+	case 133:
+		t.oscSemanticPrompt(string(rest))
 	}
-	// OSC 7 and 133: Phase 4.5. OSC 52: Phase 5.
+	// OSC 52: Phase 5.
 }
 
 func (h *handler) DcsDispatch(s *vt.Seq, final byte, data []byte) {

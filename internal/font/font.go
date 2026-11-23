@@ -49,8 +49,20 @@ type Glyph struct {
 
 type face struct {
 	sf   *sfnt.Font
-	face xfont.Face
+	face xfont.Face // x/image rasterizer: handles every glyph
 	buf  sfnt.Buffer
+	// hinted is the golang/freetype rasterizer (TrueType only), used when
+	// it can map the rune: its cmap support is narrower than x/image's.
+	tt     *truetype.Font
+	hinted xfont.Face
+}
+
+// rasterizer picks the face to draw r with.
+func (f *face) rasterizer(r rune) xfont.Face {
+	if f.tt != nil && f.tt.Index(r) != 0 {
+		return f.hinted
+	}
+	return f.face
 }
 
 func (f *face) has(r rune) bool {
@@ -132,7 +144,7 @@ func (s *Set) Glyph(r rune, st Style) (Glyph, bool) {
 		}
 	}
 	dot := fixed.P(0, s.metrics.Baseline)
-	dr, mask, mp, _, ok := f.face.Glyph(dot, r)
+	dr, mask, mp, _, ok := f.rasterizer(r).Glyph(dot, r)
 	if !ok || dr.Empty() {
 		return Glyph{}, false
 	}
@@ -193,16 +205,15 @@ func (s *Set) open(path string, idx int) (*face, error) {
 	// hinting bytecode, which snaps stems to whole pixels so text is crisp
 	// (x/image/font/opentype ignores hinting instructions entirely). CFF
 	// fonts and collections fall back to x/image.
-	var xf xfont.Face
-	if tf, err := truetype.Parse(data); err == nil {
-		xf = truetype.NewFace(tf, &truetype.Options{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
-	} else {
-		xf, err = opentype.NewFace(sf, &opentype.FaceOptions{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
-		if err != nil {
-			return nil, err
-		}
+	xf, err := opentype.NewFace(sf, &opentype.FaceOptions{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
+	if err != nil {
+		return nil, err
 	}
 	f := &face{sf: sf, face: xf}
+	if tf, err := truetype.Parse(data); err == nil {
+		f.tt = tf
+		f.hinted = truetype.NewFace(tf, &truetype.Options{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
+	}
 	s.byFile[key] = f
 	return f, nil
 }

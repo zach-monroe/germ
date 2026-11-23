@@ -87,3 +87,24 @@ func TestBoxDrawingFillsCell(t *testing.T) {
 		}
 	}
 }
+
+func TestNerdFontIcons(t *testing.T) {
+	if _, err := exec.LookPath("fc-match"); err != nil {
+		t.Skip("fontconfig not installed")
+	}
+	s, err := Load("JetBrainsMono Nerd Font", 10, 96)
+	if err != nil {
+		t.Skip("JetBrainsMono Nerd Font not installed")
+	}
+	notdef, _ := s.Glyph(0x10FFFD, Regular)
+	for _, r := range []rune{0xF303 /* arch */, 0xE626 /* go */, 0xF418 /* branch */} {
+		g, ok := s.Glyph(r, Regular)
+		if !ok {
+			t.Errorf("U+%X: no glyph", r)
+			continue
+		}
+		if notdef.Mask != nil && string(g.Mask.Pix) == string(notdef.Mask.Pix) {
+			t.Errorf("U+%X rendered as .notdef", r)
+		}
+	}
+}

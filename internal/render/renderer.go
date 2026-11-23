@@ -491,6 +491,11 @@ func (r *Renderer) buildRow(y int, abs int64, line *term.Line) {
 	if cursorHere && !block {
 		r.cursorShape(rc, cur, py)
 	}
+	// Failed commands get a mark in the left padding next to their prompt.
+	if line.Prompt && line.HasExit && line.Exit != 0 && r.pad >= 2 {
+		w := max(2, r.pad/2)
+		rc.deco = append(rc.deco, rectInst{0, float32(py), float32(w), float32(ch), toRGBA(r.theme.Palette[1])})
+	}
 }
 
 func (r *Renderer) decorations(rc *rowCache, c *term.Cell, px, py, width int, fg theme.RGB) {

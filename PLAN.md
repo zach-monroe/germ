@@ -173,7 +173,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **2. Renderer** ✅ | Font loading, glyph atlas, instanced quads, cursor, dirty-row rendering | A usable daily terminal at 60+ fps |
 | **3. Input & UX** ✅ | Full key encoding, mouse reporting, selection, clipboard, scrollback, URL detection | Comfortable for daily use |
 | **4. Config & themes** ✅ | TOML config, bundled themes, hot reload, OSC color queries | Changing the theme file recolors the window live |
-| **4.5 fish integration** | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
+| **4.5 fish integration** ✅ | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
 | **5. tmux Level 1** | terminfo, true color through tmux, OSC 52, CSI u, sync output | `tmux` + `nvim` looks and behaves perfectly |
 | **6. Perf pass + tabs/splits** | Benchmarks, profiling, GC tuning; native tabs and splits | Competitive with Alacritty and kitty on vtebench |
 | **7. tmux Level 2** | Control mode client | `germ --tmux` attaches with native tabs and splits |
@@ -190,6 +190,13 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 4.5)
+- fish integration is automatic: germ writes `germ-shell-integration.fish` to `~/.local/share/germ/shell-integration/fish/vendor_conf.d/` and prepends that dir to `XDG_DATA_DIRS` for fish only; the script restores the variable for children. Disable with `[shell_integration] mode = "off"`.
+- OSC 133 A/B/C/D and OSC 7 are tracked: prompt marks live on lines (survive scrollback and reflow), last command output range, exit status, cwd.
+- Actions: `previous_prompt`/`next_prompt` (Ctrl+Shift+Up/Down), `copy_last_output` (Ctrl+Shift+X). Failed commands get a red mark in the left padding. Commands over 10 s that finish while unfocused trigger notify-send + window urgency.
+- Fonts: hinted golang/freetype rendering is used only for runes its cmap maps; others (e.g. some Nerd Font icons) fall back to x/image.
+- TODO: clear the prompt before reflow so resizing doesn't duplicate fish's prompt; zsh/bash scripts.
 
 ## Status (after Phase 4)
 - Config: `~/.config/germ/config.toml` (see `config.example.toml`), layered over defaults, unknown keys warned, errors keep the previous config. Command-line flags override it.

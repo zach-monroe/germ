@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zach-monroe/germ/internal/theme"
 )
@@ -480,5 +481,53 @@ func TestOSCColors(t *testing.T) {
 	feed(tm, "\x1b]104\x07\x1b]110\x07\x1b]111\x07")
 	if th5, _ := tm.Colors(); *th5 != *theme.Default() {
 		t.Error("resets did not restore theme")
+	}
+}
+
+func TestShellIntegrationMarks(t *testing.T) {
+	var done []int
+	tm := New(20, 4, Options{Scrollback: 100, OnCommandDone: func(exit int, _ time.Duration) { done = append(done, exit) }})
+	feed(tm, "\x1b]7;file://host/home/zach/my%20dir\x07")
+	feed(tm, "\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07a\r\nb\r\n\x1b]133;D;2\x07")
+	feed(tm, "\x1b]133;A\x07$ ")
+	tm.Lock()
+	defer tm.Unlock()
+	if tm.CWD() != "/home/zach/my dir" {
+		t.Errorf("cwd = %q", tm.CWD())
+	}
+	sr, sc, er, ec, ok := tm.LastOutput()
+	if !ok || tm.TextRange(sr, sc, er, ec) != "a\nb" {
+		t.Errorf("last output = %q (ok=%v)", tm.TextRange(sr, sc, er, ec), ok)
+	}
+	if l := tm.Line(0); !l.Prompt || !l.HasExit || l.Exit != 2 {
+		t.Errorf("prompt line marks: %+v", l)
+	}
+	if l := tm.Line(3); !l.Prompt || l.HasExit {
+		t.Errorf("second prompt marks: prompt=%v exit=%v", l.Prompt, l.HasExit)
+	}
+	if len(done) != 1 || done[0] != 2 {
+		t.Errorf("OnCommandDone calls = %v", done)
+	}
+}
+
+func TestPromptMarksSurviveScrollAndReflow(t *testing.T) {
+	tm, _ := newTerm(10, 3)
+	feed(tm, "\x1b]133;A\x07$ cmd\r\nout1\r\nout2\r\nout3\r\n")
+	tm.Lock()
+	if l := tm.LineAt(0); l == nil || !l.Prompt {
+		t.Error("prompt mark lost when scrolled into scrollback")
+	}
+	tm.Unlock()
+	tm.Resize(4, 3)
+	tm.Lock()
+	defer tm.Unlock()
+	found := 0
+	for row := tm.AbsRow(0, tm.ScrollbackLen()); row < tm.AbsRow(3, 0); row++ {
+		if l := tm.LineAt(row); l != nil && l.Prompt {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Errorf("after reflow found %d prompt marks, want 1", found)
 	}
 }

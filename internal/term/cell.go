@@ -87,6 +87,12 @@ type Line struct {
 	// Wrapped is true if the text continues on the next line because it
 	// hit the right margin (a soft wrap), rather than ending with a newline.
 	Wrapped bool
+	// Prompt marks a line where a shell prompt starts (OSC 133;A).
+	Prompt bool
+	// HasExit and Exit record the exit status of the command run from this
+	// prompt line (OSC 133;D).
+	HasExit bool
+	Exit    int32
 	// n is the written extent: every cell at index >= n is the zero Cell.
 	// It lets clearing and rendering skip the empty tail of a line.
 	n int
