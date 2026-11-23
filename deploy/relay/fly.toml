@@ -1,12 +1,8 @@
-# Deploy the relay to Fly.io (from the repository root):
-#   fly launch --copy-config --config deploy/relay/fly.toml --dockerfile deploy/relay/Dockerfile --no-deploy
-#   fly deploy --config deploy/relay/fly.toml --dockerfile deploy/relay/Dockerfile
-# Then set [share] relay = "https://<app>.fly.dev" in germ's config.
-app = "germ-relay"            # change to a unique name
+# Fly.io config for germ's relay. Deploy with deploy/relay/deploy.sh,
+# which picks the app name and keeps it to one machine (rooms live in
+# memory, so hosts and guests must reach the same instance).
+app = "germ-relay"            # overridden by deploy.sh --app
 primary_region = "ewr"
-
-[build]
-  dockerfile = "Dockerfile"
 
 [http_service]
   internal_port = 8080

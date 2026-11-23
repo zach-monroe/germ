@@ -70,15 +70,19 @@ accounts, keeps nothing on disk, and can't read anything.
 
 ### Deploy it on Fly.io
 
-From the repository:
-
-```sh
-fly launch --copy-config --config deploy/relay/fly.toml \
-           --dockerfile deploy/relay/Dockerfile --no-deploy   # pick an app name
-fly deploy --config deploy/relay/fly.toml --dockerfile deploy/relay/Dockerfile
-```
-
-It sleeps when nobody is sharing, so it fits easily in the free allowance.
+1. Install flyctl and log in (it asks for a card; the relay sleeps when
+   nobody is sharing, so it costs pennies a month at most):
+   ```sh
+   curl -L https://fly.io/install.sh | sh     # or: yay -S flyctl-bin
+   fly auth login
+   ```
+2. From the germ repository:
+   ```sh
+   deploy/relay/deploy.sh            # app name defaults to germ-relay-$USER
+   ```
+   It creates the app, deploys a single machine (rooms live in memory, so
+   there must be exactly one), checks `/healthz`, and prints the config
+   line for the next step.
 
 ### Or anywhere else
 
