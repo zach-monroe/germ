@@ -120,7 +120,7 @@ func Run(opts Options) error {
 	ratio := float64(fbw) / float64(max(ww, 1))
 	win.SetSize(int(float64(100*cw+2*rnd.Pad())/ratio), int(float64(30*ch+2*rnd.Pad())/ratio))
 	win.Show()
-	fbw, fbh = win.GetFramebufferSize()
+	fbw, fbh = settleSize(win)
 	cols, rows := rnd.Resize(fbw, fbh)
 
 	sess, err := pty.Start(opts.Command, uint16(cols), uint16(rows))
@@ -174,6 +174,26 @@ func Run(opts Options) error {
 		fmt.Fprintln(opts.Out, strings.TrimRight(a.term.Text(), "\n"))
 	}
 	return nil
+}
+
+// settleSize waits briefly for the window manager to finish placing the
+// window. Tiling WMs (i3, sway) resize a window right after it maps; if the
+// shell started at the requested size, its first output (prompt, fastfetch)
+// would be laid out for the wrong width and then mangled by reflow.
+func settleSize(win *glfw.Window) (int, int) {
+	w, h := win.GetFramebufferSize()
+	deadline := time.Now().Add(300 * time.Millisecond)
+	stableSince := time.Now()
+	for time.Now().Before(deadline) {
+		glfw.WaitEventsTimeout(0.01)
+		nw, nh := win.GetFramebufferSize()
+		if nw != w || nh != h {
+			w, h, stableSince = nw, nh, time.Now()
+		} else if time.Since(stableSince) > 60*time.Millisecond {
+			break
+		}
+	}
+	return w, h
 }
 
 // screenshot redraws into the back buffer and saves it as a PNG.
