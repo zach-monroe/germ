@@ -22,7 +22,7 @@ built-in tmux and fish integration.
 
 ## Install
 
-Requires Go 1.24+, a C compiler, and the X11/OpenGL development libraries
+Requires Go 1.27+, a C compiler, and the X11/OpenGL development libraries
 (on Arch: `xorg-server-devel libxcursor libxrandr libxinerama libxi mesa`).
 
 ```sh
