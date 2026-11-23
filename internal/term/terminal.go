@@ -29,6 +29,13 @@ type Options struct {
 	OnCommandDone func(exit int, d time.Duration)
 	// OnClipboard is called for OSC 52 clipboard writes, with the lock held.
 	OnClipboard func(text string, clipboard, primary bool)
+	// OnNotify is called for desktop notification requests (OSC 9,
+	// OSC 777;notify, OSC 99), with the lock held.
+	OnNotify func(title, body string)
+	// OnProgress is called for progress reports (OSC 9;4): state 0 =
+	// none, 1 = normal, 2 = error, 3 = indeterminate, 4 = paused. Called
+	// with the lock held.
+	OnProgress func(state, percent int)
 }
 
 // MouseMode is the active mouse reporting mode.
@@ -120,6 +127,7 @@ type screen struct {
 // use; readers (e.g. the renderer) should hold Lock while inspecting state.
 type Terminal struct {
 	mu     sync.Mutex
+	kitty  kittyNotify // partial OSC 99 notification
 	parser *vt.Parser
 	opts   Options
 

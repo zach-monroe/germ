@@ -21,6 +21,7 @@ type backend interface {
 	Resize(cols, rows int)
 	Close() // end the pane (kill the process / tmux pane)
 	Cwd() string
+	Pid() int // the pane's top process (its shell), or 0
 }
 
 // pane is one terminal in a tab.
@@ -41,6 +42,8 @@ type pane struct {
 	sel        selection
 	link       render.Link
 	linkURL    string
+
+	agent paneAgent
 }
 
 func (p *pane) send(b []byte) {
@@ -86,6 +89,7 @@ func (b *ptyBackend) Write(p []byte) {
 func (b *ptyBackend) Resize(cols, rows int) { _ = b.sess.Resize(uint16(cols), uint16(rows)) }
 func (b *ptyBackend) Close()                { b.sess.Close() }
 func (b *ptyBackend) Cwd() string           { return b.sess.Cwd() }
+func (b *ptyBackend) Pid() int              { return b.sess.Pid() }
 
 // writeLoop is the only writer to the PTY, preserving the order of
 // keystrokes and query replies.
@@ -125,6 +129,18 @@ func (a *App) makeTerm(p *pane, cols, rows int, resp io.Writer) *term.Terminal {
 		},
 		OnCommandDone: a.onCommandDone,
 		OnClipboard:   a.onClipboard,
+		OnBell: func() {
+			p.agent.note.Store(&agentNote{bell: true})
+			glfw.PostEmptyEvent()
+		},
+		OnNotify: func(title, body string) {
+			p.agent.note.Store(&agentNote{title: title, body: body})
+			glfw.PostEmptyEvent()
+		},
+		OnProgress: func(state, _ int) {
+			p.agent.progress.Store(int32(state))
+			p.noteOutput()
+		},
 	})
 }
 
@@ -164,6 +180,7 @@ func (a *App) readLoop(p *pane, sess *pty.Session) {
 		n, err := sess.Read(buf)
 		if n > 0 {
 			a.log(buf[:n])
+			p.noteOutput()
 			p.term.Write(buf[:n])
 			a.wake()
 		}

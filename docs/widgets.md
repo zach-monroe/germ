@@ -12,7 +12,7 @@ tmux prefix bindings work from there too, so `C-b c` opens a new window.
 enabled = true
 focus_on_start = true           # open germ on the home tab
 layout = [                      # rows, top to bottom
-  ["clock", "weather"],
+  ["clock", "weather", "agents"],
   ["news:3", "stocks:2"],       # ":N" = relative width
 ]
 row_heights = [2, 3]            # relative row heights
@@ -27,6 +27,7 @@ Saving the config rebuilds the home tab right away.
 | `clock` | big digital clock, date, day progress | `format = "12h"`, `seconds = false` |
 | `weather` | conditions, art, 5-day forecast ([Open-Meteo](https://open-meteo.com)) | `location = "Denver"` (default: from your IP), `units = "celsius"` |
 | `news` | top story with summary + headlines, rotating pages (RSS/Atom) | `feeds = ["https://hnrss.org/frontpage", ...]` |
+| `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
 | `stocks` | price, daily change, intraday sparkline (Yahoo Finance) | `symbols = ["AAPL", "NVDA", "BTC-USD"]` |
 
 None need API keys. Try one outside germ with `germ widget clock`.

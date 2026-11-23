@@ -82,6 +82,9 @@ type App struct {
 	reload      atomic.Bool
 	focusedA    atomic.Bool
 	attention   atomic.Bool
+	agentPoll   atomic.Bool // time to re-detect agents
+	ctl         *ctlServer
+	animating   bool // a working agent's spinner is showing
 	clipboard   atomic.Pointer[string]
 
 	// Main-thread state.
@@ -182,6 +185,8 @@ func Run(opts Options) error {
 		a.baseEnv = []string{"TERM=" + cfg.Shell.Term}
 	}
 
+	a.startControl()
+	defer a.stopControl()
 	if h := a.buildHome(); h != nil {
 		a.tabs = []*tab{h}
 	}
@@ -214,6 +219,7 @@ func Run(opts Options) error {
 	win.SetRefreshCallback(func(*glfw.Window) { a.forceRedraw = true; a.draw() })
 	win.SetFocusCallback(a.onFocus)
 
+	a.startAgentTicker()
 	if stop, err := config.Watch(func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {
 		defer stop()
 	}
@@ -229,12 +235,15 @@ func Run(opts Options) error {
 			if time.Now().After(shotAt) {
 				return a.screenshot(opts.Screenshot)
 			}
+		} else if a.animating {
+			glfw.WaitEventsTimeout(0.1) // spinner frames
 		} else {
 			glfw.WaitEvents() // blocks: zero CPU while idle
 		}
 		if a.tmux != nil {
 			a.tmux.process()
 		}
+		a.processControl()
 		if a.paneExited.Swap(false) && !a.reapPanes() {
 			break
 		}
@@ -249,6 +258,10 @@ func Run(opts Options) error {
 		}
 		if a.reload.Swap(false) {
 			a.reloadConfig()
+		}
+		if anim := a.agentTick(a.agentPoll.Swap(false)); anim || anim != a.animating {
+			a.animating = anim
+			a.forceRedraw = true // tab badges
 		}
 		a.draw()
 	}
@@ -349,6 +362,7 @@ func (a *App) sendUser(b []byte) {
 		p.offset = 0
 		a.forceRedraw = true
 	}
+	p.agent.lastInput.Store(time.Now().UnixNano())
 	p.send(b)
 }
 

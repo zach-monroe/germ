@@ -27,6 +27,8 @@ type Config struct {
 	Keybindings map[string]string `toml:"keybindings"`
 	Tmux        Tmux              `toml:"tmux"`
 	Home        Home              `toml:"home"`
+	Agents      Agents            `toml:"agents"`
+	Control     Control           `toml:"control"`
 	// Widgets configures home-screen widgets by name. Keys other than
 	// command and interval are passed to the widget as GERM_WIDGET_<KEY>.
 	Widgets map[string]map[string]any `toml:"widgets"`
@@ -81,6 +83,23 @@ type Home struct {
 	RowHeights []float64 `toml:"row_heights"`
 	// Focus shows the home tab when germ starts.
 	Focus bool `toml:"focus_on_start"`
+}
+
+// Agents configures coding-agent awareness.
+type Agents struct {
+	// Commands are process names treated as agents.
+	Commands []string `toml:"commands"`
+	// Notify sends desktop notifications when an agent needs you.
+	Notify bool `toml:"notify"`
+}
+
+// Control configures the control socket used by `germ ctl` and
+// `germ mcp`.
+type Control struct {
+	Enabled bool `toml:"enabled"`
+	// AllowInput lets clients type into panes and open new ones (reading
+	// is always allowed when enabled).
+	AllowInput bool `toml:"allow_input"`
 }
 
 // Widget is a resolved widget definition.
@@ -149,8 +168,11 @@ func Default() Config {
 		Scrollback: Scrollback{Lines: 10000},
 		Tmux:       Tmux{Enabled: true},
 		Home: Home{Enabled: true, Focus: true,
-			Layout:     [][]string{{"clock", "weather"}, {"news:3", "stocks:2"}},
+			Layout:     [][]string{{"clock", "weather", "agents"}, {"news:3", "stocks:2"}},
 			RowHeights: []float64{2, 3}},
+		Control: Control{Enabled: true, AllowInput: true},
+		Agents: Agents{Notify: true, Commands: []string{"claude", "codex", "aider", "gemini",
+			"opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"}},
 		Shells: ShellIntegration{Mode: "auto"},
 	}
 }

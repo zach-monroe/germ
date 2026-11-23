@@ -138,6 +138,7 @@ type widgetBackend struct {
 
 func (b *widgetBackend) Write([]byte) {}
 func (b *widgetBackend) Cwd() string  { return "" }
+func (b *widgetBackend) Pid() int     { return 0 }
 
 func (b *widgetBackend) Resize(cols, rows int) {
 	b.mu.Lock()

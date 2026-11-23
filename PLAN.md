@@ -177,6 +177,12 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **5. tmux Level 1** ✅ | terminfo, true color through tmux, OSC 52, CSI u, sync output | `tmux` + `nvim` looks and behaves perfectly |
 | **6. Perf pass + tabs/splits** ✅ | Benchmarks, profiling, GC tuning; native tabs and splits | Competitive with Alacritty and kitty on vtebench |
 | **7. tmux Level 2** ✅ | Control mode client | `germ --tmux` attaches with native tabs and splits |
+| **8. Home screen** ✅ | Widget dashboard tab; executable widget plugins; clock, weather, news, stocks | `germ` opens on a live dashboard; a shell script can be a widget |
+| **9. Agent attention** ✅ | Detect agent panes; working / waiting / done state per tab; OSC 9/777/99 desktop notifications; agents home widget | Running 3 agents in tabs, you can see which one needs you without visiting each |
+| **10. germ as a tool for agents** ✅ | Control socket + `germ ctl` CLI + `germ mcp` MCP server: list/read/send/open panes | Claude Code, connected to `germ mcp`, reads the test-runner pane and starts a build in a new pane |
+| **11. Parallel agents** | Ctrl+Shift+A: task → `git worktree` → tmux window running the agent; live diff-stat side pane; clickable `file:line` → `$EDITOR` | One key spawns an isolated agent; its changes are visible at a glance |
+| **12. Agent input polish** | Shift+Enter newlines, image paste, "send selection to agent pane" | Multi-line prompts and screenshots just work in agent UIs |
+| **13. Coworking** | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -185,11 +191,54 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 
 ---
 
+## Agentic coding design (Phases 9–12)
+
+germ owns the screen, the tmux session, and the input path, so it can know
+things about agents that other terminals can't.
+
+**Agent attention (9).** A pane's agent is identified by its foreground
+process (`/proc`, or `#{pane_current_command}`/`#{pane_pid}` under tmux):
+`claude`, `codex`, `aider`, `gemini`, `opencode`, ... (configurable).
+State comes from signals agents already emit:
+- *waiting*: a notification (OSC 9, OSC 777;notify, OSC 99) or bell from
+  the pane — agents send these when they need permission or input;
+- *working*: output in the last few seconds;
+- *done/idle*: quiet after working, without a notification.
+The tab bar shows a badge per tab (spinner / ● needs you / ✓), unfocused
+notifications go to the desktop (notify-send), and an `agents` widget on
+the home tab lists every agent pane in every germ window with its state
+and elapsed time.
+
+**germ as a tool (10).** Each germ window listens on a Unix socket
+(`$XDG_RUNTIME_DIR/germ/<pid>.sock`, exported as `GERM_SOCKET`) speaking
+line-delimited JSON. `germ ctl` is a CLI over it, and `germ mcp` is a
+stdio MCP server exposing the same operations as tools:
+`list_panes`, `read_pane` (screen and/or scrollback as text),
+`send_text`, `open_pane` (new tab or split, running a command),
+`wait_for` (until text appears or the pane goes quiet), `pane_state`.
+Agents reach the window they run in via `GERM_SOCKET`; `germ mcp`
+falls back to the newest socket. Writes are confined to panes in the
+same window; the socket is 0600.
+
+**Parallel agents (11)** and **input polish (12)** build on both.
+
+## Decisions (2026-11-23)
+- **Home screen**: germ-native first tab; widgets are executables (any language) run in PTYs.
+- **Coworking**: start with a tiny relay + E2E-encrypted invite links (no SSH setup for guests); hosting the relay is the user's call later.
+- **Next**: agent attention (9) and agent tooling / MCP (10).
+
 ## Decisions (2026-11-22)
 1. **Linux only.** We use OpenGL 3.3 core and don't need to plan for Metal or wgpu.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phases 8–10)
+- Home tab: widgets are PTY-run programs (live or interval), built-ins via `germ widget NAME` (clock, weather, news, stocks, agents). `docs/widgets.md`.
+- Agent attention: `/proc` tpgid → foreground command matched against `[agents] commands`; OSC 9/777/99 + BEL → "needs you"; output not explained by typing echo, or OSC 9;4 progress → "working"; tab badges (spinner / ● / ✓) clear on view; notify-send when not visible. Main loop ticks at 10 fps only while a spinner shows, plus a 1 s detection tick.
+- Control socket `$XDG_RUNTIME_DIR/germ/<pid>.sock` (JSON lines, executed on the main thread), `GERM_SOCKET` exported (and `set-environment` in tmux sessions). `germ ctl` CLI; `germ mcp` stdio MCP server with list_panes / read_pane / send_text / open_pane / wait_for. `docs/agents.md`.
+- Verified on Xvfb: fake agent badges; ctl open/wait/read/send in tmux and local modes; MCP session over stdio.
+- TODO: agent working/done heuristics need tuning against real Claude Code/Codex sessions; mouse clicks on widgets; `wait_for` push notifications instead of polling.
 
 ## Status (after Phase 7) — all planned phases complete
 - tmux control mode: `germ -tmux [-session NAME]` or `[tmux] enabled = true`. tmux windows ↔ germ tabs, panes ↔ native splits with exact tmux geometry (layout strings parsed into the same split tree), per-pane germ scrollback/selection/clipboard, output via `%output`, input via `send-keys -H`, existing screens loaded with `capture-pane`, zoom via the visible layout, session kept on exit and restored on reattach. The tab bar shows the session name.

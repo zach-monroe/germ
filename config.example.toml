@@ -44,7 +44,7 @@ enabled = true         # every window is a tmux session in control mode (tabs an
 [home]
 enabled = true          # the first tab is a dashboard of widgets (docs/widgets.md)
 focus_on_start = true
-layout = [["clock", "weather"], ["news:3", "stocks:2"]]   # rows; ":N" = relative width
+layout = [["clock", "weather", "agents"], ["news:3", "stocks:2"]]   # rows; ":N" = relative width
 row_heights = [2, 3]
 
 # Widget options; any key besides command/interval reaches the widget as
@@ -60,6 +60,15 @@ row_heights = [2, 3]
 # [widgets.todo]
 # command = "cat ~/todo.txt"
 # interval = "30s"
+
+[agents]
+# Processes treated as coding agents (tab badges, agents widget, notifications).
+commands = ["claude", "codex", "aider", "gemini", "opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"]
+notify = true           # desktop notification when an agent needs you
+
+[control]
+enabled = true          # control socket for `germ ctl` / `germ mcp` (docs/agents.md)
+allow_input = true      # let clients type into panes and open new ones
 
 # Key bindings: "chord" = "action". Use "none" to remove a default.
 # Actions: copy, paste, paste_primary, zoom_in, zoom_out, zoom_reset,

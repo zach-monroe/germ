@@ -9,10 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
-
-	"github.com/zach-monroe/germ/internal/term"
 )
 
 // tmux control mode: germ runs `tmux -C new-session -A -s NAME` and speaks
@@ -45,8 +44,8 @@ type tmuxController struct {
 
 	mu      sync.Mutex // guards the fields below (shared with the reader)
 	queue   []tmuxCallback
-	terms   map[int]*term.Terminal // tmux pane ID -> terminal
-	pending map[int][]byte         // output for panes not created yet
+	terms   map[int]*pane  // tmux pane ID -> pane (for %output; its term is thread-safe)
+	pending map[int][]byte // output for panes not created yet
 	events  []tmuxEvent
 	done    bool
 
@@ -73,11 +72,13 @@ type tmuxBackend struct {
 	c   *tmuxController
 	id  int // tmux pane ID
 	cwd string
+	pid atomic.Int64 // the pane's process (on this machine), from #{pane_pid}
 }
 
 func (b *tmuxBackend) Write(p []byte)  { b.c.sendKeys(b.id, p) }
 func (b *tmuxBackend) Resize(int, int) {}
 func (b *tmuxBackend) Close()          { b.c.command(fmt.Sprintf("kill-pane -t %%%d", b.id), nil) }
+func (b *tmuxBackend) Pid() int        { return int(b.pid.Load()) }
 func (b *tmuxBackend) Cwd() string {
 	return b.c.paneCwd(b.id)
 }
@@ -118,11 +119,16 @@ func (a *App) startTmux(session string) error {
 	}
 	c := &tmuxController{
 		a: a, cmd: cmd, stdin: stdin, session: session,
-		terms: map[int]*term.Terminal{}, pending: map[int][]byte{},
+		terms: map[int]*pane{}, pending: map[int][]byte{},
 		tabs: map[int]*tab{}, panes: map[int]*pane{}, wantActive: map[int]int{}, wantWindow: -1,
 	}
 	a.tmux = c
 	go c.readLoop(stdout)
+	if a.ctl != nil {
+		// New panes in this session find this window; a running tmux server
+		// may predate it.
+		c.command("set-environment GERM_SOCKET "+tmuxQuote(a.ctl.path), nil)
+	}
 	c.queryKeys()
 	c.clientSize(a.content())
 	c.refresh()
@@ -259,7 +265,8 @@ func (c *tmuxController) output(rest string) {
 		return
 	}
 	c.mu.Unlock()
-	t.Write(b)
+	t.noteOutput()
+	t.term.Write(b)
 	c.a.wake()
 }
 
@@ -580,7 +587,7 @@ func (c *tmuxController) newPane(id, cols, rows int) *pane {
 	c.panes[id] = p
 
 	c.mu.Lock()
-	c.terms[id] = p.term
+	c.terms[id] = p
 	buf := c.pending[id]
 	delete(c.pending, id)
 	c.mu.Unlock()
@@ -588,6 +595,13 @@ func (c *tmuxController) newPane(id, cols, rows int) *pane {
 		p.term.Write(buf)
 	}
 	c.capture(id, p)
+	be := p.be.(*tmuxBackend)
+	c.command(fmt.Sprintf(`display -p -t %%%d "#{pane_pid}"`, id), func(lines []string, failed bool) {
+		if !failed && len(lines) > 0 {
+			v, _ := strconv.Atoi(lines[0])
+			be.pid.Store(int64(v))
+		}
+	})
 	return p
 }
 

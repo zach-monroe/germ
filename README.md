@@ -11,6 +11,10 @@ built-in tmux and fish integration.
   splits — with germ's own scrollback, selection, and clipboard. Your tmux
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
+- **Built for coding agents**: tab badges show which agent is working,
+  done, or needs you (with desktop notifications), a home-screen widget
+  lists every agent, and `germ mcp` lets agents read and drive your other
+  panes (dev servers, tests, logs). See [docs/agents.md](docs/agents.md).
 - **Home screen**: the first tab is a dashboard of widgets (clock,
   weather, news, stocks), and any program can be a widget, so you can write
   your own in any language. See [docs/widgets.md](docs/widgets.md).
@@ -44,6 +48,8 @@ germ -theme dracula  # override the config for one window
 germ htop            # run a program instead of the shell
 germ -list-themes
 germ widget weather  # run a home-screen widget on its own
+germ ctl list        # script the window: list/read/send/open/wait panes
+germ mcp             # MCP server for coding agents (see docs/agents.md)
 ```
 
 ## Configuration
@@ -85,5 +91,6 @@ Rebind or remove any of these under `[keybindings]`.
 
 - [docs/tmux.md](docs/tmux.md) — tmux setup and control mode
 - [docs/widgets.md](docs/widgets.md) — the home screen and writing widgets
+- [docs/agents.md](docs/agents.md) — agent attention, `germ mcp`, `germ ctl`
 - [PLAN.md](PLAN.md) — design, architecture, and project status
 - `scripts/e2e/` — end-to-end tests on a virtual X server

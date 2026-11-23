@@ -45,6 +45,7 @@ var builtins = map[string]func() Widget{
 	"weather": newWeather,
 	"news":    newNews,
 	"stocks":  newStocks,
+	"agents":  newAgents,
 }
 
 // Names lists the built-in widgets.
@@ -137,7 +138,13 @@ func draw(out io.Writer, lines []string, rows int) {
 		b.WriteString(l)
 		b.WriteString("\x1b[0m")
 	}
-	b.WriteString("\x1b[0m\x1b[J\x1b[?2026l")
+	b.WriteString("\x1b[0m")
+	if len(lines) < rows {
+		// Clear below. (Not from the end of a full last row, which would
+		// erase its final character.)
+		b.WriteString("\r\n\x1b[J")
+	}
+	b.WriteString("\x1b[?2026l")
 	io.WriteString(out, b.String())
 }
 

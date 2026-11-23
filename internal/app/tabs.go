@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/term"
@@ -221,10 +222,17 @@ func (a *App) actionSplit(dir splitDir) {
 		a.tmux.splitPane(t.active, dir, a.activeCwd())
 		return
 	}
-	cur := t.active
+	if p := a.splitLocal(t, t.active, dir, a.newPaneCommand(), a.activeCwd()); p != nil {
+		a.setActive(t, p)
+	}
+}
+
+// splitLocal splits pane cur of tab t, running argv in the new pane. It
+// returns nil on failure.
+func (a *App) splitLocal(t *tab, cur *pane, dir splitDir, argv []string, cwd string) *pane {
 	n := t.root.find(cur.id)
 	if n == nil {
-		return
+		return nil
 	}
 	// Size the new pane from the split we're about to make.
 	w, h := cur.rect.W, cur.rect.H
@@ -233,16 +241,16 @@ func (a *App) actionSplit(dir splitDir) {
 	} else {
 		h = cur.rect.H - sizeFor(cur.rect.H, 0.5) - 1
 	}
-	p, err := a.newLocalPane(a.newPaneCommand(), a.activeCwd(), w, h)
+	p, err := a.newLocalPane(argv, cwd, w, h)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)
-		return
+		return nil
 	}
 	t.zoomed = nil
 	t.panes[p.id] = p
 	t.root = split(t.root, n, dir, p.id)
 	a.relayout()
-	a.setActive(t, p)
+	return p
 }
 
 func (a *App) activeCwd() string {
@@ -396,6 +404,7 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 		x++
 	}
 	maxW := max(8, min(30, cols/max(1, len(a.tabs))))
+	now := time.Now()
 	for i, t := range a.tabs {
 		pos := i + 1
 		if a.tabs[0].home {
@@ -405,10 +414,21 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 		if t.index != "" {
 			num = t.index // match tmux's select-window keys
 		}
-		label := []rune(" " + num + " " + t.title() + " ")
+		head := " " + num + " "
+		badge := a.agentBadge(t, now)
+		if r := badgeRune(badge, now); r != 0 {
+			head += string(r) + " "
+		}
+		label := []rune(head + t.title() + " ")
 		if len(label) > maxW {
 			label = append(label[:maxW-2], '…', ' ')
 		}
+		badgeAt := -1
+		if badge != stateNone {
+			badgeAt = len([]rune(head)) - 2
+		}
+		badgeFG := map[agentState]theme.RGB{stateWorking: th.Palette[6], stateDone: th.Palette[2],
+			stateWaiting: th.Palette[3]}[badge]
 		fg, bg := rgb(th.Foreground), barBG
 		attrs := term.Attr(0)
 		if i == a.cur {
@@ -416,11 +436,14 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 			attrs = term.AttrBold
 		}
 		start := x
-		for _, r := range label {
+		for j, r := range label {
 			if x >= cols {
 				break
 			}
 			cells[x] = term.Cell{Rune: r, FG: fg, BG: bg, Attrs: attrs}
+			if j == badgeAt && i != a.cur {
+				cells[x].FG, cells[x].Attrs = rgb(badgeFG), term.AttrBold
+			}
 			x++
 		}
 		spans = append(spans, tabSpan{start, x, i})

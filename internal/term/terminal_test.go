@@ -3,6 +3,7 @@ package term
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -571,5 +572,26 @@ func TestModifyOtherKeys(t *testing.T) {
 	feed(tm, "\x1b[>4n")
 	if tm.ModifyOtherKeys() != 0 {
 		t.Error("reset failed")
+	}
+}
+
+func TestNotifications(t *testing.T) {
+	type note struct{ title, body string }
+	var got []note
+	var prog [][2]int
+	term := New(20, 5, Options{
+		OnNotify:   func(title, body string) { got = append(got, note{title, body}) },
+		OnProgress: func(s, p int) { prog = append(prog, [2]int{s, p}) },
+	})
+	term.Write([]byte("\x1b]9;Claude needs your permission\x07"))
+	term.Write([]byte("\x1b]777;notify;Codex;Task done\x1b\\"))
+	term.Write([]byte("\x1b]99;i=1:d=0;Hello\x1b\\\x1b]99;i=1:p=body;World\x1b\\"))
+	term.Write([]byte("\x1b]9;4;3;0\x07\x1b]9;4;1;250\x07"))
+	want := []note{{"", "Claude needs your permission"}, {"Codex", "Task done"}, {"Hello", "World"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("notes %q", got)
+	}
+	if !reflect.DeepEqual(prog, [][2]int{{3, 0}, {1, 100}}) {
+		t.Errorf("progress %v", prog)
 	}
 }

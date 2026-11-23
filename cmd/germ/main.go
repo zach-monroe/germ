@@ -12,6 +12,7 @@ import (
 
 	"github.com/zach-monroe/germ/internal/app"
 	"github.com/zach-monroe/germ/internal/config"
+	"github.com/zach-monroe/germ/internal/mcp"
 	"github.com/zach-monroe/germ/internal/theme"
 	"github.com/zach-monroe/germ/internal/widgets"
 )
@@ -25,6 +26,16 @@ func main() {
 	// `germ widget NAME` runs a built-in home-screen widget (germ starts
 	// these itself in the home tab; running one by hand is handy for
 	// testing).
+	if len(os.Args) >= 2 && os.Args[1] == "ctl" {
+		os.Exit(runCtl(os.Args[2:]))
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
+		if err := mcp.Serve(os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "germ mcp:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "widget" {
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: germ widget NAME   (built-in: "+strings.Join(widgets.Names(), ", ")+")")
