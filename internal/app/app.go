@@ -19,6 +19,7 @@ import (
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/font"
 	"github.com/zach-monroe/germ/internal/pty"
 	"github.com/zach-monroe/germ/internal/render"
@@ -33,13 +34,34 @@ type Options struct {
 	Quote   bool      // log child output as Go-quoted strings (shows escape sequences)
 	Dump    bool      // print the screen text when the session ends
 
-	FontFamily string  // fontconfig family, e.g. "JetBrains Mono"
-	FontSize   float64 // points
+	Config     config.Config
+	ConfigPath string
+	Overrides  Overrides // command-line flags that beat the config file
 
 	// Screenshot, if set, saves the window contents as PNG to this path
 	// after ScreenshotDelay and exits. Used for testing the renderer.
 	Screenshot      string
 	ScreenshotDelay time.Duration
+}
+
+// Overrides are settings given on the command line; they take precedence
+// over the config file, including after a reload. Zero means "not set".
+type Overrides struct {
+	FontFamily string
+	FontSize   float64
+	Theme      string
+}
+
+func (o Overrides) apply(c *config.Config) {
+	if o.FontFamily != "" {
+		c.Font.Family = o.FontFamily
+	}
+	if o.FontSize > 0 {
+		c.Font.Size = o.FontSize
+	}
+	if o.Theme != "" {
+		c.Theme = o.Theme
+	}
 }
 
 type App struct {
@@ -59,7 +81,10 @@ type App struct {
 	focused     bool
 	forceRedraw bool
 	scale       float32 // content scale (DPI / 96)
-	fontSize    float64
+	fontSize    float64 // current size, which zoom changes
+	cfg         config.Config
+	bindings    map[config.Chord]config.Action
+	reload      atomic.Bool // set by the config watcher
 
 	offset     int   // lines scrolled back into history
 	lastPushed int64 // term.Pushed() at the last draw, to keep the view anchored
@@ -76,6 +101,15 @@ type App struct {
 // Run opens the window and blocks until it is closed or the child exits.
 // It must be called from the main OS thread (see runtime.LockOSThread in main).
 func Run(opts Options) error {
+	cfg := opts.Config
+	opts.Overrides.apply(&cfg)
+	th, err := cfg.ResolveTheme()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "germ:", err, "(using default theme)")
+		th = theme.Default()
+	}
+	bindings, _ := cfg.Bindings() // validated by config.Parse
+
 	if err := glfw.Init(); err != nil {
 		return fmt.Errorf("glfw init: %w", err)
 	}
@@ -103,22 +137,22 @@ func Run(opts Options) error {
 	if scale <= 0 {
 		scale = 1
 	}
-	fonts, err := font.Load(opts.FontFamily, opts.FontSize, 96*float64(scale))
+	fonts, err := font.Load(cfg.Font.Family, cfg.Font.Size, 96*float64(scale))
 	if err != nil {
 		return err
 	}
-	rnd, err := render.New(fonts, theme.Default(), int(4*scale+0.5))
+	rnd, err := render.New(fonts, scaledPad(cfg, scale))
 	if err != nil {
 		return err
 	}
 
-	// Size the window for 100x30 cells. Window coordinates may differ from
-	// framebuffer pixels on scaled displays.
+	// Size the window for the configured grid. Window coordinates may
+	// differ from framebuffer pixels on scaled displays.
 	cw, ch := rnd.CellSize()
 	ww, _ := win.GetSize()
 	fbw, fbh := win.GetFramebufferSize()
 	ratio := float64(fbw) / float64(max(ww, 1))
-	win.SetSize(int(float64(100*cw+2*rnd.Pad())/ratio), int(float64(30*ch+2*rnd.Pad())/ratio))
+	win.SetSize(int(float64(cfg.Window.Columns*cw+2*rnd.Pad())/ratio), int(float64(cfg.Window.Rows*ch+2*rnd.Pad())/ratio))
 	win.Show()
 	fbw, fbh = settleSize(win)
 	cols, rows := rnd.Resize(fbw, fbh)
@@ -132,10 +166,11 @@ func Run(opts Options) error {
 	a := &App{
 		opts: opts, win: win, sess: sess, render: rnd,
 		input: make(chan []byte, 256), focused: true, forceRedraw: true,
-		scale: scale, fontSize: opts.FontSize,
+		scale: scale, fontSize: cfg.Font.Size, cfg: cfg, bindings: bindings,
 	}
 	a.term = term.New(cols, rows, term.Options{
-		Scrollback: 10000,
+		Scrollback: cfg.Scrollback.Lines,
+		Theme:      th,
 		Responder:  chanWriter(a.input),
 		OnTitle:    func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
 	})
@@ -150,6 +185,9 @@ func Run(opts Options) error {
 	win.SetFocusCallback(a.onFocus)
 
 	go a.readLoop()
+	if stop, err := config.Watch(func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {
+		defer stop()
+	}
 
 	a.draw()
 	var shotAt time.Time
@@ -167,6 +205,9 @@ func Run(opts Options) error {
 		}
 		if t := a.title.Swap(nil); t != nil {
 			win.SetTitle(*t)
+		}
+		if a.reload.Swap(false) {
+			a.reloadConfig()
 		}
 		a.draw()
 	}
@@ -352,10 +393,57 @@ func (a *App) onFocus(_ *glfw.Window, focused bool) {
 	}
 }
 
+func scaledPad(cfg config.Config, scale float32) int {
+	return int(float32(cfg.Window.Padding)*scale + 0.5)
+}
+
+// reloadConfig re-reads the config file and applies what can change live:
+// theme and colors, font, padding, and key bindings. Errors keep the
+// previous config.
+func (a *App) reloadConfig() {
+	cfg, warnings, err := config.Load(a.opts.ConfigPath)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "germ: %s: %s\n", a.opts.ConfigPath, w)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "germ: %s: %v (keeping previous config)\n", a.opts.ConfigPath, err)
+		return
+	}
+	a.opts.Overrides.apply(&cfg)
+	th, err := cfg.ResolveTheme()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "germ:", err, "(keeping previous config)")
+		return
+	}
+	old := a.cfg
+	a.cfg = cfg
+	a.bindings, _ = cfg.Bindings()
+	a.term.SetTheme(th)
+
+	refit := false
+	if cfg.Font != old.Font {
+		a.fontSize = cfg.Font.Size
+		if fonts, err := font.Load(cfg.Font.Family, cfg.Font.Size, 96*float64(a.scale)); err == nil {
+			a.render.SetFonts(fonts)
+			refit = true
+		} else {
+			fmt.Fprintln(os.Stderr, "germ:", err)
+		}
+	}
+	if cfg.Window.Padding != old.Window.Padding {
+		a.render.SetPad(scaledPad(cfg, a.scale))
+		refit = true
+	}
+	if refit {
+		a.resizeGrid(a.win.GetFramebufferSize())
+	}
+	a.forceRedraw = true
+}
+
 // setFontSize reloads fonts at a new size and refits the grid.
 func (a *App) setFontSize(size float64) {
 	size = max(4, min(size, 96))
-	fonts, err := font.Load(a.opts.FontFamily, size, 96*float64(a.scale))
+	fonts, err := font.Load(a.cfg.Font.Family, size, 96*float64(a.scale))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)
 		return

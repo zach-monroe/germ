@@ -87,7 +87,7 @@ type cursorState struct {
 type Renderer struct {
 	fonts *font.Set
 	m     font.Metrics
-	theme *theme.Theme
+	theme theme.Theme // effective colors, copied from the terminal each frame they change
 	atlas *atlas
 	pad   int
 
@@ -105,6 +105,7 @@ type Renderer struct {
 	reverse       bool
 	view          View
 	pushed        int64
+	colorGen      uint64
 	syncSince     time.Time
 
 	bg, deco []rectInst
@@ -117,8 +118,8 @@ type instanceBuffer struct {
 }
 
 // New creates a renderer. pad is the inner window padding in pixels.
-func New(fonts *font.Set, th *theme.Theme, pad int) (*Renderer, error) {
-	r := &Renderer{fonts: fonts, m: fonts.Metrics(), theme: th, pad: pad}
+func New(fonts *font.Set, pad int) (*Renderer, error) {
+	r := &Renderer{fonts: fonts, m: fonts.Metrics(), pad: pad, colorGen: ^uint64(0)}
 	var err error
 	if r.rectProg, err = compileProgram(rectVert, rectFrag); err != nil {
 		return nil, err
@@ -189,6 +190,12 @@ func (r *Renderer) SetFonts(fonts *font.Set) {
 // CellSize returns the cell size in pixels.
 func (r *Renderer) CellSize() (w, h int) { return r.m.CellW, r.m.CellH }
 
+// SetPad changes the window padding. Call Resize afterwards.
+func (r *Renderer) SetPad(pad int) {
+	r.pad = max(0, pad)
+	r.rows = nil
+}
+
 // Pad returns the window padding in pixels.
 func (r *Renderer) Pad() int { return r.pad }
 
@@ -235,6 +242,10 @@ func (r *Renderer) Draw(t *term.Terminal, v View) bool {
 	if v.Offset != 0 && (pushed != r.pushed || anyTrue(dirty)) {
 		// Dirty flags are in screen coordinates; when scrolled back the
 		// mapping to viewport rows shifts, so just redraw everything.
+		all = true
+	}
+	if th, gen := t.Colors(); gen != r.colorGen {
+		r.theme, r.colorGen = *th, gen
 		all = true
 	}
 	v.Force = false

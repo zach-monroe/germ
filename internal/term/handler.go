@@ -536,8 +536,10 @@ func (h *handler) OscDispatch(data []byte) {
 		if t.opts.OnTitle != nil {
 			t.opts.OnTitle(t.title)
 		}
+	case 4, 10, 11, 12, 104, 110, 111, 112:
+		t.oscColor(code, string(rest))
 	}
-	// OSC 4/10/11/12 colors: Phase 4. OSC 7 and 133: Phase 4.5. OSC 52: Phase 5.
+	// OSC 7 and 133: Phase 4.5. OSC 52: Phase 5.
 }
 
 func (h *handler) DcsDispatch(s *vt.Seq, final byte, data []byte) {

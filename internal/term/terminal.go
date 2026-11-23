@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/zach-monroe/germ/internal/theme"
 	"github.com/zach-monroe/germ/internal/vt"
 )
 
@@ -16,6 +17,8 @@ type Options struct {
 	// happen after the terminal lock is released, from the goroutine that
 	// called Write. May be nil.
 	Responder io.Writer
+	// Theme is the initial color scheme (default: theme.Default()).
+	Theme *theme.Theme
 	// OnBell and OnTitle are called with the terminal lock held; they must
 	// not call back into the Terminal.
 	OnBell  func()
@@ -135,6 +138,8 @@ type Terminal struct {
 	// scrollback length it gives every line a stable absolute row number,
 	// so selections survive new output.
 	pushed int64
+
+	colors colorState
 }
 
 // New creates a terminal of the given size.
@@ -147,6 +152,11 @@ func New(cols, rows int, opts Options) *Terminal {
 	t.alt.lines = makeLines(cols, rows)
 	t.active = &t.primary
 	t.dirty = make([]bool, rows)
+	t.colors.base = opts.Theme
+	if t.colors.base == nil {
+		t.colors.base = theme.Default()
+	}
+	t.colors.recompute()
 	t.resetState()
 	return t
 }
@@ -837,6 +847,7 @@ func (t *Terminal) fullReset() {
 	}
 	t.scrollback.clear()
 	t.title = ""
+	t.colors.reset()
 	t.markAllDirty()
 }
 

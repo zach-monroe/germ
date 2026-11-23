@@ -1,0 +1,52 @@
+# germ configuration — copy to ~/.config/germ/config.toml
+# Changes are applied live when you save (theme, colors, font, padding, keybindings).
+
+# A bundled theme (run `germ -list-themes`), a theme in ~/.config/germ/themes/<name>.toml,
+# or a path to a theme file.
+theme = "tokyonight"
+
+[font]
+family = "monospace"   # any fontconfig name, e.g. "JetBrainsMono Nerd Font"
+size = 11.0            # points
+
+[window]
+padding = 4            # pixels (scaled for HiDPI)
+columns = 100          # initial size
+rows = 30
+
+[scrollback]
+lines = 10000
+
+[shell]
+# program = "/usr/bin/fish"   # default: $SHELL
+# args = ["--login"]
+
+# Override individual theme colors.
+[colors]
+# background = "#1a1b26"
+# foreground = "#c0caf5"
+# cursor = "#c0caf5"
+# cursor_text = "#1a1b26"
+# selection_foreground = "#c0caf5"
+# selection_background = "#33467c"
+# normal = ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6"]
+# bright = ["#414868", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"]
+
+[shell_integration]
+mode = "auto"          # "auto" injects prompt marks for fish; "off" disables
+
+[tmux]
+enabled = false        # attach every window to tmux in control mode (tabs and splits become native)
+session = "main"
+
+# Key bindings: "chord" = "action". Use "none" to remove a default.
+# Actions: copy, paste, paste_primary, zoom_in, zoom_out, zoom_reset,
+#   scroll_page_up, scroll_page_down, scroll_top, scroll_bottom,
+#   previous_prompt, next_prompt, copy_last_output,
+#   new_tab, close_tab, next_tab, previous_tab, split_right, split_down,
+#   close_pane, focus_left, focus_right, focus_up, focus_down,
+#   toggle_pane_zoom, detach, reload_config
+[keybindings]
+# "ctrl+shift+c" = "copy"
+# "ctrl+shift+v" = "paste"
+# "shift+insert" = "none"

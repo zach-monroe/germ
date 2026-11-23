@@ -2,8 +2,11 @@ package term
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/zach-monroe/germ/internal/theme"
 )
 
 func newTerm(cols, rows int) (*Terminal, *bytes.Buffer) {
@@ -443,5 +446,39 @@ func TestAbsRowsAndTextRange(t *testing.T) {
 	}
 	if tm.LineAt(-1) != nil || tm.LineAt(99) != nil {
 		t.Error("out-of-range rows should be nil")
+	}
+}
+
+func TestOSCColors(t *testing.T) {
+	tm, resp := newTerm(10, 2)
+	th, _ := tm.Colors()
+	bg := th.Background
+	feed(tm, "\x1b]11;?\x07")
+	want := fmt.Sprintf("\x1b]11;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\", bg.R, bg.R, bg.G, bg.G, bg.B, bg.B)
+	if resp.String() != want {
+		t.Errorf("OSC 11 query = %q, want %q", resp.String(), want)
+	}
+	resp.Reset()
+	_, gen := tm.Colors()
+	feed(tm, "\x1b]4;1;#102030\x1b\\\x1b]4;1;?\x1b\\")
+	if resp.String() != "\x1b]4;1;rgb:1010/2020/3030\x1b\\" {
+		t.Errorf("OSC 4 = %q", resp.String())
+	}
+	th2, gen2 := tm.Colors()
+	if gen2 == gen || th2.Palette[1].Hex() != "#102030" {
+		t.Error("palette override not applied")
+	}
+	feed(tm, "\x1b]10;rgb:ff/00/00;#00ff00\x07") // sets fg and bg
+	if th3, _ := tm.Colors(); th3.Foreground.Hex() != "#ff0000" || th3.Background.Hex() != "#00ff00" {
+		t.Errorf("OSC 10 multi: fg=%s bg=%s", th3.Foreground.Hex(), th3.Background.Hex())
+	}
+	// Overrides survive a theme change; resets restore the theme.
+	tm.SetTheme(theme.Default())
+	if th4, _ := tm.Colors(); th4.Palette[1].Hex() != "#102030" {
+		t.Error("override lost on SetTheme")
+	}
+	feed(tm, "\x1b]104\x07\x1b]110\x07\x1b]111\x07")
+	if th5, _ := tm.Colors(); *th5 != *theme.Default() {
+		t.Error("resets did not restore theme")
 	}
 }

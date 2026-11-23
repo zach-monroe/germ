@@ -172,7 +172,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **1. VT core** ✅ | Parser, grid, cursor movement, SGR, scroll regions, alt screen, line wrap, resize/reflow | Headless unit tests pass; `vim`, `htop`, `less` look right in a debug text dump |
 | **2. Renderer** ✅ | Font loading, glyph atlas, instanced quads, cursor, dirty-row rendering | A usable daily terminal at 60+ fps |
 | **3. Input & UX** ✅ | Full key encoding, mouse reporting, selection, clipboard, scrollback, URL detection | Comfortable for daily use |
-| **4. Config & themes** | TOML config, bundled themes, hot reload, OSC color queries | Changing the theme file recolors the window live |
+| **4. Config & themes** ✅ | TOML config, bundled themes, hot reload, OSC color queries | Changing the theme file recolors the window live |
 | **4.5 fish integration** | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
 | **5. tmux Level 1** | terminfo, true color through tmux, OSC 52, CSI u, sync output | `tmux` + `nvim` looks and behaves perfectly |
 | **6. Perf pass + tabs/splits** | Benchmarks, profiling, GC tuning; native tabs and splits | Competitive with Alacritty and kitty on vtebench |
@@ -191,7 +191,15 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status / known gaps (updated after Phase 3)
+## Status (after Phase 4)
+- Config: `~/.config/germ/config.toml` (see `config.example.toml`), layered over defaults, unknown keys warned, errors keep the previous config. Command-line flags override it.
+- 9 bundled themes (`germ -list-themes`), user themes in `~/.config/germ/themes/`, `[colors]` overrides.
+- Live reload via fsnotify (directory watch, debounced): theme, colors, font, padding, keybindings.
+- Keybindings are configurable chords → actions; `none` unbinds.
+- OSC 4/10/11/12 set and query, OSC 104/110/111/112 reset; app overrides survive theme reloads.
+- TODO: importers for base16/iTerm2/Alacritty themes.
+
+## Status / known gaps (after Phase 3)
 - Input: full xterm legacy key encoding plus the kitty keyboard protocol (flags 1, 2, 8; per-screen flag stack; fish 4 enables it automatically).
 - Mouse: X10/normal/button/any reporting with default, UTF-8, SGR, URXVT, and SGR-pixel encodings; Shift bypasses reporting.
 - Selection: drag, double-click word, triple-click line; copies to PRIMARY (xclip/xsel) on select; Ctrl+Shift+C/V clipboard; middle-click pastes PRIMARY; bracketed paste with end-marker stripping.

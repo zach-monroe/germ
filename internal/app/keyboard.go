@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/input"
 )
 
@@ -74,7 +75,7 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	if key == glfw.KeyLeftControl || key == glfw.KeyRightControl {
 		a.updateLinkHover() // Ctrl toggles hyperlink hover
 	}
-	if action != glfw.Release && a.binding(key, mods) {
+	if action != glfw.Release && a.binding(key, scancode, mods) {
 		a.suppressChar = true
 		return
 	}
@@ -114,46 +115,103 @@ func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
 	a.sendUser(input.EncodeText(r, toMods(mods)&input.ModAlt, input.State{}))
 }
 
-// binding handles germ's own shortcuts. All use Ctrl+Shift (or Shift with
-// navigation keys) so they don't collide with application key bindings.
-// Phase 4 makes these configurable.
-func (a *App) binding(key glfw.Key, mods glfw.ModifierKey) bool {
-	cs := glfw.ModControl | glfw.ModShift
-	switch {
-	case mods&^glfw.ModNumLock&^glfw.ModCapsLock == cs:
-		switch key {
-		case glfw.KeyC:
-			a.copySelection()
-		case glfw.KeyV:
-			a.pasteClipboard()
-		case glfw.KeyEqual, glfw.KeyKPAdd:
-			a.setFontSize(a.fontSize + 1)
-		case glfw.KeyMinus, glfw.KeyKPSubtract:
-			a.setFontSize(a.fontSize - 1)
-		case glfw.Key0, glfw.KeyBackspace:
-			a.setFontSize(a.opts.FontSize)
-		case glfw.KeyPageUp:
-			a.scrollBy(a.pageLines())
-		case glfw.KeyPageDown:
-			a.scrollBy(-a.pageLines())
-		default:
-			return false
-		}
-		return true
-	case mods&^glfw.ModNumLock&^glfw.ModCapsLock == glfw.ModShift:
-		switch key {
-		case glfw.KeyPageUp:
-			a.scrollBy(a.pageLines())
-		case glfw.KeyPageDown:
-			a.scrollBy(-a.pageLines())
-		case glfw.KeyInsert:
-			a.pasteClipboard()
-		default:
-			return false
-		}
-		return true
+// glfwKeyNames maps non-character keys to config chord names.
+var glfwKeyNames = map[glfw.Key]string{
+	glfw.KeyPageUp: "pageup", glfw.KeyPageDown: "pagedown", glfw.KeyHome: "home",
+	glfw.KeyEnd: "end", glfw.KeyInsert: "insert", glfw.KeyDelete: "delete",
+	glfw.KeyUp: "up", glfw.KeyDown: "down", glfw.KeyLeft: "left", glfw.KeyRight: "right",
+	glfw.KeyEnter: "enter", glfw.KeyKPEnter: "enter", glfw.KeyTab: "tab",
+	glfw.KeyBackspace: "backspace", glfw.KeyEscape: "escape", glfw.KeySpace: "space",
+	glfw.KeyKPAdd: "kp_add", glfw.KeyKPSubtract: "kp_subtract",
+	glfw.KeyF1: "f1", glfw.KeyF2: "f2", glfw.KeyF3: "f3", glfw.KeyF4: "f4",
+	glfw.KeyF5: "f5", glfw.KeyF6: "f6", glfw.KeyF7: "f7", glfw.KeyF8: "f8",
+	glfw.KeyF9: "f9", glfw.KeyF10: "f10", glfw.KeyF11: "f11", glfw.KeyF12: "f12",
+}
+
+func chordFor(key glfw.Key, scancode int, mods glfw.ModifierKey) (config.Chord, bool) {
+	var c config.Chord
+	if mods&glfw.ModShift != 0 {
+		c.Mods |= config.ModShift
 	}
-	return false
+	if mods&glfw.ModAlt != 0 {
+		c.Mods |= config.ModAlt
+	}
+	if mods&glfw.ModControl != 0 {
+		c.Mods |= config.ModCtrl
+	}
+	if mods&glfw.ModSuper != 0 {
+		c.Mods |= config.ModSuper
+	}
+	if name, ok := glfwKeyNames[key]; ok {
+		c.Key = name
+		return c, true
+	}
+	// Character keys: use the US-layout key identity so bindings like
+	// ctrl+shift+c work regardless of what Shift produces.
+	if key >= glfw.KeySpace && key <= glfw.KeyGraveAccent {
+		c.Key = string(unicode.ToLower(rune(key)))
+		return c, true
+	}
+	if r, ok := baseRune(key, scancode); ok {
+		c.Key = string(r)
+		return c, true
+	}
+	return c, false
+}
+
+// binding runs a configured shortcut for this key, reporting whether it
+// consumed the key.
+func (a *App) binding(key glfw.Key, scancode int, mods glfw.ModifierKey) bool {
+	ch, ok := chordFor(key, scancode, mods)
+	if !ok {
+		return false
+	}
+	act, ok := a.bindings[ch]
+	if !ok {
+		return false
+	}
+	return a.do(act)
+}
+
+// do performs an action. It returns false for actions that don't apply
+// right now, so the key falls through to the application.
+func (a *App) do(act config.Action) bool {
+	switch act {
+	case config.ActionScrollPageUp, config.ActionScrollPageDown, config.ActionScrollTop, config.ActionScrollBottom:
+		a.term.Lock()
+		alt := a.term.AltScreen()
+		a.term.Unlock()
+		if alt {
+			return false // no scrollback: let full-screen apps have the key
+		}
+	}
+	switch act {
+	case config.ActionCopy:
+		a.copySelection()
+	case config.ActionPaste:
+		a.pasteClipboard()
+	case config.ActionPastePrimary:
+		a.pastePrimary()
+	case config.ActionZoomIn:
+		a.setFontSize(a.fontSize + 1)
+	case config.ActionZoomOut:
+		a.setFontSize(a.fontSize - 1)
+	case config.ActionZoomReset:
+		a.setFontSize(a.cfg.Font.Size)
+	case config.ActionScrollPageUp:
+		a.scrollBy(a.pageLines())
+	case config.ActionScrollPageDown:
+		a.scrollBy(-a.pageLines())
+	case config.ActionScrollTop:
+		a.scrollBy(1 << 30)
+	case config.ActionScrollBottom:
+		a.scrollBy(-(1 << 30))
+	case config.ActionReloadConfig:
+		a.reloadConfig()
+	default:
+		return a.doExtended(act)
+	}
+	return true
 }
 
 func (a *App) pageLines() int {
