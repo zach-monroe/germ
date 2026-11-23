@@ -1,0 +1,4 @@
+/germ
+/germ-vtdump
+*.test
+*.prof
