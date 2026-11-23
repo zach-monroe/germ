@@ -292,9 +292,10 @@ for pair programming with people and coding agents.</p>
 <pre id="cmd">germ join '…'</pre>
 
 <h2>New to germ?</h2>
-<p>Install it (Linux; needs Go 1.27+, a C compiler, and X11/OpenGL headers):</p>
-<pre>go install github.com/zach-monroe/germ/cmd/germ@latest
-germ setup   # lets "Open in germ" links open germ</pre>
+<p>Install it (Linux, x86_64 or arm64) with one command:</p>
+<pre>curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh</pre>
+<p class="dim">or with a package manager: <code>yay -S germ-bin</code> (Arch) or
+<code>brew install zach-monroe/germ/germ</code>.</p>
 <p>then come back and click <b>Open in germ</b>, or run the command above.</p>
 
 <p class="dim" style="margin-top:2.5rem">The session is end-to-end encrypted. The key is in this page's address after

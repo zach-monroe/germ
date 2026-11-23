@@ -33,8 +33,29 @@ built-in tmux and fish integration.
 
 ## Install
 
-Requires Go 1.27+, a C compiler, and the X11/OpenGL development libraries
-(on Arch: `xorg-server-devel libxcursor libxrandr libxinerama libxi mesa`).
+Linux (X11 or XWayland), x86_64 or arm64:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh
+```
+
+installs the latest release to `~/.local/bin` (checksum-verified), adds an
+app-launcher entry, and registers `germ://` invite links. Or use a package
+manager:
+
+```sh
+yay -S germ-bin                       # Arch (AUR), prebuilt
+brew install zach-monroe/germ/germ    # Homebrew on Linux
+```
+
+germ uses `tmux` (tabs, sharing), `fontconfig`, and optionally `xclip` or
+`wl-clipboard`, `libnotify`, and `git`.
+
+### From source
+
+Go 1.27+, a C compiler, and the X11/OpenGL headers (Arch:
+`libx11 libxrandr libxinerama libxcursor libxi libxxf86vm mesa`; Debian/Ubuntu:
+`libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev`):
 
 ```sh
 go install github.com/zach-monroe/germ/cmd/germ@latest

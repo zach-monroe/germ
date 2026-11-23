@@ -1,0 +1,137 @@
+name: release
+
+# Push a tag like v0.2.0 to build Linux binaries, publish a GitHub release,
+# and refresh the Homebrew tap and AUR package (when their secrets exist).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # Ubuntu 22.04 keeps the glibc requirement low (2.35).
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxxf86vm-dev tmux git fontconfig fonts-dejavu-core
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: |
+          set -eu
+          dir="germ-linux-${{ matrix.arch }}"
+          mkdir -p "dist/$dir"
+          go build -trimpath -ldflags "-s -w -X main.version=$TAG" -o "dist/$dir/germ" ./cmd/germ
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "dist/$dir/germ-relay" ./cmd/germ-relay
+          cp LICENSE README.md config.example.toml packaging/germ.desktop "dist/$dir/"
+          "dist/$dir/germ" version
+          tar -C dist -czf "dist/$dir.tar.gz" "$dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: germ-linux-${{ matrix.arch }}
+          path: dist/germ-linux-${{ matrix.arch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "germ $TAG" --generate-notes
+          fi
+      - name: Render packages
+        run: packaging/render.sh "${TAG#v}" dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            packaging/aur/germ-bin/PKGBUILD
+            packaging/homebrew/germ.rb
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: pkg
+      - name: Update zach-monroe/homebrew-germ
+        if: env.TAP_TOKEN != ''
+        run: |
+          set -eu
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/zach-monroe/homebrew-germ.git" tap
+          mkdir -p tap/Formula
+          cp "$(find pkg -name germ.rb)" tap/Formula/germ.rb
+          cd tap
+          git config user.name "germ release bot"
+          git config user.email "actions@github.com"
+          git add Formula/germ.rb
+          git diff --cached --quiet || { git commit -m "germ $TAG"; git push; }
+
+  aur:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: pkg
+      - name: Locate PKGBUILD
+        id: pkgbuild
+        run: echo "path=$(find pkg -name PKGBUILD)" >> "$GITHUB_OUTPUT"
+      - name: Publish germ-bin to the AUR
+        if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        with:
+          pkgname: germ-bin
+          pkgbuild: ${{ steps.pkgbuild.outputs.path }}
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "germ ${{ env.TAG }}"

@@ -92,6 +92,10 @@ func TestNerdFontIcons(t *testing.T) {
 	if _, err := exec.LookPath("fc-match"); err != nil {
 		t.Skip("fontconfig not installed")
 	}
+	// fc-match substitutes another font when this one is missing.
+	if out, _ := exec.Command("fc-list", "JetBrainsMono Nerd Font").Output(); len(out) == 0 {
+		t.Skip("JetBrainsMono Nerd Font not installed")
+	}
 	s, err := Load("JetBrainsMono Nerd Font", 10, 96)
 	if err != nil {
 		t.Skip("JetBrainsMono Nerd Font not installed")

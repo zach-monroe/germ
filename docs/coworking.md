@@ -35,6 +35,10 @@ germ join 'https://relay.example.com/j/ROOM#KEY'
 A germ window opens on the shared session, with `⇄ alice, bob` in the tab
 bar. Your home tab stays yours. Closing the window leaves the session.
 
+Guests without germ can install it with one command (shown on the invite
+page): `curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh`,
+or `yay -S germ-bin` / `brew install zach-monroe/germ/germ`.
+
 Run `germ setup` once so `germ://` links (the **Open in germ** button)
 launch germ. `germ share` and `germ join` also do this automatically.
 

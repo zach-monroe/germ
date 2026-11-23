@@ -28,6 +28,10 @@ func main() {
 	// `germ widget NAME` runs a built-in home-screen widget (germ starts
 	// these itself in the home tab; running one by hand is handy for
 	// testing).
+	if len(os.Args) >= 2 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Println("germ", Version())
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "share" {
 		os.Exit(runShare(os.Args[2:]))
 	}

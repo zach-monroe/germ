@@ -2,3 +2,5 @@
 /germ-vtdump
 *.test
 *.prof
+packaging/homebrew/germ.rb
+packaging/aur/germ-bin/PKGBUILD
