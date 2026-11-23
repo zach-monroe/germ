@@ -122,7 +122,7 @@ type Control struct {
 
 // Share configures session sharing (germ share / germ join).
 type Share struct {
-	// Relay is a relay server to use, e.g. https://germ-relay.fly.dev (see
+	// Relay is a relay server to use, e.g. https://relay.example.com (see
 	// deploy/relay). Empty (the default): germ share serves the session
 	// from this machine, reachable directly or through a free tunnel.
 	Relay string `toml:"relay"`

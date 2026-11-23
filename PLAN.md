@@ -266,7 +266,7 @@ same window; the socket is 0600.
 ## Status (after Phase 13)
 - `germ share` / Ctrl+Shift+P: per-guest `tmux -C attach` tunnelled over WebSocket through `germ-relay`; two links (can-type / watch-only) with separate AES-256-GCM keys in the URL fragment; host-side command filter (allowlist for watchers, denylist for typists, no `;` or `#(`); presence in the tab bar via `set_status`.
 - `germ join LINK`: germ's tmux controller runs over the tunnel (no pane PIDs or local file links for remote panes). `germ setup` registers `germ://` links. Join page served by the relay.
-- `cmd/germ-relay` (pure Go) + `deploy/relay` (Dockerfile, fly.toml). `docs/coworking.md`.
+- `cmd/germ-relay` (pure Go) + `deploy/relay` (Dockerfile). `docs/coworking.md`.
 - Verified: `internal/share` in-process test with real tmux; `scripts/e2e/share.sh` (relay + host + two guests on Xvfb).
 - TODO: prebuilt binaries so guests can install without Go; per-guest independent window (grouped sessions); host UI to kick guests; guest cursors.
 

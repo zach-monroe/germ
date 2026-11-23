@@ -4,7 +4,7 @@
 //
 //	germ-relay -addr :8080
 //
-// Put it behind TLS (Fly.io, Caddy, nginx, ...); germ links point at its
+// Put it behind TLS (Caddy, nginx, a tunnel, ...); germ links point at its
 // public https URL.
 package main
 

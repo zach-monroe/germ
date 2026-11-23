@@ -113,7 +113,6 @@ set `[share] relay = "https://..."`; then germ share uses it instead of
 serving from your machine. It pairs connections and forwards encrypted
 bytes it can't read; no accounts, nothing on disk.
 
-- **Fly.io**: `deploy/relay/deploy.sh` (needs a Fly account).
 - **Anywhere**: `CGO_ENABLED=0 go build -o germ-relay ./cmd/germ-relay`,
   or the Dockerfile in `deploy/relay`, behind TLS (Caddy, nginx, ...).
 
