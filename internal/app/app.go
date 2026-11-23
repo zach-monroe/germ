@@ -1,29 +1,29 @@
 // Package app owns the window, the main loop, and wires the PTY to input/output.
 //
-// Phase 1: child output drives a term.Terminal (so queries like DA1 get
-// answered), but nothing is drawn yet: the window is a cleared GL surface
-// that accepts keyboard input. Use -dump to print the final screen.
+// The PTY reader goroutine feeds child output into a term.Terminal and wakes
+// the main loop; the main loop (on the locked OS thread) handles window
+// events and redraws with the renderer when something changed.
 package app
 
 import (
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/zach-monroe/germ/internal/font"
 	"github.com/zach-monroe/germ/internal/pty"
+	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/term"
-)
-
-// Placeholder cell metrics until the font package exists (Phase 2).
-const (
-	cellW = 8
-	cellH = 16
+	"github.com/zach-monroe/germ/internal/theme"
 )
 
 // Options configures a run.
@@ -32,6 +32,14 @@ type Options struct {
 	Out     io.Writer // debug output destination
 	Quote   bool      // log child output as Go-quoted strings (shows escape sequences)
 	Dump    bool      // print the screen text when the session ends
+
+	FontFamily string  // fontconfig family, e.g. "JetBrains Mono"
+	FontSize   float64 // points
+
+	// Screenshot, if set, saves the window contents as PNG to this path
+	// after ScreenshotDelay and exits. Used for testing the renderer.
+	Screenshot      string
+	ScreenshotDelay time.Duration
 }
 
 type App struct {
@@ -39,9 +47,16 @@ type App struct {
 	win    *glfw.Window
 	sess   *pty.Session
 	term   *term.Terminal
+	render *render.Renderer
 	input  chan []byte // bytes queued for the child (keys and query replies)
 	title  atomic.Pointer[string]
 	exited atomic.Bool
+	// wakePending is set when the reader has posted a wakeup the main loop
+	// hasn't drawn for yet.
+	wakePending atomic.Bool
+
+	focused     bool
+	forceRedraw bool
 }
 
 // Run opens the window and blocks until it is closed or the child exits.
@@ -57,7 +72,9 @@ func Run(opts Options) error {
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 
-	win, err := glfw.CreateWindow(80*cellW, 24*cellH, "germ", nil, nil)
+	// Start hidden so the window can be sized to the font before showing.
+	glfw.WindowHint(glfw.Visible, glfw.False)
+	win, err := glfw.CreateWindow(800, 600, "germ", nil, nil)
 	if err != nil {
 		return fmt.Errorf("create window: %w", err)
 	}
@@ -68,16 +85,38 @@ func Run(opts Options) error {
 		return fmt.Errorf("gl init: %w", err)
 	}
 
+	scale, _ := win.GetContentScale()
+	if scale <= 0 {
+		scale = 1
+	}
+	fonts, err := font.Load(opts.FontFamily, opts.FontSize, 96*float64(scale))
+	if err != nil {
+		return err
+	}
+	rnd, err := render.New(fonts, theme.Default(), int(4*scale+0.5))
+	if err != nil {
+		return err
+	}
+
+	// Size the window for 100x30 cells. Window coordinates may differ from
+	// framebuffer pixels on scaled displays.
+	cw, ch := rnd.CellSize()
+	ww, _ := win.GetSize()
 	fbw, fbh := win.GetFramebufferSize()
-	cols, rows := gridSize(fbw, fbh)
-	sess, err := pty.Start(opts.Command, cols, rows)
+	ratio := float64(fbw) / float64(max(ww, 1))
+	win.SetSize(int(float64(100*cw+2*rnd.Pad())/ratio), int(float64(30*ch+2*rnd.Pad())/ratio))
+	win.Show()
+	fbw, fbh = win.GetFramebufferSize()
+	cols, rows := rnd.Resize(fbw, fbh)
+
+	sess, err := pty.Start(opts.Command, uint16(cols), uint16(rows))
 	if err != nil {
 		return err
 	}
 	defer sess.Close()
 
-	a := &App{opts: opts, win: win, sess: sess, input: make(chan []byte, 256)}
-	a.term = term.New(int(cols), int(rows), term.Options{
+	a := &App{opts: opts, win: win, sess: sess, render: rnd, input: make(chan []byte, 256), focused: true, forceRedraw: true}
+	a.term = term.New(cols, rows, term.Options{
 		Scrollback: 10000,
 		Responder:  chanWriter(a.input),
 		OnTitle:    func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
@@ -86,12 +125,25 @@ func Run(opts Options) error {
 	win.SetCharModsCallback(a.onChar)
 	win.SetKeyCallback(a.onKey)
 	win.SetFramebufferSizeCallback(a.onResize)
+	win.SetRefreshCallback(func(*glfw.Window) { a.forceRedraw = true; a.draw() })
+	win.SetFocusCallback(func(_ *glfw.Window, f bool) { a.focused = f; a.forceRedraw = true })
 
 	go a.readLoop()
 
 	a.draw()
+	var shotAt time.Time
+	if opts.Screenshot != "" {
+		shotAt = time.Now().Add(opts.ScreenshotDelay)
+	}
 	for !win.ShouldClose() && !a.exited.Load() {
-		glfw.WaitEvents() // blocks: zero CPU while idle
+		if !shotAt.IsZero() {
+			glfw.WaitEventsTimeout(0.05)
+			if time.Now().After(shotAt) {
+				return a.screenshot(opts.Screenshot)
+			}
+		} else {
+			glfw.WaitEvents() // blocks: zero CPU while idle
+		}
 		if t := a.title.Swap(nil); t != nil {
 			win.SetTitle(*t)
 		}
@@ -101,6 +153,29 @@ func Run(opts Options) error {
 		fmt.Fprintln(opts.Out, strings.TrimRight(a.term.Text(), "\n"))
 	}
 	return nil
+}
+
+// screenshot redraws into the back buffer and saves it as a PNG.
+func (a *App) screenshot(path string) error {
+	a.render.Draw(a.term, a.focused, true)
+	w, h := a.win.GetFramebufferSize()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	gl.ReadBuffer(gl.BACK)
+	gl.ReadPixels(0, 0, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(img.Pix))
+	// GL rows are bottom-up.
+	row := make([]byte, img.Stride)
+	for y := 0; y < h/2; y++ {
+		top, bot := img.Pix[y*img.Stride:(y+1)*img.Stride], img.Pix[(h-1-y)*img.Stride:(h-y)*img.Stride]
+		copy(row, top)
+		copy(top, bot)
+		copy(bot, row)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }
 
 // chanWriter queues writes on a channel so the reader goroutine never
@@ -122,10 +197,6 @@ func (a *App) writeLoop() {
 	}
 }
 
-func gridSize(w, h int) (cols, rows uint16) {
-	return uint16(max(1, w/cellW)), uint16(max(1, h/cellH))
-}
-
 // readLoop drains child output on its own goroutine.
 func (a *App) readLoop() {
 	buf := make([]byte, 64*1024)
@@ -134,7 +205,11 @@ func (a *App) readLoop() {
 		if n > 0 {
 			a.log(buf[:n])
 			a.term.Write(buf[:n])
-			glfw.PostEmptyEvent() // wake the main loop to redraw
+			// Wake the main loop to redraw, at most once per frame: the
+			// X11 wakeup is a cgo call plus a round-trip to the server.
+			if !a.wakePending.Swap(true) {
+				glfw.PostEmptyEvent()
+			}
 		}
 		if err != nil {
 			// Any error ends the session: on Linux, EIO is the normal
@@ -161,17 +236,18 @@ func (a *App) send(p []byte) {
 }
 
 func (a *App) draw() {
-	// Tokyo-Night-ish background until the renderer and themes exist.
-	gl.ClearColor(0x1a/255.0, 0x1b/255.0, 0x26/255.0, 1)
-	gl.Clear(gl.COLOR_BUFFER_BIT)
-	a.win.SwapBuffers()
+	a.wakePending.Store(false)
+	if a.render.Draw(a.term, a.focused, a.forceRedraw) {
+		a.win.SwapBuffers()
+	}
+	a.forceRedraw = false
 }
 
 func (a *App) onResize(_ *glfw.Window, w, h int) {
-	gl.Viewport(0, 0, int32(w), int32(h))
-	cols, rows := gridSize(w, h)
-	a.term.Resize(int(cols), int(rows))
-	if err := a.sess.Resize(cols, rows); err != nil {
+	cols, rows := a.render.Resize(w, h)
+	a.term.Resize(cols, rows)
+	a.forceRedraw = true
+	if err := a.sess.Resize(uint16(cols), uint16(rows)); err != nil {
 		fmt.Fprintln(os.Stderr, "germ: resize:", err)
 	}
 }

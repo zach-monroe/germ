@@ -170,7 +170,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 |---|---|---|
 | **0. Skeleton** ✅ | `go mod init`, a GLFW window, spawn `$SHELL` on a PTY, log output to stdout | Typing in the window reaches the shell |
 | **1. VT core** ✅ | Parser, grid, cursor movement, SGR, scroll regions, alt screen, line wrap, resize/reflow | Headless unit tests pass; `vim`, `htop`, `less` look right in a debug text dump |
-| **2. Renderer** | Font loading, glyph atlas, instanced quads, cursor, dirty-row rendering | A usable daily terminal at 60+ fps |
+| **2. Renderer** ✅ | Font loading, glyph atlas, instanced quads, cursor, dirty-row rendering | A usable daily terminal at 60+ fps |
 | **3. Input & UX** | Full key encoding, mouse reporting, selection, clipboard, scrollback, URL detection | Comfortable for daily use |
 | **4. Config & themes** | TOML config, bundled themes, hot reload, OSC color queries | Changing the theme file recolors the window live |
 | **4.5 fish integration** | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
@@ -191,8 +191,16 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status / known gaps (updated after Phase 1)
-- Phase 1 baseline throughput (i3-4030U @ 1.9 GHz): plain text ~82 MB/s, color-heavy ~32 MB/s, 0 allocs once scrollback is full. Parser alone: ~130 MB/s.
+## Status / known gaps (updated after Phase 2)
+- Renderer: three instanced draw calls per frame (backgrounds, glyphs, decorations) with per-row instance caches rebuilt only for dirty rows; idle = 0 CPU; synchronized output (2026) holds frames up to 200 ms.
+- Box drawing (U+2500–257F) and block elements (U+2580–259F) are drawn procedurally so tmux borders join seamlessly.
+- End-to-end `cat` of a 22 MB file: ~4 s, versus ~3.5 s for a do-nothing PTY reader on the same machine — the kernel PTY is the bottleneck.
+- TODO: synthetic italic when the font has no italic face; proper double-line junctions; rounded corners as arcs.
+- TODO: color emoji (CBDT/COLR) are not rendered; handle DPI changes when moving between monitors.
+- TODO: font discovery shells out to `fc-match` (~100 ms at startup); cache results or use fontconfig directly.
+- Testing: `germ -screenshot out.png -- <cmd>` saves a PNG of the window; `GERM_CPUPROFILE=file` writes a CPU profile.
+
+- Phase 1 baseline throughput (headless) (i3-4030U @ 1.9 GHz): plain text ~82 MB/s, color-heavy ~32 MB/s, 0 allocs once scrollback is full. Parser alone: ~130 MB/s.
 - TODO: combining characters (zero-width runes are currently dropped).
 - TODO: the grid scrolls by shifting row slices; switch to a ring-buffer grid in the Phase 6 perf pass.
 - TODO: DECRQSS / XTGETTCAP (Phase 5), OSC colors (Phase 4), OSC 7/133 (Phase 4.5), kitty keyboard protocol (Phase 3).

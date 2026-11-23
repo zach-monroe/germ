@@ -101,6 +101,7 @@ func (h *handler) EscDispatch(s *vt.Seq, final byte) {
 				for x := range l.Cells {
 					l.Cells[x] = Cell{Rune: 'E'}
 				}
+				l.touch(len(l.Cells))
 				l.Wrapped = false
 			}
 			t.top, t.bottom = 0, t.rows-1

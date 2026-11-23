@@ -87,6 +87,18 @@ type Line struct {
 	// Wrapped is true if the text continues on the next line because it
 	// hit the right margin (a soft wrap), rather than ending with a newline.
 	Wrapped bool
+	// n is the written extent: every cell at index >= n is the zero Cell.
+	// It lets clearing and rendering skip the empty tail of a line.
+	n int
+}
+
+// Extent returns an index past which all cells are empty zero Cells.
+func (l *Line) Extent() int { return min(l.n, len(l.Cells)) }
+
+func (l *Line) touch(end int) {
+	if end > l.n {
+		l.n = end
+	}
 }
 
 // blank reports whether the line has no visible content.

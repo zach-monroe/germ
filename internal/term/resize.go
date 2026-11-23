@@ -41,6 +41,7 @@ func (t *Terminal) resizeAlt(cols, rows int) {
 	for y := 0; y < min(rows, len(t.alt.lines)); y++ {
 		copy(lines[y].Cells, t.alt.lines[y].Cells)
 		fixClippedWide(lines[y].Cells)
+		lines[y].n = cols
 	}
 	t.alt.lines = lines
 	if t.active == &t.alt {
@@ -128,6 +129,7 @@ func (t *Terminal) reflowPrimary(cols, rows int, cur *Cursor) {
 	for y := start; y < end; y++ {
 		copy(lines[y-start].Cells, out[y].Cells)
 		lines[y-start].Wrapped = out[y].Wrapped
+		lines[y-start].n = cols
 	}
 
 	t.scrollback = newSB
@@ -144,7 +146,7 @@ func rewrap(out []Line, cells []Cell, cols int, hasCursor bool, off, curRow, cur
 	flush := func(wrapped bool) {
 		full := make([]Cell, cols)
 		copy(full, row)
-		out = append(out, Line{Cells: full, Wrapped: wrapped})
+		out = append(out, Line{Cells: full, Wrapped: wrapped, n: cols})
 		row = row[:0]
 	}
 	for i := 0; i < len(cells); i++ {

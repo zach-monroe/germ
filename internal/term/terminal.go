@@ -296,8 +296,13 @@ func (t *Terminal) respond(s string) { t.resp = append(t.resp, s...) }
 // (xterm "back color erase").
 func (t *Terminal) blankCell() Cell { return Cell{BG: t.cur.Pen.BG} }
 
-func (t *Terminal) clearCells(cells []Cell) {
-	fillCells(cells, t.blankCell())
+// clearIn blanks l.Cells[from:to].
+func (t *Terminal) clearIn(l *Line, from, to int) {
+	b := t.blankCell()
+	fillCells(l.Cells[from:to], b)
+	if b != (Cell{}) {
+		l.touch(to)
+	}
 }
 
 // fillCells sets every cell to c. Zero cells use memclr; others use
@@ -321,9 +326,16 @@ func (t *Terminal) resetLine(l Line) Line {
 	if cap(l.Cells) < t.cols {
 		l.Cells = make([]Cell, t.cols)
 	}
-	l.Cells = l.Cells[:t.cols]
+	full := l.Cells[:cap(l.Cells)]
+	if b := t.blankCell(); b == (Cell{}) {
+		clear(full[:min(l.n, len(full))]) // only the written part is dirty
+		l.n = 0
+	} else {
+		fillCells(full, b)
+		l.n = len(full)
+	}
+	l.Cells = full[:t.cols]
 	l.Wrapped = false
-	t.clearCells(l.Cells)
 	return l
 }
 
@@ -336,11 +348,9 @@ func (t *Terminal) fixWide(l *Line, x int) {
 	c := &l.Cells[x]
 	switch {
 	case c.Attrs&AttrWideSpacer != 0 && x > 0:
-		l.Cells[x-1] = t.blankCell()
-		*c = t.blankCell()
+		t.clearIn(l, x-1, x+1)
 	case c.Attrs&AttrWide != 0 && x+1 < len(l.Cells):
-		l.Cells[x+1] = t.blankCell()
-		*c = t.blankCell()
+		t.clearIn(l, x, x+2)
 	}
 }
 
@@ -479,6 +489,7 @@ func (t *Terminal) print(r rune) {
 		pad := t.blankCell()
 		pad.Attrs = attrWrapPad
 		l.Cells[c.X] = pad
+		l.touch(c.X + 1)
 		t.wrap()
 	}
 
@@ -501,6 +512,7 @@ func (t *Terminal) print(r rune) {
 	} else {
 		l.Cells[c.X] = cell
 	}
+	l.touch(c.X + w)
 	t.markDirty(c.Y)
 
 	if c.X+w >= t.cols {
@@ -534,6 +546,7 @@ func (t *Terminal) printASCII(b []byte) {
 		for i, ch := range b[:n] {
 			cells[i].Rune = rune(ch)
 		}
+		l.touch(c.X + n)
 		t.markDirty(c.Y)
 		b = b[n:]
 		if c.X+n < t.cols {
@@ -589,7 +602,8 @@ func (t *Terminal) insertCells(n int) {
 	n = min(n, t.cols-x)
 	t.fixWide(l, x)
 	copy(l.Cells[x+n:], l.Cells[x:])
-	t.clearCells(l.Cells[x : x+n])
+	l.touch(t.cols)
+	t.clearIn(l, x, x+n)
 	// A wide character may have been split at the right edge.
 	if last := &l.Cells[t.cols-1]; last.Attrs&AttrWide != 0 {
 		*last = t.blankCell()
@@ -607,7 +621,7 @@ func (t *Terminal) deleteCells(n int) {
 	t.fixWide(l, x)
 	t.fixWide(l, x+n)
 	copy(l.Cells[x:], l.Cells[x+n:])
-	t.clearCells(l.Cells[t.cols-n:])
+	t.clearIn(l, t.cols-n, t.cols)
 	l.Wrapped = false
 	t.cur.pendingWrap = false
 	t.markDirty(t.cur.Y)
@@ -620,7 +634,7 @@ func (t *Terminal) eraseCells(n int) {
 	end := min(x+n, t.cols)
 	t.fixWide(l, x)
 	t.fixWide(l, end-1)
-	t.clearCells(l.Cells[x:end])
+	t.clearIn(l, x, end)
 	t.cur.pendingWrap = false
 	t.markDirty(t.cur.Y)
 }
@@ -632,13 +646,13 @@ func (t *Terminal) eraseLine(mode int) {
 	switch mode {
 	case 0:
 		t.fixWide(l, x)
-		t.clearCells(l.Cells[x:])
+		t.clearIn(l, x, t.cols)
 		l.Wrapped = false
 	case 1:
 		t.fixWide(l, x)
-		t.clearCells(l.Cells[:x+1])
+		t.clearIn(l, 0, x+1)
 	case 2:
-		t.clearCells(l.Cells)
+		t.clearIn(l, 0, t.cols)
 		l.Wrapped = false
 	}
 	t.cur.pendingWrap = false
