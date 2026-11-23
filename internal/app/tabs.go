@@ -69,7 +69,10 @@ func (a *App) active() *pane {
 
 // barRows is the number of grid rows used by the tab bar.
 func (a *App) barRows() int {
-	if len(a.tabs) > 1 && a.gridRows > 2 {
+	// In tmux mode the bar is always shown (it doubles as the session's
+	// status line), which also keeps the client size stable as windows
+	// come and go.
+	if (len(a.tabs) > 1 || a.tmux != nil) && a.gridRows > 2 {
 		return 1
 	}
 	return 0
@@ -371,6 +374,15 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 	}
 	var spans []tabSpan
 	x := 0
+	if a.tmux != nil { // session name first, like tmux's status line
+		for _, r := range " " + a.tmux.session + " " {
+			if x < cols {
+				cells[x] = term.Cell{Rune: r, FG: rgb(th.Background), BG: rgb(th.Palette[2]), Attrs: term.AttrBold}
+				x++
+			}
+		}
+		x++
+	}
 	maxW := max(8, min(30, cols/max(1, len(a.tabs))))
 	for i, t := range a.tabs {
 		label := []rune(" " + strconv.Itoa(i+1) + " " + t.title() + " ")

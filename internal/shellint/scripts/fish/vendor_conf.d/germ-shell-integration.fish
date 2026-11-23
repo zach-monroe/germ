@@ -15,7 +15,9 @@ if set -q GERM_ORIG_XDG_DATA_DIRS
 end
 
 status is-interactive; or exit 0
-test "$TERM_PROGRAM" = germ; or exit 0
+# TERM_PROGRAM is germ in germ's own panes; inside tmux (control mode)
+# germ marks the environment instead.
+test "$TERM_PROGRAM" = germ; or set -q GERM_SHELL_INTEGRATION; or exit 0
 set -q __germ_integration; and exit 0
 set -g __germ_integration 1
 

@@ -46,5 +46,31 @@ displaying tmux's own drawing:
   key);
 - sessions keep running after you close germ; the next window reattaches.
 
-Start it with `germ -tmux` (session `main`, created if needed) or
-`germ -tmux work`, or set `[tmux] enabled = true` to make it the default.
+Start it with `germ -tmux` (session `main`, created if needed), pick a
+session with `germ -tmux -session work`, or set `[tmux] enabled = true` to
+make it the default (`germ -no-tmux` then opts out for one window).
+
+| Action | Default key | tmux command germ sends |
+|---|---|---|
+| New tab (window) | Ctrl+Shift+T | `new-window -c <cwd>` |
+| Split right / down | Ctrl+Shift+Enter / Ctrl+Shift+D | `split-window -h` / `-v` |
+| Focus pane | Ctrl+Shift+H/J/K/L or click | `select-pane` |
+| Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab | `select-window` |
+| Zoom pane | Ctrl+Shift+Z | `resize-pane -Z` |
+| Close pane / tab | Ctrl+Shift+W / Ctrl+Shift+Q | `kill-pane` / `kill-window` |
+| Detach | close the window (or bind `detach`) | `detach-client` |
+
+Changes made from anywhere (another client, `tmux` commands inside a pane,
+your tmux key bindings) show up in germ immediately: germ follows tmux's
+`%layout-change`, `%window-add`, and related notifications.
+
+How it works: germ runs `tmux -C new-session -A -s NAME` and reads its line
+protocol. Pane output arrives as `%output` lines and is fed straight into
+that pane's terminal; keystrokes go back as `send-keys -H` (hex, so every
+byte arrives intact). On attach, germ loads each pane's screen and recent
+history with `capture-pane`. Applications inside tmux answer to tmux, so
+germ never replies to their terminal queries itself.
+
+Limitations: dragging separators doesn't resize panes yet (use tmux's
+`resize-pane`), and copy mode isn't needed — use germ's own scrollback and
+selection.

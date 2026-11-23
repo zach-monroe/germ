@@ -38,7 +38,8 @@ mode = "auto"          # "auto" injects prompt marks for fish; "off" disables
 
 [tmux]
 enabled = false        # attach every window to tmux in control mode (tabs and splits become native)
-session = "main"
+session = "main"       # created if it doesn't exist; reattached otherwise
+# socket = "germ"      # tmux -L socket name (default server if unset)
 
 # Key bindings: "chord" = "action". Use "none" to remove a default.
 # Actions: copy, paste, paste_primary, zoom_in, zoom_out, zoom_reset,

@@ -81,6 +81,7 @@ func TestParser(t *testing.T) {
 		{"osc st", []string{"\x1b]2;hi\x1b\\"}, []string{`osc "2;hi"`, `esc "" \`}},
 		{"osc utf8", []string{"\x1b]2;né\x07"}, []string{`osc "2;né"`}},
 		{"dcs", []string{"\x1bP1$qm\x1b\\"}, []string{`dcs 1$q "m"`, `esc "" \`}},
+		{"screen title ignored", []string{"\x1bkecho\x1b\\x"}, []string{`esc "" \`, `ascii "x"`}},
 		{"apc ignored", []string{"\x1b_Gf=1;AAAA\x1b\\x"}, []string{`esc "" \`, `ascii "x"`}},
 		{"param overflow saturates", []string{"\x1b[99999999A"}, []string{"csi 65535A"}},
 	}

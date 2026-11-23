@@ -181,11 +181,15 @@ func Run(opts Options) error {
 		a.baseEnv = []string{"TERM=" + cfg.Shell.Term}
 	}
 
+	tmuxStarted := false
 	if opts.Tmux != "" {
 		if err := a.startTmux(opts.Tmux); err != nil {
-			return err
+			fmt.Fprintln(os.Stderr, "germ:", err, "(starting a plain shell instead)")
+		} else {
+			tmuxStarted = true
 		}
-	} else {
+	}
+	if !tmuxStarted {
 		p, err := a.newLocalPane(opts.Command, "", a.gridCols, a.gridRows)
 		if err != nil {
 			return err
@@ -227,7 +231,7 @@ func Run(opts Options) error {
 		if a.paneExited.Swap(false) && !a.reapPanes() {
 			break
 		}
-		if len(a.tabs) == 0 {
+		if len(a.tabs) == 0 && (a.tmux == nil || a.tmux.ready) {
 			break
 		}
 		if text := a.clipboard.Swap(nil); text != nil {

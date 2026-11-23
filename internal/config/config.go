@@ -58,6 +58,8 @@ type Tmux struct {
 	Enabled bool `toml:"enabled"`
 	// Session is the session name to attach to or create.
 	Session string `toml:"session"`
+	// Socket selects a tmux server socket name (tmux -L).
+	Socket string `toml:"socket"`
 }
 
 // ShellIntegration controls automatic shell integration.

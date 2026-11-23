@@ -180,6 +180,12 @@ func (p *Parser) step(c byte) {
 			p.st = sDcsEntry
 		case c == 'X', c == '^', c == '_': // SOS, PM, APC
 			p.st = sSosPmApc
+		case c == 'k':
+			// screen/tmux "set window name" (ESC k name ST). Apps send it
+			// when TERM is screen* or tmux* — always the case for panes in
+			// tmux control mode — so swallow the string instead of
+			// printing it.
+			p.st = sSosPmApc
 		case c < 0x7f:
 			p.st = sGround
 			p.h.EscDispatch(&p.seq, c)

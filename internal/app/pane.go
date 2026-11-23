@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -103,11 +104,21 @@ func (f writerFunc) Write(p []byte) (int, error) { f(p); return len(p), nil }
 
 // newTerm creates a terminal wired to the app's callbacks for pane p.
 func (a *App) newTerm(p *pane, cols, rows int) *term.Terminal {
+	return a.makeTerm(p, cols, rows, writerFunc(p.send))
+}
+
+// newTermNoReplies is newTerm for panes whose host (tmux) answers
+// terminal queries itself.
+func (a *App) newTermNoReplies(p *pane, cols, rows int) *term.Terminal {
+	return a.makeTerm(p, cols, rows, nil)
+}
+
+func (a *App) makeTerm(p *pane, cols, rows int, resp io.Writer) *term.Terminal {
 	th, _ := a.cfg.ResolveTheme()
 	return term.New(cols, rows, term.Options{
 		Scrollback: a.cfg.Scrollback.Lines,
 		Theme:      th,
-		Responder:  writerFunc(p.send),
+		Responder:  resp,
 		OnTitle: func(s string) {
 			p.title.Store(&s)
 			glfw.PostEmptyEvent()

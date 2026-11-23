@@ -176,7 +176,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **4.5 fish integration** ✅ | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
 | **5. tmux Level 1** ✅ | terminfo, true color through tmux, OSC 52, CSI u, sync output | `tmux` + `nvim` looks and behaves perfectly |
 | **6. Perf pass + tabs/splits** ✅ | Benchmarks, profiling, GC tuning; native tabs and splits | Competitive with Alacritty and kitty on vtebench |
-| **7. tmux Level 2** | Control mode client | `germ --tmux` attaches with native tabs and splits |
+| **7. tmux Level 2** ✅ | Control mode client | `germ --tmux` attaches with native tabs and splits |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -190,6 +190,12 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 7) — all planned phases complete
+- tmux control mode: `germ -tmux [-session NAME]` or `[tmux] enabled = true`. tmux windows ↔ germ tabs, panes ↔ native splits with exact tmux geometry (layout strings parsed into the same split tree), per-pane germ scrollback/selection/clipboard, output via `%output`, input via `send-keys -H`, existing screens loaded with `capture-pane`, zoom via the visible layout, session kept on exit and restored on reattach. The tab bar shows the session name.
+- Parser now swallows screen/tmux `ESC k … ST` window-name strings (apps emit them whenever TERM is tmux*/screen*).
+- E2E: `scripts/e2e/tmux.sh` (isolated tmux server on Xvfb) checks splits, focus, and input routing.
+- Possible next steps: drag-to-resize separators (tmux `resize-pane` / native ratios), OSC 8 hyperlinks, kitty keyboard flags 4/16, color emoji, combining characters, native Wayland (GLFW 3.4), zsh/bash shell integration.
 
 ## Status (after Phase 6)
 - Native tabs and splits: binary split tree in cells with tmux-style 1-cell separators; new panes open in the active pane's directory (OSC 7, else /proc). Tab bar appears with 2+ tabs (click or wheel to switch).
