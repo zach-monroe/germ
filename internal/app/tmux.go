@@ -15,6 +15,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/zach-monroe/germ/internal/share"
+	"github.com/zach-monroe/germ/internal/shellint"
 )
 
 // tmux control mode: germ runs `tmux -C new-session -A -s NAME` and speaks
@@ -117,7 +118,7 @@ func (a *App) startTmux(session string) error {
 	cmd.Env = append(cmd.Env, "TERM_PROGRAM=germ", "COLORTERM=truecolor")
 	if a.cfg.Shells.Mode != "off" {
 		// Panes inherit the server's environment when germ starts it.
-		cmd.Env = append(cmd.Env, shellintEnv([]string{"fish"})...)
+		cmd.Env = append(cmd.Env, shellint.AllEnv()...)
 		cmd.Env = append(cmd.Env, "GERM_SHELL_INTEGRATION=1")
 	}
 	stdin, err := cmd.StdinPipe()
@@ -137,6 +138,14 @@ func (a *App) startTmux(session string) error {
 		// New panes in this session find this window; a running tmux server
 		// may predate it.
 		c.command("set-environment GERM_SOCKET "+tmuxQuote(a.ctl.path), nil)
+	}
+	if a.cfg.Shells.Mode != "off" {
+		// The tmux server may predate this germ (and its environment), so
+		// give new panes in this session the shell integration directly.
+		for _, kv := range append(shellint.AllEnv(), "GERM_SHELL_INTEGRATION=1") {
+			k, v, _ := strings.Cut(kv, "=")
+			c.command("set-environment "+k+" "+tmuxQuote(v), nil)
+		}
 	}
 	c.begin()
 	return nil

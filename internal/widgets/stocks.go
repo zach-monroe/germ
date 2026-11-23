@@ -166,7 +166,8 @@ func (s *stocks) Draw(w, h int, err error) []string {
 		if chg < 0 {
 			c, arrow = red, "▼"
 		}
-		row := fmt.Sprintf(" %s%-8s%s %10s %s%s%6.2f%%%s", bold, truncate(sym, 8), reset, money(q.price), c, arrow, math.Abs(chg), reset)
+		row := fmt.Sprintf("%s%-8s%s %10s %s%s%6.2f%%%s", bold, truncate(sym, 8), reset, money(q.price), c, arrow, math.Abs(chg), reset)
+		row = " " + link("https://finance.yahoo.com/quote/"+url.PathEscape(sym), row)
 		if sparkW >= 6 {
 			row += "  " + c + sparkline(q.series, sparkW) + reset
 		}

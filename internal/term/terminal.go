@@ -128,6 +128,7 @@ type screen struct {
 type Terminal struct {
 	mu     sync.Mutex
 	kitty  kittyNotify // partial OSC 99 notification
+	links  hyperlinks
 	parser *vt.Parser
 	opts   Options
 
@@ -361,6 +362,9 @@ func (t *Terminal) TextRange(startRow int64, startCol int, endRow int64, endCol 
 				seg.WriteByte(' ')
 			default:
 				seg.WriteRune(c.Rune)
+				if c.Mark != 0 {
+					seg.WriteRune(c.Mark)
+				}
 			}
 		}
 		if l.Wrapped && row != endRow {
@@ -413,6 +417,9 @@ func writeLineText(b *strings.Builder, l *Line) {
 			s.WriteByte(' ')
 		default:
 			s.WriteRune(c.Rune)
+			if c.Mark != 0 {
+				s.WriteRune(c.Mark)
+			}
 		}
 	}
 	b.WriteString(strings.TrimRight(s.String(), " "))
@@ -602,7 +609,7 @@ func (t *Terminal) print(r rune) {
 	}
 	w := runeWidth(r)
 	if w == 0 {
-		// TODO: attach combining characters to the previous cell.
+		t.combine(r)
 		return
 	}
 	t.lastRune = r

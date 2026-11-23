@@ -595,3 +595,43 @@ func TestNotifications(t *testing.T) {
 		t.Errorf("progress %v", prog)
 	}
 }
+
+func TestHyperlinks(t *testing.T) {
+	term := New(30, 3, Options{})
+	term.Write([]byte("see \x1b]8;id=a;https://example.com/x\x1b\\here\x1b[0m!\x1b]8;;\x1b\\ done"))
+	term.Write([]byte("\r\n\x1b]8;;javascript:alert(1)\x07bad\x1b]8;;\x07"))
+	term.Lock()
+	defer term.Unlock()
+	l := term.LineAt(term.AbsRow(0, 0))
+	if id := l.Cells[4].Link; id == 0 || term.LinkURL(id) != "https://example.com/x" {
+		t.Fatalf("cell 4 link %d %q", id, term.LinkURL(id))
+	}
+	if l.Cells[8].Link != l.Cells[4].Link { // "!" after an SGR reset is still linked
+		t.Error("SGR reset ended the link")
+	}
+	if l.Cells[3].Link != 0 || l.Cells[10].Link != 0 {
+		t.Error("link leaked outside its text")
+	}
+	if term.LineAt(term.AbsRow(1, 0)).Cells[0].Link != 0 {
+		t.Error("javascript: link accepted")
+	}
+}
+
+func TestCombining(t *testing.T) {
+	term := New(20, 2, Options{})
+	// e + acute composes; q + tilde has no precomposed form and becomes a
+	// mark; ZWJ is dropped.
+	term.Write([]byte("e\u0301x q\u0303 a\u200d"))
+	term.Lock()
+	l := term.LineAt(term.AbsRow(0, 0))
+	if l.Cells[0].Rune != '\u00e9' || l.Cells[1].Rune != 'x' {
+		t.Errorf("cells %q %q", l.Cells[0].Rune, l.Cells[1].Rune)
+	}
+	if l.Cells[3].Rune != 'q' || l.Cells[3].Mark != '\u0303' {
+		t.Errorf("mark cell %q %q", l.Cells[3].Rune, l.Cells[3].Mark)
+	}
+	term.Unlock()
+	if got := term.Text(); !strings.HasPrefix(got, "\u00e9x q\u0303 a") {
+		t.Errorf("text %q", got)
+	}
+}

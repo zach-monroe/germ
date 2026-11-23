@@ -84,20 +84,23 @@ type App struct {
 	render *render.Renderer
 
 	// Cross-goroutine signals.
-	wakePending atomic.Bool
-	paneExited  atomic.Bool
-	reload      atomic.Bool
-	focusedA    atomic.Bool
-	attention   atomic.Bool
-	agentPoll   atomic.Bool // time to re-detect agents
-	ctl         *ctlServer
-	prevTab     *tab                       // the tab shown before the last switch (for toggle_home)
-	status      atomic.Pointer[statusText] // right side of the tab bar
-	redrawAll   atomic.Bool                // set off the main thread
-	tasksMu     sync.Mutex
-	tasks       []func() // run on the main thread (mainThread)
-	animating   bool     // a working agent's spinner is showing
-	clipboard   atomic.Pointer[string]
+	wakePending   atomic.Bool
+	paneExited    atomic.Bool
+	reload        atomic.Bool
+	focusedA      atomic.Bool
+	attention     atomic.Bool
+	agentPoll     atomic.Bool // time to re-detect agents
+	ctl           *ctlServer
+	prevTab       *tab // the tab shown before the last switch (for toggle_home)
+	handCursor    *glfw.Cursor
+	resizeCursors map[glfw.StandardCursor]*glfw.Cursor
+	handShown     bool
+	status        atomic.Pointer[statusText] // right side of the tab bar
+	redrawAll     atomic.Bool                // set off the main thread
+	tasksMu       sync.Mutex
+	tasks         []func() // run on the main thread (mainThread)
+	animating     bool     // a working agent's spinner is showing
+	clipboard     atomic.Pointer[string]
 
 	// Main-thread state.
 	tabs       []*tab

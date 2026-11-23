@@ -291,6 +291,25 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 					Color: toRGBA(fg),
 				})
 			}
+			if c.Mark != 0 {
+				if e := r.atlas.get(c.Mark, styleOf(c.Attrs)); e.ok {
+					// Most fonts draw combining marks left of the pen (zero
+					// advance, placed back over the previous character), so
+					// put the pen after the base; others draw them inside
+					// their own cell, over the base as is.
+					mx := px
+					if e.bounds.Max.X <= 0 {
+						mx = px + w*cw
+					}
+					rc.glyphs = append(rc.glyphs, glyphInst{
+						X: float32(mx + e.bounds.Min.X), Y: float32(py + e.bounds.Min.Y),
+						W: float32(e.bounds.Dx()), H: float32(e.bounds.Dy()),
+						U: float32(e.uv.Min.X), V: float32(e.uv.Min.Y),
+						UW: float32(e.uv.Dx()), VH: float32(e.uv.Dy()),
+						Color: toRGBA(fg),
+					})
+				}
+			}
 		}
 		s.decorations(rc, c, px, py, w*cw, fg)
 		if linkHere && x >= link.StartCol && x <= link.EndCol && c.Underline == term.UnderlineNone {

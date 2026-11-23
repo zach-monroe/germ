@@ -556,6 +556,8 @@ func (h *handler) OscDispatch(data []byte) {
 		t.oscSemanticPrompt(string(rest))
 	case 52:
 		t.oscClipboard(string(rest))
+	case 8:
+		t.oscHyperlink(string(rest))
 	case 9, 777, 99:
 		t.oscNotify(code, string(rest))
 	}

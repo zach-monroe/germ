@@ -6,7 +6,7 @@ import "github.com/zach-monroe/germ/internal/vt"
 func (t *Terminal) sgr(p *vt.Params) {
 	pen := &t.cur.Pen
 	if p.Len() == 0 {
-		*pen = Cell{}
+		*pen = Cell{Link: pen.Link} // hyperlinks outlive SGR resets
 		return
 	}
 	for i := 0; i < p.Len(); i++ {
@@ -20,7 +20,7 @@ func (t *Terminal) sgr(p *vt.Params) {
 
 		switch {
 		case v == 0:
-			*pen = Cell{}
+			*pen = Cell{Link: pen.Link} // hyperlinks outlive SGR resets
 		case v == 1:
 			pen.Attrs |= AttrBold
 		case v == 2:

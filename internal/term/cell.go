@@ -79,6 +79,10 @@ type Cell struct {
 	UL        Color // underline color; default means "same as FG"
 	Attrs     Attr
 	Underline Underline
+	Link      uint16 // OSC 8 hyperlink (Terminal.LinkURL), 0 = none
+	// Mark is a combining character drawn over Rune (when the pair has no
+	// precomposed form, like many Indic vowel signs), 0 = none.
+	Mark rune
 }
 
 // Line is one row of cells.

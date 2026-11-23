@@ -22,13 +22,15 @@ built-in tmux and fish integration.
 - **Home screen**: the first tab is a dashboard of widgets (clock,
   weather, news, stocks), and any program can be a widget, so you can write
   your own in any language. See [docs/widgets.md](docs/widgets.md).
-- **fish integration**, zero setup: jump between prompts, copy the last
-  command's output, failed-command marks, new tabs/splits in the current
-  directory, notifications for long commands, kitty keyboard protocol.
+- **Shell integration for fish, zsh, and bash**, zero setup: jump between
+  prompts, copy the last command's output, failed-command marks, new
+  tabs/splits in the current directory, notifications for long commands.
+  Works with Oh My Zsh, powerlevel10k, starship, and in tmux panes.
 - **Customizable colors**: 9 bundled themes, your own theme files, per-color
   overrides, and live reload when you save the config.
 - Tabs and splits without tmux too, selection (word/line), clipboard and
-  X11 primary selection, scrollback, Ctrl+click URLs, zoom, true color,
+  X11 primary selection, scrollback, Ctrl+click URLs and OSC 8 hyperlinks,
+  drag separators to resize panes, combining characters, zoom, true color,
   mouse reporting, and procedurally drawn box-drawing characters.
 
 ## Install
@@ -104,8 +106,8 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+C / Ctrl+Shift+V, Shift+Insert | copy / paste |
 | Ctrl+Shift+= / - / 0 | zoom in / out / reset |
 | Shift+PgUp / PgDn, Shift+Home / End | scroll history |
-| Ctrl+Shift+Up / Down | previous / next prompt (fish) |
-| Ctrl+Shift+X | copy last command's output (fish) |
+| Ctrl+Shift+Up / Down | previous / next prompt |
+| Ctrl+Shift+X | copy last command's output |
 | Ctrl+Shift+T, Ctrl+Shift+Q | new tab, close tab |
 | Ctrl+Tab, Ctrl+Shift+Tab (or Ctrl+Shift+Left/Right) | next / previous tab |
 | Ctrl+Shift+Enter, Ctrl+Shift+D | split right, split down |
@@ -116,7 +118,8 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
 | Ctrl+Shift+P | share this session (invite links) |
 | Ctrl+Shift+F | as a guest: follow the host's tab again |
-| Ctrl+click | open URL, or `file:line` in `$EDITOR` |
+| Ctrl+click | open URL or hyperlink (`$BROWSER`, else xdg-open), or `file:line` in `$EDITOR` |
+| drag a separator | resize panes |
 
 Rebind or remove any of these under `[keybindings]`.
 

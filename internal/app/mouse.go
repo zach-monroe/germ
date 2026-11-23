@@ -32,6 +32,7 @@ type mouseState struct {
 	clickCol   int
 	clickRow   int64
 	clicks     int
+	sep        *sepDrag // separator being dragged
 }
 
 // ---- selection -----------------------------------------------------------
@@ -234,6 +235,13 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 	if !ok {
 		return
 	}
+	if a.mouse.sep != nil && action == glfw.Release {
+		a.endSepDrag()
+		return
+	}
+	if action == glfw.Press && btn == input.ButtonLeft && a.startSepDrag(a.mouse.gx, a.mouse.gy) {
+		return
+	}
 	p, col, row, inBar := a.hit()
 	if action == glfw.Release {
 		defer func() { a.mouse.capture = nil }()
@@ -270,7 +278,8 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 
 	switch {
 	case btn == input.ButtonLeft && action == glfw.Press:
-		if mods&glfw.ModControl != 0 && p.linkURL != "" {
+		_, widget := p.be.(*widgetBackend)
+		if (widget || mods&glfw.ModControl != 0) && p.linkURL != "" {
 			openURL(p.linkURL)
 			return
 		}
@@ -319,6 +328,10 @@ func (a *App) onCursorPos(_ *glfw.Window, x, y float64) {
 	moved := gx != a.mouse.gx || gy != a.mouse.gy
 	a.mouse.gx, a.mouse.gy = gx, gy
 	if !moved {
+		return
+	}
+	if a.mouse.sep != nil {
+		a.dragSep(gx, gy)
 		return
 	}
 	p, col, row, inBar := a.hit()
@@ -439,12 +452,16 @@ func (a *App) updateLinkHover() {
 	}
 	var link render.Link
 	url := ""
-	if glfwMods(a.win)&glfw.ModControl != 0 {
+	_, widget := p.be.(*widgetBackend)
+	if widget || glfwMods(a.win)&glfw.ModControl != 0 { // widgets don't take typing: no Ctrl needed
 		p.term.Lock()
 		abs := p.term.AbsRow(row, p.offset)
-		url, link = findURL(p.term, abs, col)
+		url, link = findHyperlink(p.term, abs, col)
+		if url == "" {
+			url, link = findURL(p.term, abs, col)
+		}
 		p.term.Unlock()
-		if url == "" && (a.tmux == nil || a.tmux.remote == nil) { // remote paths aren't ours
+		if url == "" && !widget && (a.tmux == nil || a.tmux.remote == nil) { // remote paths aren't ours
 			dir := paneDir(p)
 			p.term.Lock()
 			ref, l := findFile(p.term, abs, col, dir)
@@ -459,6 +476,7 @@ func (a *App) updateLinkHover() {
 		a.forceRedraw = true
 	}
 	p.linkURL = url
+	a.setHandCursor(link.Active)
 	if !link.Active || url != "" {
 		p.fileRef = nil
 	}
@@ -601,9 +619,48 @@ func findFile(t *term.Terminal, row int64, col int, dir string) (*fileRef, rende
 	return nil, render.Link{}
 }
 
+// openURL opens a link with $BROWSER if set, else xdg-open.
 func openURL(url string) {
-	cmd := exec.Command("xdg-open", url)
+	argv := []string{"xdg-open"}
+	if b := strings.Fields(os.Getenv("BROWSER")); len(b) > 0 {
+		argv = b
+	}
+	cmd := exec.Command(argv[0], append(argv[1:], url)...)
 	if err := cmd.Start(); err == nil {
 		go cmd.Wait()
+	}
+}
+
+// findHyperlink finds the OSC 8 link at (row, col) and the run of cells on
+// that row it covers. Caller must hold the terminal lock.
+func findHyperlink(t *term.Terminal, row int64, col int) (string, render.Link) {
+	l := t.LineAt(row)
+	if l == nil || col < 0 || col >= len(l.Cells) || l.Cells[col].Link == 0 {
+		return "", render.Link{}
+	}
+	id := l.Cells[col].Link
+	start, end := col, col
+	for start > 0 && l.Cells[start-1].Link == id {
+		start--
+	}
+	for end+1 < len(l.Cells) && l.Cells[end+1].Link == id {
+		end++
+	}
+	return t.LinkURL(id), render.Link{Active: true, Row: row, StartCol: start, EndCol: end}
+}
+
+// setHandCursor shows a pointing hand over links.
+func (a *App) setHandCursor(on bool) {
+	if on == a.handShown {
+		return
+	}
+	a.handShown = on
+	if on {
+		if a.handCursor == nil {
+			a.handCursor = glfw.CreateStandardCursor(glfw.HandCursor)
+		}
+		a.win.SetCursor(a.handCursor)
+	} else {
+		a.win.SetCursor(nil)
 	}
 }

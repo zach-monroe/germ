@@ -191,9 +191,17 @@ func width(s string) int {
 	for i := 0; i < len(s); {
 		if s[i] == 0x1b {
 			j := i + 1
-			if j < len(s) && s[j] == '[' {
+			switch {
+			case j < len(s) && s[j] == '[': // CSI ... final
 				j++
 				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+					j++
+				}
+			case j < len(s) && s[j] == ']': // OSC ... BEL or ESC \
+				for j < len(s) && s[j] != 0x07 && !(s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\') {
+					j++
+				}
+				if j < len(s) && s[j] == 0x1b {
 					j++
 				}
 			}
@@ -311,4 +319,12 @@ func fill(lines []string, h int, footer string) []string {
 		lines = lines[:h-1]
 	}
 	return append(lines, footer)
+}
+
+// link makes text a clickable hyperlink (OSC 8); germ opens it on click.
+func link(url, text string) string {
+	if url == "" {
+		return text
+	}
+	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }

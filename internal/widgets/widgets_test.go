@@ -54,3 +54,9 @@ func TestDrawFrames(t *testing.T) {
 		}
 	}
 }
+
+func TestWidthSkipsHyperlinks(t *testing.T) {
+	if n := width(link("https://example.com", "abc") + "d"); n != 4 {
+		t.Errorf("width = %d", n)
+	}
+}

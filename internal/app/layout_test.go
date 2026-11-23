@@ -66,3 +66,29 @@ func TestSizeForTiny(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitAtAndDragRatio(t *testing.T) {
+	root := split(leaf(1), leaf(1), splitH, 2)
+	root.layout(cellRect{0, 0, 81, 10})
+	sep := root.a.rect.X + root.a.rect.W
+	if s := splitAt(root, sep, 3); s != root {
+		t.Fatalf("splitAt(%d,3) = %v", sep, s)
+	}
+	if s := splitAt(root, sep-1, 3); s != nil {
+		t.Error("found a split inside a pane")
+	}
+	// Dragging to column 20 gives the left pane 20 cells.
+	root.ratio = float64(20-root.rect.X) / float64(root.rect.W-1)
+	root.layout(root.rect)
+	if root.a.rect.W != 20 {
+		t.Errorf("left width %d", root.a.rect.W)
+	}
+	// Nested: a vertical split inside the right pane.
+	right := root.b
+	root2 := split(root, right, splitV, 3)
+	root2.layout(cellRect{0, 0, 81, 10})
+	r := root2.find(3).rect
+	if s := splitAt(root2, r.X+1, r.Y-1); s == nil || s.dir != splitV {
+		t.Errorf("nested split not found: %+v", s)
+	}
+}

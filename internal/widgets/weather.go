@@ -302,7 +302,7 @@ func (w *weather) Draw(wd, h int, err error) []string {
 	}
 	lines = append(lines, "")
 	for i := 0; i < 5; i++ {
-		row := " " + pic[i] + reset
+		row := " " + link(w.forecastURL(), pic[i]+reset)
 		if wd >= 36 && i < len(info) {
 			row += "  " + info[i]
 		}
@@ -328,7 +328,8 @@ func (w *weather) Draw(wd, h int, err error) []string {
 			ico.WriteString(pad(smallIcon(k)))
 			hi.WriteString(pad(fmt.Sprintf("%s%.0f°%s %s%.0f°%s", red, d.Daily.Max[i], reset, blue, d.Daily.Min[i], reset)))
 		}
-		lines = append(lines, "", day.String(), ico.String(), hi.String())
+		u := w.forecastURL()
+		lines = append(lines, "", link(u, day.String()), link(u, ico.String()), link(u, hi.String()))
 	}
 	return fill(lines, h, errLine(err, wd))
 }
@@ -349,4 +350,13 @@ func smallIcon(kind string) string {
 		return dim + "≡ fog" + reset
 	}
 	return white + "☁ cloud" + reset
+}
+
+// forecastURL is a detailed forecast for the location (opened on click).
+// Caller holds w.mu.
+func (w *weather) forecastURL() string {
+	if w.place == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://www.windy.com/?%.3f,%.3f,9", w.lat, w.lon)
 }

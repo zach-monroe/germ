@@ -198,7 +198,7 @@ func (n *news) Draw(w, h int, err error) []string {
 	top := items[0]
 	meta := dim + " " + top.source + " · " + ago(top.when) + reset
 	for i, l := range wrap(top.title, w-2, 2) {
-		lines = append(lines, " "+bold+bright+l+reset)
+		lines = append(lines, " "+link(top.link, bold+bright+l+reset))
 		_ = i
 	}
 	if top.summary != "" && avail-len(lines) > 6 {
@@ -220,7 +220,7 @@ func (n *news) Draw(w, h int, err error) []string {
 		}
 		tag := ago(s.when)
 		room := w - 4 - len(tag)
-		lines = append(lines, " "+c+"•"+reset+" "+fmt.Sprintf("%-*s", room, truncate(s.title, room))+" "+dim+tag+reset)
+		lines = append(lines, " "+c+"•"+reset+" "+link(s.link, fmt.Sprintf("%-*s", room, truncate(s.title, room)))+" "+dim+tag+reset)
 	}
 	return fill(lines, h, errLine(err, w))
 }

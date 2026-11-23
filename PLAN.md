@@ -184,7 +184,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **12. Agent input polish** ✅ | Shift+Enter newlines, image paste, "send selection to agent pane" | Multi-line prompts and screenshots just work in agent UIs |
 | **13. Coworking** ✅ | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
 | **14. Coworking v2** ✅ | Remove/ban guests from the share pane, rotate links; guests navigate tabs independently (grouped tmux sessions) with a follow-the-host toggle; "who's typing" presence; automatic reconnect for guests and host | A guest's Wi-Fi blips and they're back a few seconds later; you remove one guest without stopping the share |
-| **15. Daily-driver polish** | Drag separators to resize; OSC 8 hyperlinks; combining characters; zsh/bash shell integration | Your zsh gets prompt jumping, command marks, and notifications like fish |
+| **15. Daily-driver polish** ✅ | Drag separators to resize; OSC 8 hyperlinks; combining characters; zsh/bash shell integration | Your zsh gets prompt jumping, command marks, and notifications like fish |
 | **16. Agent tuning** | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
 
 ### Testing approach
@@ -235,6 +235,13 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 15)
+- Shell integration for zsh (ZDOTDIR bootstrap that restores ZDOTDIR and sources the user's .zshenv; zle line-init hook after `zmodload zsh/zle`, plus a PS1 suffix since Oh My Zsh replaces zle-line-init) and bash (PROMPT_COMMAND bootstrap + DEBUG-trap preexec). tmux mode sets the variables on germ's session too. Tests run real interactive shells in a pty.
+- OSC 8 hyperlinks: `Cell.Link` indexes a per-terminal URI table (survives SGR resets; http/https/mailto/file/ftp/sftp/ssh/man only); Ctrl+hover underlines the run, Ctrl+click opens via `$BROWSER`/xdg-open, hand cursor. Widget panes need no Ctrl; news/stocks/weather emit links.
+- Drag separators: native tabs set the split ratio; tmux tabs send `resize-pane -L/-R/-U/-D` for the pane bordering the separator.
+- Combining characters: NFC-compose with the previous cell when possible, else `Cell.Mark` (one per cell) drawn after the base (fonts place zero-advance marks back over it). Joiners/variation selectors dropped.
+- `germ <command>` skips the home tab.
 
 ## Status (after Phase 14)
 - Guests get grouped tmux sessions (`<session>-guest-N-xxx`, tagged `@germ-guest`, removed on leave, swept on start); window targets are session-qualified (`$id:@w`) everywhere since `@w` is ambiguous in a group; watchers may only `select-window -t $own:@w`.

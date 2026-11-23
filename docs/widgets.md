@@ -33,6 +33,10 @@ Saving the config rebuilds the home tab right away.
 
 None need API keys. Try one outside germ with `germ widget clock`.
 
+**Click to open**: news headlines open the article, stock rows their quote
+page, and the weather a detailed forecast map, in your browser (`$BROWSER`,
+else `xdg-open`). Widgets don't take typing, so no Ctrl is needed.
+
 ## Writing your own widget
 
 A widget is any program. germ runs it in a pseudo-terminal sized to the
@@ -76,6 +80,8 @@ makes widgets easy to share: one file to copy.
   leftovers (`\e[J`), and wrap frames in synchronized output
   (`\e[?2026h` ... `\e[?2026l`) to avoid flicker. Hide the cursor with
   `\e[?25l`.
+- **Links**: print OSC 8 hyperlinks (`\e]8;;URL\e\\text\e]8;;\e\\`) and
+  clicking the text opens the URL.
 - Widgets don't receive keyboard input (yet).
 
 A complete live widget in shell:
