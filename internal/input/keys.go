@@ -95,6 +95,9 @@ type State struct {
 	AppCursor  bool
 	AppKeypad  bool
 	KittyFlags uint8
+	// ModifyOtherKeys is xterm's modifyOtherKeys level (0–2), which tmux
+	// requests with its extended-keys option.
+	ModifyOtherKeys int
 }
 
 // IsKeypad reports whether k is on the numeric keypad.
@@ -116,7 +119,8 @@ func HandledAsKey(ev KeyEvent, st State) bool {
 		// Ctrl combos never produce char events on X11. With kitty
 		// disambiguation, Alt combos are encoded as keys too.
 		return ev.Mods&ModCtrl != 0 ||
-			(st.KittyFlags&term.KittyDisambiguate != 0 && ev.Mods&(ModAlt|ModSuper) != 0)
+			(st.KittyFlags&term.KittyDisambiguate != 0 && ev.Mods&(ModAlt|ModSuper) != 0) ||
+			(st.ModifyOtherKeys == 2 && ev.Mods&ModAlt != 0)
 	case ev.Key.IsKeypad() && ev.Key != KeyKPEnter:
 		// Numeric keypad digits produce chars unless in application mode.
 		return all || st.AppKeypad || ev.Mods&(ModCtrl|ModAlt) != 0
@@ -133,7 +137,52 @@ func EncodeKey(ev KeyEvent, st State) []byte {
 	if ev.Action == Release {
 		return nil
 	}
+	if b := encodeModifyOtherKeys(ev, st.ModifyOtherKeys); b != nil {
+		return b
+	}
 	return encodeLegacy(ev, st)
+}
+
+// encodeModifyOtherKeys implements xterm's "CSI 27 ; mods ; code ~" form.
+// Level 1 uses it only where the legacy encoding is ambiguous or lossy;
+// level 2 uses it for every modified key.
+func encodeModifyOtherKeys(ev KeyEvent, level int) []byte {
+	if level == 0 || ev.Mods == 0 {
+		return nil
+	}
+	var code int
+	switch ev.Key {
+	case KeyRune:
+		if ev.Mods == ModShift {
+			return nil // plain shifted text
+		}
+		r := ev.Rune
+		if ev.Mods&ModShift != 0 {
+			r = unicode.ToUpper(r)
+		}
+		code = int(r)
+		if level == 1 {
+			_, hasCtrl := ctrlByte(ev.Rune)
+			ambiguous := ev.Mods&ModCtrl != 0 && (ev.Mods&ModShift != 0 || !hasCtrl)
+			if !ambiguous {
+				return nil
+			}
+		}
+	case KeyEnter:
+		code = 13
+	case KeyTab:
+		code = 9
+		if ev.Mods == ModShift {
+			return nil // keep CSI Z
+		}
+	case KeyBackspace:
+		code = 127
+	case KeyEscape:
+		code = 27
+	default:
+		return nil
+	}
+	return []byte("\x1b[27;" + strconv.Itoa(modParam(ev.Mods)) + ";" + strconv.Itoa(code) + "~")
 }
 
 // EncodeText returns the bytes for text from the char callback.

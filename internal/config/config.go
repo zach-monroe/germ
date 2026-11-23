@@ -46,6 +46,10 @@ type Scrollback struct {
 type Shell struct {
 	Program string   `toml:"program"`
 	Args    []string `toml:"args"`
+	// Term sets $TERM. Empty means "xterm-germ" when its terminfo can be
+	// installed, else xterm-256color. Set "xterm-256color" if you ssh to
+	// hosts without germ's terminfo.
+	Term string `toml:"term"`
 }
 
 // Tmux configures tmux control-mode integration.

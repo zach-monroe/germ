@@ -23,7 +23,7 @@ func Start(argv []string, cols, rows uint16, extraEnv ...string) (*Session, erro
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = append(os.Environ(),
-		"TERM=xterm-256color", // until we ship our own terminfo (Phase 5)
+		"TERM=xterm-256color", // callers may override with TERM=germ
 		"COLORTERM=truecolor",
 		"TERM_PROGRAM=germ",
 	)

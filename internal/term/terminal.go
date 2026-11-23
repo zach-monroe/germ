@@ -27,6 +27,8 @@ type Options struct {
 	// OnCommandDone is called when the shell reports a command finished
 	// (OSC 133;D), with the lock held.
 	OnCommandDone func(exit int, d time.Duration)
+	// OnClipboard is called for OSC 52 clipboard writes, with the lock held.
+	OnClipboard func(text string, clipboard, primary bool)
 }
 
 // MouseMode is the active mouse reporting mode.
@@ -148,6 +150,8 @@ type Terminal struct {
 	// Shell integration state (OSC 7 and OSC 133).
 	cwd   string
 	shell shellMarks
+
+	modifyOtherKeys int
 }
 
 // New creates a terminal of the given size.
@@ -183,6 +187,7 @@ func makeLines(cols, rows int) []Line {
 func (t *Terminal) resetState() {
 	t.modes = Modes{Autowrap: true, CursorVisible: true, AltScroll: true}
 	t.primary.kbd, t.alt.kbd = nil, nil
+	t.modifyOtherKeys = 0
 	t.cur = Cursor{}
 	t.top, t.bottom = 0, t.rows-1
 	t.resetTabs()

@@ -171,3 +171,28 @@ func TestPaste(t *testing.T) {
 		t.Errorf("end marker survived: %q", got)
 	}
 }
+
+func TestModifyOtherKeys(t *testing.T) {
+	l1, l2 := State{ModifyOtherKeys: 1}, State{ModifyOtherKeys: 2}
+	tests := []struct {
+		ev   KeyEvent
+		st   State
+		want string
+	}{
+		{KeyEvent{Key: KeyRune, Rune: 'a', Mods: ModCtrl}, l1, "\x01"},
+		{KeyEvent{Key: KeyRune, Rune: 'a', Mods: ModCtrl | ModShift}, l1, "\x1b[27;6;65~"},
+		{KeyEvent{Key: KeyRune, Rune: '1', Mods: ModCtrl}, l1, "\x1b[27;5;49~"},
+		{KeyEvent{Key: KeyRune, Rune: 'a', Mods: ModCtrl}, l2, "\x1b[27;5;97~"},
+		{KeyEvent{Key: KeyRune, Rune: 'a', Mods: ModAlt}, l2, "\x1b[27;3;97~"},
+		{KeyEvent{Key: KeyEnter, Mods: ModShift}, l1, "\x1b[27;2;13~"},
+		{KeyEvent{Key: KeyTab, Mods: ModShift}, l2, "\x1b[Z"},
+		{KeyEvent{Key: KeyRune, Rune: 'a', Mods: ModShift}, l2, "A"},
+		{KeyEvent{Key: KeyUp, Mods: ModCtrl}, l2, "\x1b[1;5A"},
+	}
+	for _, tt := range tests {
+		tt.ev.Action = Press
+		if got := string(EncodeKey(tt.ev, tt.st)); got != tt.want {
+			t.Errorf("%+v level=%d: got %q, want %q", tt.ev, tt.st.ModifyOtherKeys, got, tt.want)
+		}
+	}
+}

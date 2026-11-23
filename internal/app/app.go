@@ -25,6 +25,7 @@ import (
 	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/shellint"
 	"github.com/zach-monroe/germ/internal/term"
+	"github.com/zach-monroe/germ/internal/terminfo"
 	"github.com/zach-monroe/germ/internal/theme"
 )
 
@@ -85,9 +86,10 @@ type App struct {
 	fontSize    float64 // current size, which zoom changes
 	cfg         config.Config
 	bindings    map[config.Chord]config.Action
-	reload      atomic.Bool // set by the config watcher
-	focusedA    atomic.Bool // focus state readable from other goroutines
-	attention   atomic.Bool // request window attention on the main thread
+	reload      atomic.Bool            // set by the config watcher
+	focusedA    atomic.Bool            // focus state readable from other goroutines
+	attention   atomic.Bool            // request window attention on the main thread
+	clipboard   atomic.Pointer[string] // OSC 52 text for the main thread to publish
 
 	offset     int   // lines scrolled back into history
 	lastPushed int64 // term.Pushed() at the last draw, to keep the view anchored
@@ -161,8 +163,14 @@ func Run(opts Options) error {
 	cols, rows := rnd.Resize(fbw, fbh)
 
 	var env []string
+	switch cfg.Shell.Term {
+	case "":
+		env = terminfo.Env() // TERM=germ if the entry installs
+	default:
+		env = []string{"TERM=" + cfg.Shell.Term}
+	}
 	if cfg.Shells.Mode != "off" {
-		env = shellint.Env(opts.Command)
+		env = append(env, shellint.Env(opts.Command)...)
 	}
 	sess, err := pty.Start(opts.Command, uint16(cols), uint16(rows), env...)
 	if err != nil {
@@ -182,6 +190,7 @@ func Run(opts Options) error {
 		Responder:     chanWriter(a.input),
 		OnTitle:       func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
 		OnCommandDone: a.onCommandDone,
+		OnClipboard:   a.onClipboard,
 	})
 	go a.writeLoop()
 	win.SetCharModsCallback(a.onChar)
@@ -215,6 +224,9 @@ func Run(opts Options) error {
 		if t := a.title.Swap(nil); t != nil {
 			win.SetTitle(*t)
 		}
+		if text := a.clipboard.Swap(nil); text != nil {
+			glfw.SetClipboardString(*text)
+		}
 		if a.attention.Swap(false) {
 			win.RequestAttention()
 		}
@@ -247,6 +259,18 @@ func settleSize(win *glfw.Window) (int, int) {
 		}
 	}
 	return w, h
+}
+
+// onClipboard handles OSC 52 writes (reader goroutine, terminal locked).
+// GLFW's clipboard must be used from the main thread, so hand it over.
+func (a *App) onClipboard(text string, clipboard, primary bool) {
+	if clipboard {
+		a.clipboard.Store(&text)
+		glfw.PostEmptyEvent()
+	}
+	if primary {
+		setPrimary(text)
+	}
 }
 
 // screenshot redraws into the back buffer and saves it as a PNG.

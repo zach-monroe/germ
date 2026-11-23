@@ -143,6 +143,14 @@ func (h *handler) CsiDispatch(s *vt.Seq, final byte) {
 			if p.Raw(0) == 0 {
 				t.respond("\x1bP>|germ " + Version + "\x1b\\")
 			}
+		case 'm': // XTMODKEYS: CSI > 4 ; level m (modifyOtherKeys)
+			if p.Raw(0) == 4 {
+				t.modifyOtherKeys = int(min(p.Raw(1), 2))
+			}
+		case 'n': // XTMODKEYS reset
+			if p.Raw(0) == 4 {
+				t.modifyOtherKeys = 0
+			}
 		case 'u': // kitty keyboard: push flags
 			k := &t.active.kbd
 			if len(*k) >= maxKbdStack {
@@ -345,6 +353,10 @@ func (h *handler) csiPrivate(s *vt.Seq, final byte) {
 		t.eraseDisplay(int(p.Raw(0)))
 	case 'K': // DECSEL
 		t.eraseLine(int(p.Raw(0)))
+	case 'm': // XTQMODKEYS: CSI ? 4 m
+		if p.Raw(0) == 4 {
+			t.respond(fmt.Sprintf("\x1b[>4;%dm", t.modifyOtherKeys))
+		}
 	case 'u': // kitty keyboard: query flags
 		t.respond(fmt.Sprintf("\x1b[?%du", t.KeyboardFlags()))
 	}
@@ -542,10 +554,12 @@ func (h *handler) OscDispatch(data []byte) {
 		t.oscCWD(string(rest))
 	case 133:
 		t.oscSemanticPrompt(string(rest))
+	case 52:
+		t.oscClipboard(string(rest))
 	}
-	// OSC 52: Phase 5.
+
 }
 
 func (h *handler) DcsDispatch(s *vt.Seq, final byte, data []byte) {
-	// DECRQSS and XTGETTCAP: Phase 5.
+	h.dcs(s, final, data)
 }

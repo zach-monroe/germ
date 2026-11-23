@@ -65,7 +65,8 @@ func (a *App) inputState() input.State {
 	a.term.Lock()
 	defer a.term.Unlock()
 	m := a.term.Modes()
-	return input.State{AppCursor: m.AppCursor, AppKeypad: m.AppKeypad, KittyFlags: a.term.KeyboardFlags()}
+	return input.State{AppCursor: m.AppCursor, AppKeypad: m.AppKeypad,
+		KittyFlags: a.term.KeyboardFlags(), ModifyOtherKeys: a.term.ModifyOtherKeys()}
 }
 
 func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {

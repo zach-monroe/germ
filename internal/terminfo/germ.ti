@@ -1,0 +1,15 @@
+# terminfo for germ. Compiled at startup into ~/.local/share/germ/terminfo
+# (with `tic -x`) and exposed through TERMINFO_DIRS.
+xterm-germ|germ|germ terminal emulator,
+	Tc, RGB, XT, hs, AX,
+	Smulx=\E[4:%p1%dm,
+	Setulc=\E[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%d%;m,
+	Ss=\E[%p1%d q, Se=\E[2 q,
+	Sync=\E[?2026%?%p1%{1}%-%tl%eh%;,
+	Ms=\E]52;%p1%s;%p2%s\007,
+	Cs=\E]12;%p1%s\007, Cr=\E]112\007,
+	Smol=\E[53m, Rmol=\E[55m,
+	BE=\E[?2004h, BD=\E[?2004l, PS=\E[200~, PE=\E[201~,
+	fe=\E[?1004h, fd=\E[?1004l, kxIN=\E[I, kxOUT=\E[O,
+	tsl=\E]2;, fsl=^G, dsl=\E]2;\007,
+	use=xterm-256color,

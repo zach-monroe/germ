@@ -531,3 +531,45 @@ func TestPromptMarksSurviveScrollAndReflow(t *testing.T) {
 		t.Errorf("after reflow found %d prompt marks, want 1", found)
 	}
 }
+
+func TestOSC52(t *testing.T) {
+	var got []string
+	tm := New(10, 2, Options{OnClipboard: func(s string, c, p bool) { got = append(got, fmt.Sprintf("%s|%v|%v", s, c, p)) }})
+	feed(tm, "\x1b]52;c;aGVsbG8=\x07\x1b]52;p;d29ybGQ=\x1b\\\x1b]52;c;?\x07\x1b]52;c;!!!\x07")
+	want := []string{"hello|true|false", "world|false|true"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestDECRQSSAndXTGETTCAP(t *testing.T) {
+	tm, resp := newTerm(10, 5)
+	feed(tm, "\x1b[1;4:3;38;2;1;2;3;41m\x1bP$qm\x1b\\")
+	if got := resp.String(); got != "\x1bP1$r0;1;4:3;38:2::1:2:3;41m\x1b\\" {
+		t.Errorf("DECRQSS m = %q", got)
+	}
+	resp.Reset()
+	feed(tm, "\x1b[2;4r\x1bP$qr\x1b\\\x1bP$qx\x1b\\")
+	if got := resp.String(); got != "\x1bP1$r2;4r\x1b\\\x1bP0$r\x1b\\" {
+		t.Errorf("DECRQSS r/bad = %q", got)
+	}
+	resp.Reset()
+	// "TN" = 544e, "RGB" = 524742, "Tc" = 5463, "xx" = 7878
+	feed(tm, "\x1bP+q544e;524742;5463;7878\x1b\\")
+	want := "\x1bP1+r544e=6765726D\x1b\\\x1bP1+r524742=382F382F38\x1b\\\x1bP1+r5463\x1b\\\x1bP0+r7878\x1b\\"
+	if got := resp.String(); got != want {
+		t.Errorf("XTGETTCAP = %q\nwant        %q", got, want)
+	}
+}
+
+func TestModifyOtherKeys(t *testing.T) {
+	tm, resp := newTerm(10, 2)
+	feed(tm, "\x1b[>4;2m\x1b[?4m")
+	if tm.ModifyOtherKeys() != 2 || resp.String() != "\x1b[>4;2m" {
+		t.Errorf("level=%d resp=%q", tm.ModifyOtherKeys(), resp.String())
+	}
+	feed(tm, "\x1b[>4n")
+	if tm.ModifyOtherKeys() != 0 {
+		t.Error("reset failed")
+	}
+}

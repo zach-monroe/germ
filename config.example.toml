@@ -20,6 +20,7 @@ lines = 10000
 [shell]
 # program = "/usr/bin/fish"   # default: $SHELL
 # args = ["--login"]
+# term = "xterm-256color"     # default: "xterm-germ" (installed automatically)
 
 # Override individual theme colors.
 [colors]
