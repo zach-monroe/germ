@@ -1,8 +1,8 @@
 // Package app owns the window, the main loop, and wires the PTY to input/output.
 //
-// Phase 0: no VT parsing or text rendering yet. Child output is forwarded to
-// a debug writer (normally germ's own stdout) and the window is just a
-// cleared GL surface that accepts keyboard input.
+// Phase 1: child output drives a term.Terminal (so queries like DA1 get
+// answered), but nothing is drawn yet: the window is a cleared GL surface
+// that accepts keyboard input. Use -dump to print the final screen.
 package app
 
 import (
@@ -10,12 +10,14 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/zach-monroe/germ/internal/pty"
+	"github.com/zach-monroe/germ/internal/term"
 )
 
 // Placeholder cell metrics until the font package exists (Phase 2).
@@ -27,14 +29,18 @@ const (
 // Options configures a run.
 type Options struct {
 	Command []string  // child argv, e.g. ["/usr/bin/fish"]
-	Out     io.Writer // where child output is logged
-	Quote   bool      // log output as Go-quoted strings (shows escape sequences)
+	Out     io.Writer // debug output destination
+	Quote   bool      // log child output as Go-quoted strings (shows escape sequences)
+	Dump    bool      // print the screen text when the session ends
 }
 
 type App struct {
 	opts   Options
 	win    *glfw.Window
 	sess   *pty.Session
+	term   *term.Terminal
+	input  chan []byte // bytes queued for the child (keys and query replies)
+	title  atomic.Pointer[string]
 	exited atomic.Bool
 }
 
@@ -70,7 +76,13 @@ func Run(opts Options) error {
 	}
 	defer sess.Close()
 
-	a := &App{opts: opts, win: win, sess: sess}
+	a := &App{opts: opts, win: win, sess: sess, input: make(chan []byte, 256)}
+	a.term = term.New(int(cols), int(rows), term.Options{
+		Scrollback: 10000,
+		Responder:  chanWriter(a.input),
+		OnTitle:    func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
+	})
+	go a.writeLoop()
 	win.SetCharModsCallback(a.onChar)
 	win.SetKeyCallback(a.onKey)
 	win.SetFramebufferSizeCallback(a.onResize)
@@ -80,9 +92,34 @@ func Run(opts Options) error {
 	a.draw()
 	for !win.ShouldClose() && !a.exited.Load() {
 		glfw.WaitEvents() // blocks: zero CPU while idle
+		if t := a.title.Swap(nil); t != nil {
+			win.SetTitle(*t)
+		}
 		a.draw()
 	}
+	if opts.Dump && opts.Out != nil {
+		fmt.Fprintln(opts.Out, strings.TrimRight(a.term.Text(), "\n"))
+	}
 	return nil
+}
+
+// chanWriter queues writes on a channel so the reader goroutine never
+// blocks on the PTY while emitting query replies.
+type chanWriter chan []byte
+
+func (c chanWriter) Write(p []byte) (int, error) {
+	c <- append([]byte(nil), p...)
+	return len(p), nil
+}
+
+// writeLoop is the only goroutine that writes to the PTY, preserving the
+// order of keystrokes and replies without blocking the UI thread.
+func (a *App) writeLoop() {
+	for p := range a.input {
+		if _, err := a.sess.Write(p); err != nil {
+			return
+		}
+	}
 }
 
 func gridSize(w, h int) (cols, rows uint16) {
@@ -96,6 +133,8 @@ func (a *App) readLoop() {
 		n, err := a.sess.Read(buf)
 		if n > 0 {
 			a.log(buf[:n])
+			a.term.Write(buf[:n])
+			glfw.PostEmptyEvent() // wake the main loop to redraw
 		}
 		if err != nil {
 			// Any error ends the session: on Linux, EIO is the normal
@@ -108,19 +147,16 @@ func (a *App) readLoop() {
 }
 
 func (a *App) log(p []byte) {
-	if a.opts.Out == nil {
-		return
-	}
-	if a.opts.Quote {
+	if a.opts.Quote && a.opts.Out != nil {
 		fmt.Fprintln(a.opts.Out, strconv.Quote(string(p)))
-		return
 	}
-	a.opts.Out.Write(p)
 }
 
 func (a *App) send(p []byte) {
-	if _, err := a.sess.Write(p); err != nil {
-		fmt.Fprintln(os.Stderr, "germ: write to pty:", err)
+	select {
+	case a.input <- p:
+	default:
+		fmt.Fprintln(os.Stderr, "germ: input queue full, dropping keystroke")
 	}
 }
 
@@ -134,6 +170,7 @@ func (a *App) draw() {
 func (a *App) onResize(_ *glfw.Window, w, h int) {
 	gl.Viewport(0, 0, int32(w), int32(h))
 	cols, rows := gridSize(w, h)
+	a.term.Resize(int(cols), int(rows))
 	if err := a.sess.Resize(cols, rows); err != nil {
 		fmt.Fprintln(os.Stderr, "germ: resize:", err)
 	}

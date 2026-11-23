@@ -18,6 +18,7 @@ func init() {
 func main() {
 	shell := flag.String("shell", "", "shell to run (default: $SHELL, then /bin/sh)")
 	quote := flag.Bool("quote", false, "log child output as quoted strings to show escape sequences")
+	dump := flag.Bool("dump", false, "print the terminal screen as text when the session ends")
 	flag.Parse()
 
 	cmd := flag.Args()
@@ -32,7 +33,7 @@ func main() {
 		cmd = []string{s}
 	}
 
-	if err := app.Run(app.Options{Command: cmd, Out: os.Stdout, Quote: *quote}); err != nil {
+	if err := app.Run(app.Options{Command: cmd, Out: os.Stdout, Quote: *quote, Dump: *dump}); err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)
 		os.Exit(1)
 	}
