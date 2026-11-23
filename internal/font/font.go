@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golang/freetype/truetype"
 	xfont "golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/font/sfnt"
@@ -188,9 +189,18 @@ func (s *Set) open(path string, idx int) (*face, error) {
 	} else if sf, err = opentype.Parse(data); err != nil {
 		return nil, fmt.Errorf("font: parse %s: %w", path, err)
 	}
-	xf, err := opentype.NewFace(sf, &opentype.FaceOptions{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
-	if err != nil {
-		return nil, err
+	// Prefer golang/freetype for TrueType outlines: it runs the font's
+	// hinting bytecode, which snaps stems to whole pixels so text is crisp
+	// (x/image/font/opentype ignores hinting instructions entirely). CFF
+	// fonts and collections fall back to x/image.
+	var xf xfont.Face
+	if tf, err := truetype.Parse(data); err == nil {
+		xf = truetype.NewFace(tf, &truetype.Options{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
+	} else {
+		xf, err = opentype.NewFace(sf, &opentype.FaceOptions{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})
+		if err != nil {
+			return nil, err
+		}
 	}
 	f := &face{sf: sf, face: xf}
 	s.byFile[key] = f
