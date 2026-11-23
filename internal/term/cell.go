@@ -98,6 +98,10 @@ type Line struct {
 	n int
 }
 
+// NewLine returns a line holding cells (for UI chrome drawn like terminal
+// text, e.g. a tab bar).
+func NewLine(cells []Cell) *Line { return &Line{Cells: cells, n: len(cells)} }
+
 // Extent returns an index past which all cells are empty zero Cells.
 func (l *Line) Extent() int { return min(l.n, len(l.Cells)) }
 

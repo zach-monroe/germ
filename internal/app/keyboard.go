@@ -62,11 +62,15 @@ func baseRune(key glfw.Key, scancode int) (rune, bool) {
 }
 
 func (a *App) inputState() input.State {
-	a.term.Lock()
-	defer a.term.Unlock()
-	m := a.term.Modes()
+	p := a.active()
+	if p == nil {
+		return input.State{}
+	}
+	p.term.Lock()
+	defer p.term.Unlock()
+	m := p.term.Modes()
 	return input.State{AppCursor: m.AppCursor, AppKeypad: m.AppKeypad,
-		KittyFlags: a.term.KeyboardFlags(), ModifyOtherKeys: a.term.ModifyOtherKeys()}
+		KittyFlags: p.term.KeyboardFlags(), ModifyOtherKeys: p.term.ModifyOtherKeys()}
 }
 
 func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
@@ -179,9 +183,13 @@ func (a *App) binding(key glfw.Key, scancode int, mods glfw.ModifierKey) bool {
 func (a *App) do(act config.Action) bool {
 	switch act {
 	case config.ActionScrollPageUp, config.ActionScrollPageDown, config.ActionScrollTop, config.ActionScrollBottom:
-		a.term.Lock()
-		alt := a.term.AltScreen()
-		a.term.Unlock()
+		p := a.active()
+		if p == nil {
+			return false
+		}
+		p.term.Lock()
+		alt := p.term.AltScreen()
+		p.term.Unlock()
 		if alt {
 			return false // no scrollback: let full-screen apps have the key
 		}
@@ -216,20 +224,28 @@ func (a *App) do(act config.Action) bool {
 }
 
 func (a *App) pageLines() int {
-	a.term.Lock()
-	defer a.term.Unlock()
-	_, rows := a.term.Size()
+	p := a.active()
+	if p == nil {
+		return 1
+	}
+	p.term.Lock()
+	defer p.term.Unlock()
+	_, rows := p.term.Size()
 	return max(1, rows-1)
 }
 
 // scrollBy moves the viewport n lines back into history (negative: forward).
 func (a *App) scrollBy(n int) {
-	a.term.Lock()
-	sb := a.term.ScrollbackLen()
-	a.term.Unlock()
-	off := max(0, min(a.offset+n, sb))
-	if off != a.offset {
-		a.offset = off
+	p := a.active()
+	if p == nil {
+		return
+	}
+	p.term.Lock()
+	sb := p.term.ScrollbackLen()
+	p.term.Unlock()
+	off := max(0, min(p.offset+n, sb))
+	if off != p.offset {
+		p.offset = off
 		a.forceRedraw = true
 	}
 }

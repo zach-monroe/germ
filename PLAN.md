@@ -175,7 +175,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **4. Config & themes** ✅ | TOML config, bundled themes, hot reload, OSC color queries | Changing the theme file recolors the window live |
 | **4.5 fish integration** ✅ | Auto-injected fish script, OSC 133/7 parsing, prompt jumping, output selection, same-directory spawn, kitty keyboard protocol | Fresh fish (no config changes) → Ctrl+Shift+↑ jumps between prompts |
 | **5. tmux Level 1** ✅ | terminfo, true color through tmux, OSC 52, CSI u, sync output | `tmux` + `nvim` looks and behaves perfectly |
-| **6. Perf pass + tabs/splits** | Benchmarks, profiling, GC tuning; native tabs and splits | Competitive with Alacritty and kitty on vtebench |
+| **6. Perf pass + tabs/splits** ✅ | Benchmarks, profiling, GC tuning; native tabs and splits | Competitive with Alacritty and kitty on vtebench |
 | **7. tmux Level 2** | Control mode client | `germ --tmux` attaches with native tabs and splits |
 
 ### Testing approach
@@ -190,6 +190,14 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 6)
+- Native tabs and splits: binary split tree in cells with tmux-style 1-cell separators; new panes open in the active pane's directory (OSC 7, else /proc). Tab bar appears with 2+ tabs (click or wheel to switch).
+- Defaults: Ctrl+Shift+T new tab, Ctrl+Shift+Q close tab, Ctrl+Tab / Ctrl+Shift+Tab or Ctrl+Shift+Left/Right switch, Ctrl+Shift+Enter split right, Ctrl+Shift+D split down, Ctrl+Shift+W close pane, Ctrl+Shift+H/J/K/L focus, Ctrl+Shift+Z zoom pane. Click a pane to focus it.
+- Renderer split into a shared Renderer (GL, fonts, atlas) and per-pane Surfaces with their own row caches; one frame draws all visible panes in three instanced draws.
+- Panes have pluggable backends (local PTY now, tmux next).
+- Perf: profiling showed the kernel PTY, not germ, bounds `cat` throughput (see Phase 2), so the planned ring-buffer grid was not needed.
+- TODO: drag separators to resize; per-tab layouts persisted across restarts.
 
 ## Status (after Phase 5)
 - `TERM=xterm-germ`: terminfo compiled with `tic -x` into `~/.local/share/germ/terminfo` and exposed via `TERMINFO_DIRS`; the `xterm*` name makes tmux enable clipboard/cstyle/ccolour/focus/title by default. `[shell] term` overrides.

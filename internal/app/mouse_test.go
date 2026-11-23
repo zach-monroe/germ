@@ -82,10 +82,11 @@ func TestJumpPrompt(t *testing.T) {
 		tm.Write([]byte("\x1b]133;A\x07$ " + cmd + "\r\nout\r\nout\r\n"))
 	}
 	// Rows: 0 "$ a", 3 "$ b", 6 "$ c", 9 (cursor, live top is row 7).
-	a := &App{term: tm}
+	p := &pane{id: 1, term: tm}
+	a := &App{tabs: []*tab{newTab(p)}, panes: map[int]*pane{1: p}}
 	a.jumpPrompt(-1)
 	tm.Lock()
-	top := tm.AbsRow(0, a.offset)
+	top := tm.AbsRow(0, p.offset)
 	tm.Unlock()
 	if top != 6 {
 		t.Fatalf("first jump: top row %d, want 6", top)
@@ -93,14 +94,14 @@ func TestJumpPrompt(t *testing.T) {
 	a.jumpPrompt(-1)
 	a.jumpPrompt(-1)
 	tm.Lock()
-	top = tm.AbsRow(0, a.offset)
+	top = tm.AbsRow(0, p.offset)
 	tm.Unlock()
 	if top != 0 {
 		t.Fatalf("third jump: top row %d, want 0", top)
 	}
 	a.jumpPrompt(1)
 	tm.Lock()
-	top = tm.AbsRow(0, a.offset)
+	top = tm.AbsRow(0, p.offset)
 	tm.Unlock()
 	if top != 3 {
 		t.Errorf("jump forward: top row %d, want 3", top)

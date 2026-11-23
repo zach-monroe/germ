@@ -59,19 +59,20 @@ func main() {
 		}
 	})
 
+	sh := *shell
+	if sh == "" {
+		sh = cfg.Shell.Program
+	}
+	if sh == "" {
+		sh = os.Getenv("SHELL")
+	}
+	if sh == "" {
+		sh = "/bin/sh"
+	}
+	shellCmd := append([]string{sh}, cfg.Shell.Args...)
 	cmd := flag.Args()
 	if len(cmd) == 0 {
-		s := *shell
-		if s == "" {
-			s = cfg.Shell.Program
-		}
-		if s == "" {
-			s = os.Getenv("SHELL")
-		}
-		if s == "" {
-			s = "/bin/sh"
-		}
-		cmd = append([]string{s}, cfg.Shell.Args...)
+		cmd = shellCmd
 	}
 
 	if path := os.Getenv("GERM_CPUPROFILE"); path != "" {
@@ -83,7 +84,7 @@ func main() {
 	}
 
 	if err := app.Run(app.Options{
-		Command: cmd, Out: os.Stdout, Quote: *quote, Dump: *dump,
+		Command: cmd, ShellCommand: shellCmd, Out: os.Stdout, Quote: *quote, Dump: *dump,
 		Config: cfg, ConfigPath: *configPath, Overrides: over,
 		Screenshot: *shot, ScreenshotDelay: *shotDelay,
 	}); err != nil {

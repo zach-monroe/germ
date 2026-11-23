@@ -18,10 +18,16 @@ type Session struct {
 // Start launches argv[0] with the given args on a new PTY sized cols x rows.
 // extraEnv entries are added to (and override) the inherited environment.
 func Start(argv []string, cols, rows uint16, extraEnv ...string) (*Session, error) {
+	return StartIn("", argv, cols, rows, extraEnv...)
+}
+
+// StartIn is Start with a working directory ("" = inherit).
+func StartIn(dir string, argv []string, cols, rows uint16, extraEnv ...string) (*Session, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("pty: empty command")
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color", // callers may override with TERM=germ
 		"COLORTERM=truecolor",
@@ -48,6 +54,18 @@ func (s *Session) Resize(cols, rows uint16) error {
 
 // Wait blocks until the child exits.
 func (s *Session) Wait() error { return s.cmd.Wait() }
+
+// Cwd returns the child's current directory (Linux /proc), or "".
+func (s *Session) Cwd() string {
+	if s.cmd.Process == nil {
+		return ""
+	}
+	d, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", s.cmd.Process.Pid))
+	if err != nil {
+		return ""
+	}
+	return d
+}
 
 // Pid returns the child's process ID.
 func (s *Session) Pid() int { return s.cmd.Process.Pid }

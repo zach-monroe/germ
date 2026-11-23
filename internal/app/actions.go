@@ -18,18 +18,60 @@ const notifyAfter = 10 * time.Second
 // splits. Unhandled actions return false so the key reaches the app.
 func (a *App) doExtended(act config.Action) bool {
 	switch act {
+	case config.ActionNewTab:
+		a.actionNewTab()
+		return true
+	case config.ActionCloseTab:
+		a.actionCloseTab()
+		return true
+	case config.ActionNextTab:
+		a.switchTab(a.cur + 1)
+		return true
+	case config.ActionPrevTab:
+		a.switchTab(a.cur - 1)
+		return true
+	case config.ActionSplitRight:
+		a.actionSplit(splitH)
+		return true
+	case config.ActionSplitDown:
+		a.actionSplit(splitV)
+		return true
+	case config.ActionClosePane:
+		a.actionClosePane()
+		return true
+	case config.ActionFocusLeft:
+		return a.actionFocus(dirLeft)
+	case config.ActionFocusRight:
+		return a.actionFocus(dirRight)
+	case config.ActionFocusUp:
+		return a.actionFocus(dirUp)
+	case config.ActionFocusDown:
+		return a.actionFocus(dirDown)
+	case config.ActionZoomPane:
+		a.actionZoom()
+		return true
+	case config.ActionDetach:
+		if a.tmux != nil {
+			a.quitting = true // tmux keeps the session; reattach later
+			return true
+		}
+		return false
 	case config.ActionPrevPrompt:
 		return a.jumpPrompt(-1)
 	case config.ActionNextPrompt:
 		return a.jumpPrompt(1)
 	case config.ActionCopyLastOutput:
-		a.term.Lock()
-		sr, sc, er, ec, ok := a.term.LastOutput()
+		p := a.active()
+		if p == nil {
+			return false
+		}
+		p.term.Lock()
+		sr, sc, er, ec, ok := p.term.LastOutput()
 		text := ""
 		if ok {
-			text = a.term.TextRange(sr, sc, er, ec)
+			text = p.term.TextRange(sr, sc, er, ec)
 		}
-		a.term.Unlock()
+		p.term.Unlock()
 		if ok {
 			glfw.SetClipboardString(text)
 		}
@@ -41,26 +83,30 @@ func (a *App) doExtended(act config.Action) bool {
 // jumpPrompt scrolls so the previous (dir<0) or next (dir>0) prompt is at
 // the top of the viewport. Requires shell integration marks.
 func (a *App) jumpPrompt(dir int) bool {
-	a.term.Lock()
-	defer a.term.Unlock()
-	if a.term.AltScreen() {
+	p := a.active()
+	if p == nil {
 		return false
 	}
-	sb := a.term.ScrollbackLen()
-	top := a.term.AbsRow(0, a.offset)
-	oldest := a.term.AbsRow(0, sb)
-	live := a.term.AbsRow(0, 0)
-	_, rows := a.term.Size()
+	p.term.Lock()
+	defer p.term.Unlock()
+	if p.term.AltScreen() {
+		return false
+	}
+	sb := p.term.ScrollbackLen()
+	top := p.term.AbsRow(0, p.offset)
+	oldest := p.term.AbsRow(0, sb)
+	live := p.term.AbsRow(0, 0)
+	_, rows := p.term.Size()
 	for row := top + int64(dir); row >= oldest && row < live+int64(rows); row += int64(dir) {
-		if l := a.term.LineAt(row); l != nil && l.Prompt {
+		if l := p.term.LineAt(row); l != nil && l.Prompt {
 			off := int(live - row)
-			a.offset = max(0, min(off, sb))
+			p.offset = max(0, min(off, sb))
 			a.forceRedraw = true
 			return true
 		}
 	}
 	if dir > 0 { // past the last prompt: back to the live view
-		a.offset = 0
+		p.offset = 0
 		a.forceRedraw = true
 	}
 	return true

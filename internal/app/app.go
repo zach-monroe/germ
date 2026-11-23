@@ -1,8 +1,9 @@
-// Package app owns the window, the main loop, and wires the PTY to input/output.
+// Package app owns the window and the main loop, and wires panes (each a
+// terminal plus a backend) into tabs.
 //
-// The PTY reader goroutine feeds child output into a term.Terminal and wakes
-// the main loop; the main loop (on the locked OS thread) handles window
-// events and redraws with the renderer when something changed.
+// Each pane's reader goroutine feeds output into its term.Terminal and
+// wakes the main loop; the main loop (on the locked OS thread) handles
+// window events and redraws when something changed.
 package app
 
 import (
@@ -21,24 +22,27 @@ import (
 
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/font"
-	"github.com/zach-monroe/germ/internal/pty"
 	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/shellint"
-	"github.com/zach-monroe/germ/internal/term"
 	"github.com/zach-monroe/germ/internal/terminfo"
 	"github.com/zach-monroe/germ/internal/theme"
 )
 
 // Options configures a run.
 type Options struct {
-	Command []string  // child argv, e.g. ["/usr/bin/fish"]
-	Out     io.Writer // debug output destination
-	Quote   bool      // log child output as Go-quoted strings (shows escape sequences)
-	Dump    bool      // print the screen text when the session ends
+	Command      []string // first pane's argv, e.g. ["/usr/bin/fish"]
+	ShellCommand []string // argv for new tabs and splits (default: Command)
+	Out          io.Writer
+	Quote        bool // log child output as Go-quoted strings
+	Dump         bool // print the active pane's screen text at exit
 
 	Config     config.Config
 	ConfigPath string
 	Overrides  Overrides // command-line flags that beat the config file
+
+	// Tmux, if non-empty, attaches to (or creates) this tmux session in
+	// control mode instead of running Command.
+	Tmux string
 
 	// Screenshot, if set, saves the window contents as PNG to this path
 	// after ScreenshotDelay and exits. Used for testing the renderer.
@@ -69,49 +73,49 @@ func (o Overrides) apply(c *config.Config) {
 type App struct {
 	opts   Options
 	win    *glfw.Window
-	sess   *pty.Session
-	term   *term.Terminal
 	render *render.Renderer
-	input  chan []byte // bytes queued for the child (keys and query replies)
-	title  atomic.Pointer[string]
-	exited atomic.Bool
-	// wakePending is set when the reader has posted a wakeup the main loop
-	// hasn't drawn for yet.
+
+	// Cross-goroutine signals.
 	wakePending atomic.Bool
+	paneExited  atomic.Bool
+	reload      atomic.Bool
+	focusedA    atomic.Bool
+	attention   atomic.Bool
+	clipboard   atomic.Pointer[string]
 
-	// Main-thread state below.
-	focused     bool
-	forceRedraw bool
-	scale       float32 // content scale (DPI / 96)
-	fontSize    float64 // current size, which zoom changes
-	cfg         config.Config
-	bindings    map[config.Chord]config.Action
-	reload      atomic.Bool            // set by the config watcher
-	focusedA    atomic.Bool            // focus state readable from other goroutines
-	attention   atomic.Bool            // request window attention on the main thread
-	clipboard   atomic.Pointer[string] // OSC 52 text for the main thread to publish
+	// Main-thread state.
+	tabs       []*tab
+	cur        int
+	panes      map[int]*pane
+	nextID     int
+	tabSurf    *render.Surface
+	tabSpans   []tabSpan
+	tmux       *tmuxController
+	lastExited *pane
 
-	offset     int   // lines scrolled back into history
-	lastPushed int64 // term.Pushed() at the last draw, to keep the view anchored
-	scrollAcc  float64
+	gridCols, gridRows int
+	focused            bool
+	forceRedraw        bool
+	scale              float32 // content scale (DPI / 96)
+	fontSize           float64 // current size, which zoom changes
+	cfg                config.Config
+	bindings           map[config.Chord]config.Action
+	baseEnv            []string // TERM and friends for new panes
+	lastTitle          string
+	quitting           bool
 
-	sel     selection
-	mouse   mouseState
-	link    render.Link
-	linkURL string
-
+	mouse        mouseState
 	suppressChar bool // the current key press was already encoded
 }
 
-// Run opens the window and blocks until it is closed or the child exits.
+// Run opens the window and blocks until it is closed or the last pane exits.
 // It must be called from the main OS thread (see runtime.LockOSThread in main).
 func Run(opts Options) error {
 	cfg := opts.Config
 	opts.Overrides.apply(&cfg)
-	th, err := cfg.ResolveTheme()
-	if err != nil {
+	if _, err := cfg.ResolveTheme(); err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err, "(using default theme)")
-		th = theme.Default()
+		cfg.Theme = theme.DefaultName
 	}
 	bindings, _ := cfg.Bindings() // validated by config.Parse
 
@@ -155,44 +159,41 @@ func Run(opts Options) error {
 	// differ from framebuffer pixels on scaled displays.
 	cw, ch := rnd.CellSize()
 	ww, _ := win.GetSize()
-	fbw, fbh := win.GetFramebufferSize()
+	fbw, _ := win.GetFramebufferSize()
 	ratio := float64(fbw) / float64(max(ww, 1))
 	win.SetSize(int(float64(cfg.Window.Columns*cw+2*rnd.Pad())/ratio), int(float64(cfg.Window.Rows*ch+2*rnd.Pad())/ratio))
 	win.Show()
-	fbw, fbh = settleSize(win)
-	cols, rows := rnd.Resize(fbw, fbh)
-
-	var env []string
-	switch cfg.Shell.Term {
-	case "":
-		env = terminfo.Env() // TERM=germ if the entry installs
-	default:
-		env = []string{"TERM=" + cfg.Shell.Term}
-	}
-	if cfg.Shells.Mode != "off" {
-		env = append(env, shellint.Env(opts.Command)...)
-	}
-	sess, err := pty.Start(opts.Command, uint16(cols), uint16(rows), env...)
-	if err != nil {
-		return err
-	}
-	defer sess.Close()
+	fbw, fbh := settleSize(win)
 
 	a := &App{
-		opts: opts, win: win, sess: sess, render: rnd,
-		input: make(chan []byte, 256), focused: true, forceRedraw: true,
-		scale: scale, fontSize: cfg.Font.Size, cfg: cfg, bindings: bindings,
+		opts: opts, win: win, render: rnd, panes: map[int]*pane{},
+		focused: true, forceRedraw: true, scale: scale, fontSize: cfg.Font.Size,
+		cfg: cfg, bindings: bindings,
 	}
 	a.focusedA.Store(true)
-	a.term = term.New(cols, rows, term.Options{
-		Scrollback:    cfg.Scrollback.Lines,
-		Theme:         th,
-		Responder:     chanWriter(a.input),
-		OnTitle:       func(s string) { glfw.PostEmptyEvent(); a.title.Store(&s) },
-		OnCommandDone: a.onCommandDone,
-		OnClipboard:   a.onClipboard,
-	})
-	go a.writeLoop()
+	a.tabSurf = rnd.NewSurface()
+	a.gridCols, a.gridRows = rnd.Resize(fbw, fbh)
+
+	switch cfg.Shell.Term {
+	case "":
+		a.baseEnv = terminfo.Env() // TERM=xterm-germ if the entry installs
+	default:
+		a.baseEnv = []string{"TERM=" + cfg.Shell.Term}
+	}
+
+	if opts.Tmux != "" {
+		if err := a.startTmux(opts.Tmux); err != nil {
+			return err
+		}
+	} else {
+		p, err := a.newLocalPane(opts.Command, "", a.gridCols, a.gridRows)
+		if err != nil {
+			return err
+		}
+		a.tabs = []*tab{newTab(p)}
+		a.relayout()
+	}
+
 	win.SetCharModsCallback(a.onChar)
 	win.SetKeyCallback(a.onKey)
 	win.SetMouseButtonCallback(a.onMouseButton)
@@ -202,7 +203,6 @@ func Run(opts Options) error {
 	win.SetRefreshCallback(func(*glfw.Window) { a.forceRedraw = true; a.draw() })
 	win.SetFocusCallback(a.onFocus)
 
-	go a.readLoop()
 	if stop, err := config.Watch(func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {
 		defer stop()
 	}
@@ -212,7 +212,7 @@ func Run(opts Options) error {
 	if opts.Screenshot != "" {
 		shotAt = time.Now().Add(opts.ScreenshotDelay)
 	}
-	for !win.ShouldClose() && !a.exited.Load() {
+	for !win.ShouldClose() && !a.quitting {
 		if !shotAt.IsZero() {
 			glfw.WaitEventsTimeout(0.05)
 			if time.Now().After(shotAt) {
@@ -221,8 +221,14 @@ func Run(opts Options) error {
 		} else {
 			glfw.WaitEvents() // blocks: zero CPU while idle
 		}
-		if t := a.title.Swap(nil); t != nil {
-			win.SetTitle(*t)
+		if a.tmux != nil {
+			a.tmux.process()
+		}
+		if a.paneExited.Swap(false) && !a.reapPanes() {
+			break
+		}
+		if len(a.tabs) == 0 {
+			break
 		}
 		if text := a.clipboard.Swap(nil); text != nil {
 			glfw.SetClipboardString(*text)
@@ -235,11 +241,29 @@ func Run(opts Options) error {
 		}
 		a.draw()
 	}
+	if a.tmux != nil {
+		a.tmux.detach()
+	}
 	if opts.Dump && opts.Out != nil {
-		fmt.Fprintln(opts.Out, strings.TrimRight(a.term.Text(), "\n"))
+		if p := a.lastActive(); p != nil {
+			fmt.Fprintln(opts.Out, strings.TrimRight(p.term.Text(), "\n"))
+		}
+	}
+	for _, p := range a.panes {
+		p.be.Close()
 	}
 	return nil
 }
+
+// lastActive returns the active pane, or the last one to exit.
+func (a *App) lastActive() *pane {
+	if p := a.active(); p != nil {
+		return p
+	}
+	return a.lastExited
+}
+
+func shellintEnv(argv []string) []string { return shellint.Env(argv) }
 
 // settleSize waits briefly for the window manager to finish placing the
 // window. Tiling WMs (i3, sway) resize a window right after it maps; if the
@@ -261,22 +285,10 @@ func settleSize(win *glfw.Window) (int, int) {
 	return w, h
 }
 
-// onClipboard handles OSC 52 writes (reader goroutine, terminal locked).
-// GLFW's clipboard must be used from the main thread, so hand it over.
-func (a *App) onClipboard(text string, clipboard, primary bool) {
-	if clipboard {
-		a.clipboard.Store(&text)
-		glfw.PostEmptyEvent()
-	}
-	if primary {
-		setPrimary(text)
-	}
-}
-
 // screenshot redraws into the back buffer and saves it as a PNG.
 func (a *App) screenshot(path string) error {
 	a.forceRedraw = true
-	a.render.Draw(a.term, a.view())
+	a.drawFrame()
 	w, h := a.win.GetFramebufferSize()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	gl.ReadBuffer(gl.BACK)
@@ -297,46 +309,15 @@ func (a *App) screenshot(path string) error {
 	return png.Encode(f, img)
 }
 
-// chanWriter queues writes on a channel so the reader goroutine never
-// blocks on the PTY while emitting query replies.
-type chanWriter chan []byte
-
-func (c chanWriter) Write(p []byte) (int, error) {
-	c <- append([]byte(nil), p...)
-	return len(p), nil
-}
-
-// writeLoop is the only goroutine that writes to the PTY, preserving the
-// order of keystrokes and replies without blocking the UI thread.
-func (a *App) writeLoop() {
-	for p := range a.input {
-		if _, err := a.sess.Write(p); err != nil {
-			return
-		}
+// onClipboard handles OSC 52 writes (reader goroutine, terminal locked).
+// GLFW's clipboard must be used from the main thread, so hand it over.
+func (a *App) onClipboard(text string, clipboard, primary bool) {
+	if clipboard {
+		a.clipboard.Store(&text)
+		glfw.PostEmptyEvent()
 	}
-}
-
-// readLoop drains child output on its own goroutine.
-func (a *App) readLoop() {
-	buf := make([]byte, 64*1024)
-	for {
-		n, err := a.sess.Read(buf)
-		if n > 0 {
-			a.log(buf[:n])
-			a.term.Write(buf[:n])
-			// Wake the main loop to redraw, at most once per frame: the
-			// X11 wakeup is a cgo call plus a round-trip to the server.
-			if !a.wakePending.Swap(true) {
-				glfw.PostEmptyEvent()
-			}
-		}
-		if err != nil {
-			// Any error ends the session: on Linux, EIO is the normal
-			// "child exited" signal from a PTY master.
-			a.exited.Store(true)
-			glfw.PostEmptyEvent() // wake the main loop so it can exit
-			return
-		}
+	if primary {
+		setPrimary(text)
 	}
 }
 
@@ -346,88 +327,106 @@ func (a *App) log(p []byte) {
 	}
 }
 
-// send queues bytes for the child. Safe from any goroutine.
-func (a *App) send(p []byte) {
-	if len(p) == 0 {
+// sendUser sends input typed or pasted by the user to the active pane and
+// snaps its view back to the live screen.
+func (a *App) sendUser(b []byte) {
+	p := a.active()
+	if p == nil || len(b) == 0 {
 		return
 	}
-	select {
-	case a.input <- p:
-	default:
-		fmt.Fprintln(os.Stderr, "germ: input queue full, dropping input")
-	}
-}
-
-// sendUser sends input typed or pasted by the user: it also snaps the
-// view back to the live screen.
-func (a *App) sendUser(p []byte) {
-	if len(p) == 0 {
-		return
-	}
-	if a.offset != 0 {
-		a.offset = 0
+	if p.offset != 0 {
+		p.offset = 0
 		a.forceRedraw = true
 	}
-	a.send(p)
+	p.send(b)
 }
 
-func (a *App) view() render.View {
+func (a *App) view(p *pane, t *tab) render.View {
 	return render.View{
-		Offset:    a.offset,
-		Focused:   a.focused,
-		Selection: a.sel.render(a.term),
-		Link:      a.link,
+		Offset:    p.offset,
+		Focused:   a.focused && p == t.active,
+		Selection: p.sel.render(p.term),
+		Link:      p.link,
 		Force:     a.forceRedraw,
 	}
 }
 
 func (a *App) draw() {
 	a.wakePending.Store(false)
-
-	// Keep a scrolled-back view anchored on the same text as new lines
-	// arrive, and drop a selection on the alternate screen when it closes.
-	a.term.Lock()
-	pushed, sbLen := a.term.Pushed(), a.term.ScrollbackLen()
-	a.term.Unlock()
-	if a.offset > 0 {
-		a.offset = min(a.offset+int(pushed-a.lastPushed), sbLen)
-	}
-	a.lastPushed = pushed
-
-	if a.render.Draw(a.term, a.view()) {
+	if a.drawFrame() {
 		a.win.SwapBuffers()
 	}
 	a.forceRedraw = false
+	if p := a.active(); p != nil {
+		if title := p.titleString(); title != a.lastTitle {
+			a.lastTitle = title
+			a.win.SetTitle(title)
+		}
+	}
+}
+
+// drawFrame updates every visible surface and draws a frame if anything
+// changed. It reports whether a frame was drawn.
+func (a *App) drawFrame() bool {
+	t := a.tab()
+	if t == nil || t.active == nil {
+		return false
+	}
+	panes := t.visible()
+	changed := a.forceRedraw
+	surfaces := make([]*render.Surface, 0, len(panes)+1)
+	for _, p := range panes {
+		// Keep a scrolled-back view anchored on the same text as new
+		// lines arrive.
+		p.term.Lock()
+		pushed, sbLen := p.term.Pushed(), p.term.ScrollbackLen()
+		p.term.Unlock()
+		if p.offset > 0 {
+			p.offset = min(p.offset+int(pushed-p.lastPushed), sbLen)
+		}
+		p.lastPushed = pushed
+
+		ox, oy, gutter := a.paneOrigin(p)
+		if p.surf.Update(p.term, a.view(p, t), ox, oy, gutter) {
+			changed = true
+		}
+		surfaces = append(surfaces, p.surf)
+	}
+	if !changed {
+		return false
+	}
+	th := t.active.surf.Theme()
+	var rects []render.Rect
+	if a.barRows() > 0 {
+		line, spans := a.tabBarLine(th)
+		a.tabSpans = spans
+		a.tabSurf.UpdateLine(line, th, a.render.Pad(), a.render.Pad())
+		surfaces = append(surfaces, a.tabSurf)
+	}
+	rects = append(rects, a.separatorRects(t, blendRGB(th.Background, th.Foreground, 0.25))...)
+	a.render.Frame(t.active.surf.DefaultBG(), surfaces, rects)
+	return true
 }
 
 func (a *App) onResize(_ *glfw.Window, w, h int) {
-	a.resizeGrid(w, h)
+	a.gridCols, a.gridRows = a.render.Resize(w, h)
+	if a.tmux != nil {
+		a.tmux.clientSize(a.content())
+	}
+	a.relayout()
 }
 
-func (a *App) resizeGrid(w, h int) {
-	cols, rows := a.render.Resize(w, h)
-	a.term.Resize(cols, rows)
-	a.sel.clear() // absolute rows are renumbered by reflow
-	a.offset = 0
-	a.term.Lock()
-	a.lastPushed = a.term.Pushed()
-	a.term.Unlock()
-	a.forceRedraw = true
-	if err := a.sess.Resize(uint16(cols), uint16(rows)); err != nil {
-		fmt.Fprintln(os.Stderr, "germ: resize:", err)
-	}
+// refit recomputes the grid after the cell size or padding changed.
+func (a *App) refit() {
+	w, h := a.win.GetFramebufferSize()
+	a.onResize(a.win, w, h)
 }
 
 func (a *App) onFocus(_ *glfw.Window, focused bool) {
 	a.focused = focused
 	a.focusedA.Store(focused)
 	a.forceRedraw = true
-	a.term.Lock()
-	report := a.term.Modes().FocusEvents
-	a.term.Unlock()
-	if report {
-		a.send(inputFocus(focused))
-	}
+	a.focusChanged(a.active(), focused)
 }
 
 func scaledPad(cfg config.Config, scale float32) int {
@@ -455,7 +454,9 @@ func (a *App) reloadConfig() {
 	old := a.cfg
 	a.cfg = cfg
 	a.bindings, _ = cfg.Bindings()
-	a.term.SetTheme(th)
+	for _, p := range a.panes {
+		p.term.SetTheme(th)
+	}
 
 	refit := false
 	if cfg.Font != old.Font {
@@ -472,7 +473,7 @@ func (a *App) reloadConfig() {
 		refit = true
 	}
 	if refit {
-		a.resizeGrid(a.win.GetFramebufferSize())
+		a.refit()
 	}
 	a.forceRedraw = true
 }
@@ -487,5 +488,5 @@ func (a *App) setFontSize(size float64) {
 	}
 	a.fontSize = size
 	a.render.SetFonts(fonts)
-	a.resizeGrid(a.win.GetFramebufferSize())
+	a.refit()
 }

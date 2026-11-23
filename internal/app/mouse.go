@@ -21,7 +21,8 @@ const (
 
 type mouseState struct {
 	px, py     float64 // last position, framebuffer pixels
-	col, row   int     // last cell (viewport coordinates)
+	gx, gy     int     // last window grid cell
+	capture    *pane   // pane that received the press, until release
 	pressed    input.Button
 	anyPressed bool
 	lastClick  time.Time
@@ -148,42 +149,65 @@ func (a *App) fbRatio() float64 {
 	return float64(fw) / float64(max(ww, 1))
 }
 
-// cellAt converts framebuffer pixels to a viewport cell, clamped to the grid.
-func (a *App) cellAt(px, py float64) (col, row int) {
+// gridAt converts framebuffer pixels to a window grid cell, clamped.
+func (a *App) gridAt(px, py float64) (gx, gy int) {
 	cw, ch := a.render.CellSize()
 	pad := float64(a.render.Pad())
-	a.term.Lock()
-	cols, rows := a.term.Size()
-	a.term.Unlock()
-	col = max(0, min(int((px-pad)/float64(cw)), cols-1))
-	row = max(0, min(int((py-pad)/float64(ch)), rows-1))
-	return col, row
+	gx = max(0, min(int((px-pad)/float64(cw)), a.gridCols-1))
+	gy = max(0, min(int((py-pad)/float64(ch)), a.gridRows-1))
+	return gx, gy
 }
 
-func (a *App) absPoint(col, row int) selPoint {
-	a.term.Lock()
-	defer a.term.Unlock()
-	return selPoint{row: a.term.AbsRow(row, a.offset), col: col}
+// hit finds what's under the pointer: the tab bar, or a pane and the cell
+// within it. While dragging, the pane that got the press keeps the mouse
+// and coordinates are clamped to it.
+func (a *App) hit() (p *pane, col, row int, inBar bool) {
+	gx, gy := a.mouse.gx, a.mouse.gy
+	bar := a.barRows()
+	if a.mouse.capture == nil && gy < bar {
+		return nil, gx, gy, true
+	}
+	gy -= bar
+	t := a.tab()
+	if t == nil {
+		return nil, 0, 0, false
+	}
+	if c := a.mouse.capture; c != nil {
+		r := c.rect
+		return c, max(0, min(gx-r.X, r.W-1)), max(0, min(gy-r.Y, r.H-1)), false
+	}
+	for _, q := range t.visible() {
+		if q.rect.contains(gx, gy) {
+			return q, gx - q.rect.X, gy - q.rect.Y, false
+		}
+	}
+	return nil, 0, 0, false
 }
 
-// reporting reports whether mouse events go to the application. Holding
-// Shift always gives the mouse back to germ for selection.
-func (a *App) reporting(mods glfw.ModifierKey) (term.MouseMode, term.MouseEncoding, bool) {
-	a.term.Lock()
-	m := a.term.Modes()
-	a.term.Unlock()
+func absPoint(p *pane, col, row int) selPoint {
+	p.term.Lock()
+	defer p.term.Unlock()
+	return selPoint{row: p.term.AbsRow(row, p.offset), col: col}
+}
+
+// reporting reports whether mouse events go to the pane's application.
+// Holding Shift always gives the mouse back to germ for selection.
+func reporting(p *pane, mods glfw.ModifierKey) (term.MouseMode, term.MouseEncoding, bool) {
+	p.term.Lock()
+	m := p.term.Modes()
+	p.term.Unlock()
 	return m.Mouse, m.MouseEncoding, m.Mouse != term.MouseNone && mods&glfw.ModShift == 0
 }
 
-func (a *App) reportMouse(btn input.Button, act input.MouseAction, mods glfw.ModifierKey) {
-	mode, enc, ok := a.reporting(mods)
+func (a *App) reportMouse(p *pane, col, row int, btn input.Button, act input.MouseAction, mods glfw.ModifierKey) {
+	mode, enc, ok := reporting(p, mods)
 	if !ok {
 		return
 	}
-	pad := float64(a.render.Pad())
-	a.send(input.EncodeMouse(input.MouseEvent{
-		Button: btn, Action: act, X: a.mouse.col, Y: a.mouse.row,
-		PX: max(0, int(a.mouse.px-pad)), PY: max(0, int(a.mouse.py-pad)),
+	ox, oy, _ := a.paneOrigin(p)
+	p.send(input.EncodeMouse(input.MouseEvent{
+		Button: btn, Action: act, X: col, Y: row,
+		PX: max(0, int(a.mouse.px)-ox), PY: max(0, int(a.mouse.py)-oy),
 		Mods: toMods(mods) &^ input.ModSuper,
 	}, mode, enc))
 }
@@ -207,46 +231,75 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 	if !ok {
 		return
 	}
-	if _, _, rep := a.reporting(mods); rep {
+	p, col, row, inBar := a.hit()
+	if action == glfw.Release {
+		defer func() { a.mouse.capture = nil }()
+	}
+	if inBar {
+		if action == glfw.Press && btn == input.ButtonLeft {
+			for _, s := range a.tabSpans {
+				if col >= s.start && col < s.end {
+					a.switchTab(s.index)
+				}
+			}
+		}
+		return
+	}
+	if p == nil {
+		return
+	}
+	if action == glfw.Press {
+		a.mouse.capture = p
+		if t := a.tab(); t != nil && p != t.active {
+			a.setActive(t, p) // click to focus
+		}
+	}
+
+	if _, _, rep := reporting(p, mods); rep {
 		act := input.MousePress
 		if action == glfw.Release {
 			act = input.MouseRelease
 		}
 		a.mouse.pressed, a.mouse.anyPressed = btn, action == glfw.Press
-		a.reportMouse(btn, act, mods)
+		a.reportMouse(p, col, row, btn, act, mods)
 		return
 	}
 
 	switch {
 	case btn == input.ButtonLeft && action == glfw.Press:
-		if mods&glfw.ModControl != 0 && a.linkURL != "" {
-			openURL(a.linkURL)
+		if mods&glfw.ModControl != 0 && p.linkURL != "" {
+			openURL(p.linkURL)
 			return
 		}
-		p := a.absPoint(a.mouse.col, a.mouse.row)
+		pt := absPoint(p, col, row)
 		now := time.Now()
-		if now.Sub(a.mouse.lastClick) < multiClickInterval && p.row == a.mouse.clickRow && p.col == a.mouse.clickCol {
+		if now.Sub(a.mouse.lastClick) < multiClickInterval && pt.row == a.mouse.clickRow && pt.col == a.mouse.clickCol {
 			a.mouse.clicks = a.mouse.clicks%3 + 1
 		} else {
 			a.mouse.clicks = 1
 		}
-		a.mouse.lastClick, a.mouse.clickRow, a.mouse.clickCol = now, p.row, p.col
-		a.sel = selection{
+		a.mouse.lastClick, a.mouse.clickRow, a.mouse.clickCol = now, pt.row, pt.col
+		for _, q := range a.panes {
+			if q != p && q.sel.active {
+				q.sel.clear() // one selection at a time
+			}
+		}
+		p.sel = selection{
 			active:   a.mouse.clicks > 1,
 			dragging: true,
 			mode:     selMode(a.mouse.clicks - 1),
-			anchor:   p,
-			head:     p,
+			anchor:   pt,
+			head:     pt,
 		}
 		a.forceRedraw = true
-		if a.sel.active {
-			setPrimary(a.sel.text(a.term))
+		if p.sel.active {
+			setPrimary(p.sel.text(p.term))
 		}
 	case btn == input.ButtonLeft && action == glfw.Release:
-		if a.sel.dragging && a.sel.active {
-			setPrimary(a.sel.text(a.term))
+		if p.sel.dragging && p.sel.active {
+			setPrimary(p.sel.text(p.term))
 		}
-		a.sel.dragging = false
+		p.sel.dragging = false
 	case btn == input.ButtonMiddle && action == glfw.Press:
 		a.pastePrimary()
 	}
@@ -255,54 +308,71 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 func (a *App) onCursorPos(_ *glfw.Window, x, y float64) {
 	r := a.fbRatio()
 	a.mouse.px, a.mouse.py = x*r, y*r
-	col, row := a.cellAt(a.mouse.px, a.mouse.py)
-	moved := col != a.mouse.col || row != a.mouse.row
-	a.mouse.col, a.mouse.row = col, row
+	gx, gy := a.gridAt(a.mouse.px, a.mouse.py)
+	moved := gx != a.mouse.gx || gy != a.mouse.gy
+	a.mouse.gx, a.mouse.gy = gx, gy
+	if !moved {
+		return
+	}
+	p, col, row, inBar := a.hit()
+	if inBar || p == nil {
+		return
+	}
 
-	if mode, _, rep := a.reporting(glfwMods(a.win)); rep {
-		if moved && (mode == term.MouseAny || (mode == term.MouseButton && a.mouse.anyPressed)) {
+	if mode, _, rep := reporting(p, glfwMods(a.win)); rep {
+		if mode == term.MouseAny || (mode == term.MouseButton && a.mouse.anyPressed) {
 			btn := input.ButtonNone
 			if a.mouse.anyPressed {
 				btn = a.mouse.pressed
 			}
-			a.reportMouse(btn, input.MouseMotion, glfwMods(a.win))
+			a.reportMouse(p, col, row, btn, input.MouseMotion, glfwMods(a.win))
 		}
 		return
 	}
 
-	if a.sel.dragging && moved {
-		a.sel.head = a.absPoint(col, row)
-		a.sel.active = true
+	if p.sel.dragging {
+		p.sel.head = absPoint(p, col, row)
+		p.sel.active = true
 		a.forceRedraw = true
 	}
-	if moved {
-		a.updateLinkHover()
-	}
+	a.updateLinkHover()
 }
 
 func (a *App) onScroll(_ *glfw.Window, _, yoff float64) {
-	a.scrollAcc += yoff
-	notches := int(a.scrollAcc)
+	p, col, row, inBar := a.hit()
+	if inBar {
+		if yoff > 0 {
+			a.switchTab(a.cur - 1)
+		} else if yoff < 0 {
+			a.switchTab(a.cur + 1)
+		}
+		return
+	}
+	if p == nil {
+		return
+	}
+	p.scrollAcc += yoff
+	notches := int(p.scrollAcc)
 	if notches == 0 {
 		return
 	}
-	a.scrollAcc -= float64(notches)
+	p.scrollAcc -= float64(notches)
 	mods := glfwMods(a.win)
 
-	if _, _, rep := a.reporting(mods); rep {
+	if _, _, rep := reporting(p, mods); rep {
 		btn := input.ButtonWheelUp
 		if notches < 0 {
 			btn = input.ButtonWheelDown
 		}
 		for range abs(notches) {
-			a.reportMouse(btn, input.MousePress, mods)
+			a.reportMouse(p, col, row, btn, input.MousePress, mods)
 		}
 		return
 	}
 
-	a.term.Lock()
-	alt, m := a.term.AltScreen(), a.term.Modes()
-	a.term.Unlock()
+	p.term.Lock()
+	alt, m, sb := p.term.AltScreen(), p.term.Modes(), p.term.ScrollbackLen()
+	p.term.Unlock()
 	if alt {
 		if m.AltScroll { // the wheel moves the cursor in pagers/editors
 			key := input.KeyUp
@@ -311,12 +381,16 @@ func (a *App) onScroll(_ *glfw.Window, _, yoff float64) {
 			}
 			st := input.State{AppCursor: m.AppCursor}
 			for range abs(notches) * wheelLines {
-				a.send(input.EncodeKey(input.KeyEvent{Key: key, Action: input.Press}, st))
+				p.send(input.EncodeKey(input.KeyEvent{Key: key, Action: input.Press}, st))
 			}
 		}
 		return
 	}
-	a.scrollBy(notches * wheelLines)
+	off := max(0, min(p.offset+notches*wheelLines, sb))
+	if off != p.offset {
+		p.offset = off
+		a.forceRedraw = true
+	}
 }
 
 func glfwMods(w *glfw.Window) glfw.ModifierKey {
@@ -346,19 +420,29 @@ var urlRE = regexp.MustCompile(`(?:https?|file|ftp)://[^\s<>"'` + "`" + `]+|mail
 
 // updateLinkHover underlines the URL under the pointer while Ctrl is held.
 func (a *App) updateLinkHover() {
+	p, col, row, inBar := a.hit()
+	for _, q := range a.panes {
+		if q != p && q.link.Active {
+			q.link, q.linkURL = render.Link{}, ""
+			a.forceRedraw = true
+		}
+	}
+	if inBar || p == nil {
+		return
+	}
 	var link render.Link
 	url := ""
 	if glfwMods(a.win)&glfw.ModControl != 0 {
-		a.term.Lock()
-		row := a.term.AbsRow(a.mouse.row, a.offset)
-		url, link = findURL(a.term, row, a.mouse.col)
-		a.term.Unlock()
+		p.term.Lock()
+		abs := p.term.AbsRow(row, p.offset)
+		url, link = findURL(p.term, abs, col)
+		p.term.Unlock()
 	}
-	if link != a.link {
-		a.link, a.linkURL = link, url
+	if link != p.link {
+		p.link = link
 		a.forceRedraw = true
 	}
-	a.linkURL = url
+	p.linkURL = url
 }
 
 // findURL finds a URL covering (row, col), searching the whole logical

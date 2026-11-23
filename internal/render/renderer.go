@@ -1,9 +1,10 @@
-// Package render draws a term.Terminal with OpenGL 3.3.
+// Package render draws terminals with OpenGL 3.3.
 //
 // Each frame is three instanced draw calls: background rectangles, glyph
 // quads sampled from a glyph atlas, and decoration rectangles (underlines,
-// strikethrough, cursor shapes). Instance data is cached per row and only
-// rebuilt for rows the terminal reports as dirty.
+// strikethrough, cursor shapes, separators). A window can show several
+// terminals (tabs, splits); each has a Surface caching its instance data
+// per row, rebuilt only for rows the terminal reports as dirty.
 package render
 
 import (
@@ -39,43 +40,6 @@ type rowCache struct {
 	glyphs   []glyphInst
 }
 
-// Selection is a range of absolute positions (see term.AbsRow), inclusive
-// and normalized so Start comes first in reading order.
-type Selection struct {
-	Active           bool
-	StartRow, EndRow int64
-	StartCol, EndCol int
-}
-
-func (s *Selection) contains(row int64, col int) bool {
-	if !s.Active || row < s.StartRow || row > s.EndRow {
-		return false
-	}
-	if row == s.StartRow && col < s.StartCol {
-		return false
-	}
-	if row == s.EndRow && col > s.EndCol {
-		return false
-	}
-	return true
-}
-
-// Link is a hovered hyperlink span to underline.
-type Link struct {
-	Active           bool
-	Row              int64
-	StartCol, EndCol int
-}
-
-// View is how the terminal should be shown.
-type View struct {
-	Offset    int // lines scrolled back into history (0 = live)
-	Focused   bool
-	Selection Selection
-	Link      Link
-	Force     bool // redraw even if nothing changed
-}
-
 type cursorState struct {
 	x, y    int
 	visible bool
@@ -83,11 +47,11 @@ type cursorState struct {
 	focused bool
 }
 
-// Renderer draws terminals. It must be used from the GL thread.
+// Renderer owns the GL state, fonts, and glyph atlas shared by all
+// surfaces. It must be used from the GL thread.
 type Renderer struct {
 	fonts *font.Set
 	m     font.Metrics
-	theme theme.Theme // effective colors, copied from the terminal each frame they change
 	atlas *atlas
 	pad   int
 
@@ -99,14 +63,7 @@ type Renderer struct {
 	uAtlasSize          int32
 
 	width, height int // framebuffer size
-	rows          []rowCache
-	cols          int
-	cursor        cursorState
-	reverse       bool
-	view          View
-	pushed        int64
-	colorGen      uint64
-	syncSince     time.Time
+	fontGen       int // bumped by SetFonts/SetPad so surfaces rebuild
 
 	bg, deco []rectInst
 	glyphs   []glyphInst
@@ -119,7 +76,7 @@ type instanceBuffer struct {
 
 // New creates a renderer. pad is the inner window padding in pixels.
 func New(fonts *font.Set, pad int) (*Renderer, error) {
-	r := &Renderer{fonts: fonts, m: fonts.Metrics(), pad: pad, colorGen: ^uint64(0)}
+	r := &Renderer{fonts: fonts, m: fonts.Metrics(), pad: pad}
 	var err error
 	if r.rectProg, err = compileProgram(rectVert, rectFrag); err != nil {
 		return nil, err
@@ -179,21 +136,21 @@ func newGlyphBuffer() instanceBuffer {
 }
 
 // SetFonts switches to a new font set (e.g. after a zoom). The caller
-// should call Resize afterwards since the cell size changes.
+// should recompute layouts afterwards since the cell size changes.
 func (r *Renderer) SetFonts(fonts *font.Set) {
 	gl.DeleteTextures(1, &r.atlas.tex)
 	r.fonts, r.m = fonts, fonts.Metrics()
 	r.atlas = newAtlas(fonts)
-	r.rows = nil // force a full rebuild
+	r.fontGen++
 }
 
 // CellSize returns the cell size in pixels.
 func (r *Renderer) CellSize() (w, h int) { return r.m.CellW, r.m.CellH }
 
-// SetPad changes the window padding. Call Resize afterwards.
+// SetPad changes the window padding.
 func (r *Renderer) SetPad(pad int) {
 	r.pad = max(0, pad)
-	r.rows = nil
+	r.fontGen++
 }
 
 // Pad returns the window padding in pixels.
@@ -213,97 +170,27 @@ func (r *Renderer) GridSize(width, height int) (cols, rows int) {
 	return cols, rows
 }
 
-// Draw renders t if anything changed (or v.Force is set). It returns
-// false if nothing was drawn, in which case the caller should not swap.
-func (r *Renderer) Draw(t *term.Terminal, v View) bool {
-	force, focused := v.Force, v.Focused
-	t.Lock()
-	modes := t.Modes()
-	if modes.SyncOutput && !force {
-		if r.syncSince.IsZero() {
-			r.syncSince = time.Now()
-		}
-		if time.Since(r.syncSince) < syncTimeout {
-			t.Unlock()
-			return false
-		}
-	} else {
-		r.syncSince = time.Time{}
-	}
-
-	cols, rows := t.Size()
-	dirty, all := t.TakeDirty()
-	v.Offset = min(v.Offset, t.ScrollbackLen())
-	pushed := t.Pushed()
-	viewChanged := v.Offset != r.view.Offset || v.Selection != r.view.Selection || v.Link != r.view.Link
-	if force || viewChanged || rows != len(r.rows) || cols != r.cols || modes.ReverseVideo != r.reverse {
-		all = true
-	}
-	if v.Offset != 0 && (pushed != r.pushed || anyTrue(dirty)) {
-		// Dirty flags are in screen coordinates; when scrolled back the
-		// mapping to viewport rows shifts, so just redraw everything.
-		all = true
-	}
-	if th, gen := t.Colors(); gen != r.colorGen {
-		r.theme, r.colorGen = *th, gen
-		all = true
-	}
-	v.Force = false
-	r.view, r.pushed = v, pushed
-	if rows != len(r.rows) {
-		r.rows = make([]rowCache, rows)
-	}
-	r.cols = cols
-	r.reverse = modes.ReverseVideo
-
-	c := t.Cursor()
-	cy := c.Y + v.Offset // the cursor moves down as the view scrolls back
-	cur := cursorState{x: c.X, y: cy, visible: modes.CursorVisible && cy < rows, style: t.CursorStyle(), focused: focused}
-	changed := all
-	if cur != r.cursor {
-		// Rebuild the rows the cursor left and entered.
-		if r.cursor.y < rows {
-			dirty[r.cursor.y] = true
-		}
-		if cur.y < rows {
-			dirty[cur.y] = true
-		}
-		r.cursor = cur
-	}
-	for {
-		gen := r.atlas.gen
-		for y := 0; y < rows; y++ {
-			if all || dirty[y] {
-				abs := t.AbsRow(y, v.Offset)
-				r.buildRow(y, abs, t.LineAt(abs))
-				dirty[y] = false
-				changed = true
-			}
-		}
-		if r.atlas.gen == gen {
-			break
-		}
-		all = true // atlas was wiped mid-frame: rebuild everything
-	}
-	t.Unlock()
-
-	if !changed {
-		return false
-	}
-	r.flush()
-	return true
+// Rect is a solid rectangle in pixels (separators, tab bar background).
+type Rect struct {
+	X, Y, W, H int
+	Color      theme.RGB
 }
 
-// flush concatenates the row caches and issues the draw calls.
-func (r *Renderer) flush() {
+// Frame draws a complete frame: the background, every surface's cached
+// instances, and extra rectangles on top. The caller swaps buffers.
+func (r *Renderer) Frame(bg theme.RGB, surfaces []*Surface, rects []Rect) {
 	r.bg, r.deco, r.glyphs = r.bg[:0], r.deco[:0], r.glyphs[:0]
-	for i := range r.rows {
-		r.bg = append(r.bg, r.rows[i].bg...)
-		r.deco = append(r.deco, r.rows[i].deco...)
-		r.glyphs = append(r.glyphs, r.rows[i].glyphs...)
+	for _, s := range surfaces {
+		for i := range s.rows {
+			r.bg = append(r.bg, s.rows[i].bg...)
+			r.deco = append(r.deco, s.rows[i].deco...)
+			r.glyphs = append(r.glyphs, s.rows[i].glyphs...)
+		}
+	}
+	for _, rc := range rects {
+		r.deco = append(r.deco, rectInst{float32(rc.X), float32(rc.Y), float32(rc.W), float32(rc.H), toRGBA(rc.Color)})
 	}
 
-	bg := r.defaultBG()
 	gl.ClearColor(float32(bg.R)/255, float32(bg.G)/255, float32(bg.B)/255, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	vw, vh := float32(r.width), float32(r.height)
@@ -338,55 +225,12 @@ func drawInstances[T any](b *instanceBuffer, data []T) {
 	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, int32(len(data)))
 }
 
-func (r *Renderer) defaultFG() theme.RGB {
-	if r.reverse {
-		return r.theme.Background
-	}
-	return r.theme.Foreground
-}
-
-func (r *Renderer) defaultBG() theme.RGB {
-	if r.reverse {
-		return r.theme.Foreground
-	}
-	return r.theme.Background
-}
-
-func (r *Renderer) resolve(c term.Color, def theme.RGB) theme.RGB {
-	if i, ok := c.Palette(); ok {
-		return r.theme.Palette[i]
-	}
-	if cr, cg, cb, ok := c.RGB(); ok {
-		return theme.RGB{R: cr, G: cg, B: cb}
-	}
-	return def
-}
-
-// cellColors returns the foreground and background for a cell, and whether
-// the background differs from the window's clear color.
-func (r *Renderer) cellColors(c *term.Cell) (fg, bg theme.RGB, paintBG bool) {
-	fg = r.resolve(c.FG, r.defaultFG())
-	bg = r.resolve(c.BG, r.defaultBG())
-	paintBG = !c.BG.IsDefault()
-	if c.Attrs&term.AttrInverse != 0 {
-		fg, bg = bg, fg
-		paintBG = true
-	}
-	if c.Attrs&term.AttrFaint != 0 {
-		fg = blend(fg, bg, 0.5)
-	}
-	if c.Attrs&term.AttrHidden != 0 {
-		fg = bg
-	}
-	return fg, bg, paintBG
-}
+func toRGBA(c theme.RGB) rgba { return rgba{c.R, c.G, c.B, 255} }
 
 func blend(a, b theme.RGB, t float64) theme.RGB {
 	mix := func(x, y uint8) uint8 { return uint8(float64(x)*(1-t) + float64(y)*t) }
 	return theme.RGB{R: mix(a.R, b.R), G: mix(a.G, b.G), B: mix(a.B, b.B)}
 }
-
-func toRGBA(c theme.RGB) rgba { return rgba{c.R, c.G, c.B, 255} }
 
 func styleOf(a term.Attr) font.Style {
 	var s font.Style
@@ -406,166 +250,4 @@ func anyTrue(b []bool) bool {
 		}
 	}
 	return false
-}
-
-var emptyLine term.Line
-
-// buildRow regenerates the instance data for viewport row y, which shows
-// absolute row abs (line may be nil for rows with no content).
-func (r *Renderer) buildRow(y int, abs int64, line *term.Line) {
-	rc := &r.rows[y]
-	rc.bg, rc.deco, rc.glyphs = rc.bg[:0], rc.deco[:0], rc.glyphs[:0]
-	if line == nil {
-		line = &emptyLine
-	}
-	sel := &r.view.Selection
-	selHere := sel.Active && abs >= sel.StartRow && abs <= sel.EndRow
-	link := r.view.Link
-	linkHere := link.Active && link.Row == abs
-	cw, ch := r.m.CellW, r.m.CellH
-	py := r.pad + y*ch
-
-	cur := r.cursor
-	cursorHere := cur.visible && cur.y == y
-	block := cursorHere && cur.focused &&
-		(cur.style == term.CursorDefault || cur.style == term.CursorBlinkBlock || cur.style == term.CursorSteadyBlock)
-
-	// Cells past the line's extent are empty; only the cursor can need
-	// drawing there.
-	cells := line.Cells
-	if len(cells) > r.cols {
-		cells = cells[:r.cols]
-	}
-	end := min(line.Extent(), len(cells))
-	if block {
-		end = max(end, min(cur.x+1, len(cells)))
-	}
-	if selHere {
-		end = len(cells) // selection paints empty cells too
-	}
-	for x := 0; x < end; x++ {
-		c := &cells[x]
-		if c.Attrs&term.AttrWideSpacer != 0 {
-			continue
-		}
-		w := 1
-		if c.Attrs&term.AttrWide != 0 {
-			w = 2
-		}
-		px := r.pad + x*cw
-		fg, bg, paintBG := r.cellColors(c)
-		if selHere && sel.contains(abs, x) {
-			fg, bg, paintBG = r.theme.SelectionFG, r.theme.SelectionBG, true
-		}
-		if block && (x == cur.x || (w == 2 && x+1 == cur.x)) {
-			fg, bg, paintBG = r.theme.CursorText, r.theme.Cursor, true
-		}
-
-		if paintBG {
-			col := toRGBA(bg)
-			// Merge with the previous rect when contiguous and same color.
-			if n := len(rc.bg); n > 0 && rc.bg[n-1].Color == col && int(rc.bg[n-1].X+rc.bg[n-1].W) == px {
-				rc.bg[n-1].W += float32(w * cw)
-			} else {
-				rc.bg = append(rc.bg, rectInst{float32(px), float32(py), float32(w * cw), float32(ch), col})
-			}
-		}
-
-		if c.Rune > ' ' && c.Attrs&term.AttrHidden == 0 {
-			if e := r.atlas.get(c.Rune, styleOf(c.Attrs)); e.ok {
-				rc.glyphs = append(rc.glyphs, glyphInst{
-					X: float32(px + e.bounds.Min.X), Y: float32(py + e.bounds.Min.Y),
-					W: float32(e.bounds.Dx()), H: float32(e.bounds.Dy()),
-					U: float32(e.uv.Min.X), V: float32(e.uv.Min.Y),
-					UW: float32(e.uv.Dx()), VH: float32(e.uv.Dy()),
-					Color: toRGBA(fg),
-				})
-			}
-		}
-		r.decorations(rc, c, px, py, w*cw, fg)
-		if linkHere && x >= link.StartCol && x <= link.EndCol && c.Underline == term.UnderlineNone {
-			rc.deco = append(rc.deco, rectInst{float32(px), float32(py + r.m.Underline), float32(w * cw), float32(r.m.Thickness), toRGBA(fg)})
-		}
-	}
-
-	if cursorHere && !block {
-		r.cursorShape(rc, cur, py)
-	}
-	// Failed commands get a mark in the left padding next to their prompt.
-	if line.Prompt && line.HasExit && line.Exit != 0 && r.pad >= 2 {
-		w := max(2, r.pad/2)
-		rc.deco = append(rc.deco, rectInst{0, float32(py), float32(w), float32(ch), toRGBA(r.theme.Palette[1])})
-	}
-}
-
-func (r *Renderer) decorations(rc *rowCache, c *term.Cell, px, py, width int, fg theme.RGB) {
-	if c.Underline == term.UnderlineNone && c.Attrs&(term.AttrStrike|term.AttrOverline) == 0 {
-		return
-	}
-	th := r.m.Thickness
-	add := func(x, y, w, h int, col rgba) {
-		rc.deco = append(rc.deco, rectInst{float32(x), float32(y), float32(w), float32(h), col})
-	}
-	col := toRGBA(fg)
-	if c.Attrs&term.AttrStrike != 0 {
-		add(px, py+r.m.CellH/2, width, th, col)
-	}
-	if c.Attrs&term.AttrOverline != 0 {
-		add(px, py, width, th, col)
-	}
-	if c.Underline == term.UnderlineNone {
-		return
-	}
-	ul := col
-	if !c.UL.IsDefault() {
-		ul = toRGBA(r.resolve(c.UL, fg))
-	}
-	uy := py + r.m.Underline
-	switch c.Underline {
-	case term.UnderlineSingle:
-		add(px, uy, width, th, ul)
-	case term.UnderlineDouble:
-		add(px, uy-th, width, th, ul)
-		add(px, min(uy+th, py+r.m.CellH-th), width, th, ul)
-	case term.UnderlineCurly:
-		// Approximate a wave with short alternating segments.
-		seg := max(2, width/4)
-		for x, up := 0, true; x < width; x, up = x+seg, !up {
-			yy := uy
-			if up {
-				yy -= th
-			}
-			add(px+x, yy, min(seg, width-x), th, ul)
-		}
-	case term.UnderlineDotted:
-		for x := 0; x < width; x += 2 * th {
-			add(px+x, uy, th, th, ul)
-		}
-	case term.UnderlineDashed:
-		dash := max(2, width/3)
-		for x := 0; x < width; x += 2 * dash {
-			add(px+x, uy, min(dash, width-x), th, ul)
-		}
-	}
-}
-
-func (r *Renderer) cursorShape(rc *rowCache, cur cursorState, py int) {
-	cw, ch := r.m.CellW, r.m.CellH
-	px := r.pad + cur.x*cw
-	col := toRGBA(r.theme.Cursor)
-	th := max(1, r.m.Thickness)
-	add := func(x, y, w, h int) {
-		rc.deco = append(rc.deco, rectInst{float32(x), float32(y), float32(w), float32(h), col})
-	}
-	switch {
-	case !cur.focused: // hollow block
-		add(px, py, cw, th)
-		add(px, py+ch-th, cw, th)
-		add(px, py, th, ch)
-		add(px+cw-th, py, th, ch)
-	case cur.style == term.CursorBlinkUnderline || cur.style == term.CursorSteadyUnderline:
-		add(px, py+ch-2*th, cw, 2*th)
-	case cur.style == term.CursorBlinkBar || cur.style == term.CursorSteadyBar:
-		add(px, py, 2*th, ch)
-	}
 }

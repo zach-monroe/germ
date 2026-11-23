@@ -64,7 +64,11 @@ func getPrimary() (string, bool) {
 }
 
 func (a *App) copySelection() {
-	if text := a.sel.text(a.term); text != "" {
+	p := a.active()
+	if p == nil {
+		return
+	}
+	if text := p.sel.text(p.term); text != "" {
 		glfw.SetClipboardString(text)
 	}
 }
@@ -76,17 +80,21 @@ func (a *App) pasteClipboard() {
 // pastePrimary pastes the PRIMARY selection. The helper runs off the main
 // thread so a slow selection owner can't freeze the window.
 func (a *App) pastePrimary() {
+	p := a.active()
+	if p == nil {
+		return
+	}
 	if primary == nil {
 		a.pasteClipboard()
 		return
 	}
-	if a.offset != 0 {
-		a.offset = 0
+	if p.offset != 0 {
+		p.offset = 0
 		a.forceRedraw = true
 	}
 	go func() {
 		if text, ok := getPrimary(); ok {
-			a.send(a.encodePaste(text))
+			p.send(encodePasteFor(p, text))
 		}
 	}()
 }
@@ -98,8 +106,17 @@ func (a *App) paste(text string) {
 }
 
 func (a *App) encodePaste(text string) []byte {
-	a.term.Lock()
-	bracketed := a.term.Modes().BracketedPaste
-	a.term.Unlock()
+	p := a.active()
+	if p == nil {
+		return nil
+	}
+	return encodePasteFor(p, text)
+}
+
+// encodePasteFor is safe from any goroutine.
+func encodePasteFor(p *pane, text string) []byte {
+	p.term.Lock()
+	bracketed := p.term.Modes().BracketedPaste
+	p.term.Unlock()
 	return input.EncodePaste(text, bracketed)
 }
