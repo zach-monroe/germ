@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -25,7 +26,11 @@ type Config struct {
 	Colors      theme.File        `toml:"colors"`
 	Keybindings map[string]string `toml:"keybindings"`
 	Tmux        Tmux              `toml:"tmux"`
-	Shells      ShellIntegration  `toml:"shell_integration"`
+	Home        Home              `toml:"home"`
+	// Widgets configures home-screen widgets by name. Keys other than
+	// command and interval are passed to the widget as GERM_WIDGET_<KEY>.
+	Widgets map[string]map[string]any `toml:"widgets"`
+	Shells  ShellIntegration          `toml:"shell_integration"`
 }
 
 type Font struct {
@@ -65,6 +70,70 @@ type Tmux struct {
 	Socket string `toml:"socket"`
 }
 
+// Home configures the home tab: a dashboard of widgets shown as the first
+// tab.
+type Home struct {
+	Enabled bool `toml:"enabled"`
+	// Layout is rows of widget names, top to bottom. A name may carry a
+	// relative width, as in "news:2".
+	Layout [][]string `toml:"layout"`
+	// RowHeights are relative row heights (default: equal).
+	RowHeights []float64 `toml:"row_heights"`
+	// Focus shows the home tab when germ starts.
+	Focus bool `toml:"focus_on_start"`
+}
+
+// Widget is a resolved widget definition.
+type Widget struct {
+	Name     string
+	Command  []string      // empty: built-in or ~/.config/germ/widgets/NAME
+	Interval time.Duration // >0: rerun the command this often and show its output
+	Env      []string      // GERM_WIDGET_<KEY>=value options
+}
+
+// Widget resolves a widget's configuration.
+func (c *Config) Widget(name string) (Widget, error) {
+	w := Widget{Name: name}
+	keys := make([]string, 0, len(c.Widgets[name]))
+	for k := range c.Widgets[name] {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := c.Widgets[name][k]
+		switch k {
+		case "command":
+			switch cmd := v.(type) {
+			case string:
+				w.Command = []string{"sh", "-c", cmd}
+			case []any:
+				for _, a := range cmd {
+					w.Command = append(w.Command, fmt.Sprint(a))
+				}
+			default:
+				return w, fmt.Errorf("widgets.%s.command: want a string or a list", name)
+			}
+		case "interval":
+			d, err := time.ParseDuration(fmt.Sprint(v))
+			if err != nil {
+				return w, fmt.Errorf("widgets.%s.interval: %v", name, err)
+			}
+			w.Interval = d
+		default:
+			val := fmt.Sprint(v)
+			if list, ok := v.([]any); ok { // lists become comma-separated
+				parts := make([]string, len(list))
+				for i, x := range list {
+					parts[i] = fmt.Sprint(x)
+				}
+				val = strings.Join(parts, ",")
+			}
+			w.Env = append(w.Env, "GERM_WIDGET_"+strings.ToUpper(k)+"="+val)
+		}
+	}
+	return w, nil
+}
+
 // ShellIntegration controls automatic shell integration.
 type ShellIntegration struct {
 	// Mode is "auto" (default) or "off".
@@ -79,7 +148,10 @@ func Default() Config {
 		Window:     Window{Padding: 4, Columns: 100, Rows: 30},
 		Scrollback: Scrollback{Lines: 10000},
 		Tmux:       Tmux{Enabled: true},
-		Shells:     ShellIntegration{Mode: "auto"},
+		Home: Home{Enabled: true, Focus: true,
+			Layout:     [][]string{{"clock", "weather"}, {"news:3", "stocks:2"}},
+			RowHeights: []float64{2, 3}},
+		Shells: ShellIntegration{Mode: "auto"},
 	}
 }
 

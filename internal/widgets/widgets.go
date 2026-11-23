@@ -1,0 +1,306 @@
+// Package widgets implements germ's built-in home-screen widgets.
+//
+// A widget is just a program that draws into its terminal: germ runs it in
+// a PTY sized to the widget's box on the home tab. The built-in widgets
+// are subcommands of the germ binary (`germ widget clock`) and use the same
+// protocol as user widgets:
+//
+//   - the terminal size is the widget's box (resize arrives as SIGWINCH);
+//   - options from the config arrive as GERM_WIDGET_<KEY> environment
+//     variables, e.g. location = "Denver" -> GERM_WIDGET_LOCATION=Denver;
+//   - colors should use the 16 ANSI palette colors so the theme applies.
+package widgets
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/signal"
+	"sort"
+	"strings"
+	"syscall"
+	"time"
+	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
+)
+
+// Widget draws one frame for a w×h box. It's called again on resize, on
+// every tick, and whenever its data changes.
+type Widget interface {
+	// Update refreshes data in the background; it's called once at start
+	// and then every Every(). It may take a while (network).
+	Update(ctx context.Context) error
+	Every() time.Duration
+	// Draw renders the current state. err is the last Update error.
+	Draw(w, h int, err error) []string
+	// Tick is how often to redraw without new data (0: only on changes).
+	Tick() time.Duration
+}
+
+var builtins = map[string]func() Widget{
+	"clock":   newClock,
+	"weather": newWeather,
+	"news":    newNews,
+	"stocks":  newStocks,
+}
+
+// Names lists the built-in widgets.
+func Names() []string {
+	var out []string
+	for n := range builtins {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// IsBuiltin reports whether name is a built-in widget.
+func IsBuiltin(name string) bool { _, ok := builtins[name]; return ok }
+
+// Run runs a built-in widget on stdout until killed.
+func Run(name string) error {
+	mk, ok := builtins[name]
+	if !ok {
+		return fmt.Errorf("unknown widget %q (built-in: %s)", name, strings.Join(Names(), ", "))
+	}
+	w := mk()
+	out := os.Stdout
+	io.WriteString(out, "\x1b[?25l\x1b[?7l") // no cursor, no autowrap
+
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	updated := make(chan error, 1)
+	go func() {
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err := w.Update(ctx)
+			cancel()
+			updated <- err
+			if w.Every() <= 0 {
+				return
+			}
+			time.Sleep(w.Every())
+		}
+	}()
+
+	tick := make(chan time.Time, 1)
+	if d := w.Tick(); d > 0 {
+		go func() {
+			// Align ticks to the period so a clock flips on the second.
+			time.Sleep(time.Until(time.Now().Truncate(d).Add(d)))
+			t := time.NewTicker(d)
+			for now := range t.C {
+				select {
+				case tick <- now:
+				default:
+				}
+			}
+		}()
+	}
+	var lastErr error
+	for {
+		cols, rows := size()
+		draw(out, w.Draw(cols, rows, lastErr), rows)
+		select {
+		case <-winch:
+		case <-tick:
+		case lastErr = <-updated:
+		}
+	}
+}
+
+func size() (int, int) {
+	ws, err := unix.IoctlGetWinsize(1, unix.TIOCGWINSZ)
+	if err != nil || ws.Col == 0 {
+		return 40, 10
+	}
+	return int(ws.Col), int(ws.Row)
+}
+
+// draw writes a frame in one synchronized update.
+func draw(out io.Writer, lines []string, rows int) {
+	var b strings.Builder
+	b.WriteString("\x1b[?2026h\x1b[H")
+	for i, l := range lines {
+		if i >= rows {
+			break
+		}
+		if i > 0 {
+			b.WriteString("\r\n")
+		}
+		// Clear first: an erase after a full-width line would remove
+		// its last character.
+		b.WriteString("\x1b[2K")
+		b.WriteString(l)
+		b.WriteString("\x1b[0m")
+	}
+	b.WriteString("\x1b[0m\x1b[J\x1b[?2026l")
+	io.WriteString(out, b.String())
+}
+
+// ---- helpers shared by the built-ins ------------------------------------------
+
+// Option reads a widget option from the environment.
+func Option(key, def string) string {
+	if v := os.Getenv("GERM_WIDGET_" + strings.ToUpper(key)); v != "" {
+		return v
+	}
+	return def
+}
+
+// SGR color helpers using the theme's ANSI palette.
+const (
+	reset   = "\x1b[0m"
+	bold    = "\x1b[1m"
+	dim     = "\x1b[2m"
+	red     = "\x1b[31m"
+	green   = "\x1b[32m"
+	yellow  = "\x1b[33m"
+	blue    = "\x1b[34m"
+	magenta = "\x1b[35m"
+	cyan    = "\x1b[36m"
+	white   = "\x1b[37m"
+	bright  = "\x1b[97m"
+)
+
+// title is a widget header: an icon and name on the left, info on the right.
+func title(w int, icon, name, info string) string {
+	left := " " + icon + " " + name
+	pad := w - width(left) - width(info) - 1
+	if pad < 1 {
+		return bold + blue + truncate(left, w) + reset
+	}
+	return bold + blue + left + reset + strings.Repeat(" ", pad) + dim + info + reset
+}
+
+// width is the display width of s, ignoring escape sequences. Everything
+// the built-ins print is single-width.
+func width(s string) int {
+	n := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			j := i + 1
+			if j < len(s) && s[j] == '[' {
+				j++
+				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+					j++
+				}
+			}
+			i = j + 1
+			continue
+		}
+		_, sz := utf8.DecodeRuneInString(s[i:])
+		i += sz
+		n++
+	}
+	return n
+}
+
+// truncate cuts plain text to w cells, with an ellipsis.
+func truncate(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= w {
+		return s
+	}
+	if w == 1 {
+		return "…"
+	}
+	return string(r[:w-1]) + "…"
+}
+
+// center pads s (which may contain escapes) to the middle of w cells.
+func center(s string, w int) string {
+	pad := (w - width(s)) / 2
+	if pad <= 0 {
+		return s
+	}
+	return strings.Repeat(" ", pad) + s
+}
+
+// wrap word-wraps plain text to w cells, at most max lines.
+func wrap(s string, w, max int) []string {
+	var lines []string
+	var cur string
+	for _, word := range strings.Fields(s) {
+		switch {
+		case cur == "":
+			cur = word
+		case utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(word) <= w:
+			cur += " " + word
+		default:
+			lines = append(lines, truncate(cur, w))
+			cur = word
+		}
+		if len(lines) == max {
+			break
+		}
+	}
+	if cur != "" && len(lines) < max {
+		lines = append(lines, truncate(cur, w))
+	}
+	if len(lines) == max && max > 0 && len(strings.Fields(s)) > 0 {
+		// Mark that text was cut if we stopped early.
+		joined := strings.Join(lines, " ")
+		if len(strings.Fields(joined)) < len(strings.Fields(s)) {
+			last := []rune(lines[max-1])
+			if len(last) >= w {
+				last = last[:w-1]
+			}
+			lines[max-1] = string(last) + "…"
+		}
+	}
+	return lines
+}
+
+var client = &http.Client{Timeout: 20 * time.Second}
+
+// get fetches a URL. Some APIs refuse requests without a User-Agent, and
+// some behind Cloudflare refuse browser-like ones, so germ names itself.
+func get(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "germ-widget/1.0 (+https://github.com/zach-monroe/germ)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s: %s", url, resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+}
+
+// errLine formats an update error for the bottom of a widget.
+func errLine(err error, w int) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if i := strings.Index(msg, ": "); i > 0 && strings.HasPrefix(msg, "Get ") {
+		msg = msg[i+2:]
+	}
+	return red + truncate("⚠ "+msg, w) + reset
+}
+
+// fill pads lines to h rows and puts footer on the last one.
+func fill(lines []string, h int, footer string) []string {
+	if footer == "" {
+		return lines
+	}
+	for len(lines) < h-1 {
+		lines = append(lines, "")
+	}
+	if len(lines) >= h {
+		lines = lines[:h-1]
+	}
+	return append(lines, footer)
+}

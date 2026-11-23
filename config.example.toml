@@ -41,6 +41,26 @@ enabled = true         # every window is a tmux session in control mode (tabs an
 # session = "main"     # always use this session; default: a free germ, germ-2, ... per window
 # socket = "germ"      # tmux -L socket name (default server if unset)
 
+[home]
+enabled = true          # the first tab is a dashboard of widgets (docs/widgets.md)
+focus_on_start = true
+layout = [["clock", "weather"], ["news:3", "stocks:2"]]   # rows; ":N" = relative width
+row_heights = [2, 3]
+
+# Widget options; any key besides command/interval reaches the widget as
+# GERM_WIDGET_<KEY>. Custom widgets: set command, or drop an executable in
+# ~/.config/germ/widgets/NAME.
+# [widgets.weather]
+# location = "Denver"    # default: from your IP address
+# units = "celsius"
+# [widgets.stocks]
+# symbols = ["AAPL", "NVDA", "BTC-USD"]
+# [widgets.news]
+# feeds = ["https://hnrss.org/frontpage"]
+# [widgets.todo]
+# command = "cat ~/todo.txt"
+# interval = "30s"
+
 # Key bindings: "chord" = "action". Use "none" to remove a default.
 # Actions: copy, paste, paste_primary, zoom_in, zoom_out, zoom_reset,
 #   scroll_page_up, scroll_page_down, scroll_top, scroll_bottom,

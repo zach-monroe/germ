@@ -23,6 +23,7 @@ type tab struct {
 	tmuxID string
 	name   string // tmux window name
 	index  string // tmux window index, shown instead of the position
+	home   bool   // the home tab of widgets
 }
 
 func newTab(p *pane) *tab {
@@ -213,6 +214,9 @@ func (a *App) actionNewTab() {
 
 func (a *App) actionSplit(dir splitDir) {
 	t := a.tab()
+	if t.home {
+		return
+	}
 	if a.tmux != nil {
 		a.tmux.splitPane(t.active, dir, a.activeCwd())
 		return
@@ -265,7 +269,7 @@ func (a *App) actionFocus(d direction) bool {
 
 func (a *App) actionZoom() {
 	t := a.tab()
-	if a.tmux != nil {
+	if a.tmux != nil && !t.home {
 		a.tmux.zoomPane(t.active)
 		return
 	}
@@ -283,13 +287,16 @@ func (a *App) actionZoom() {
 // closePaneProcess ends the active pane; it disappears once its process
 // exits (handled by reapPanes).
 func (a *App) actionClosePane() {
+	if t := a.tab(); t != nil && t.home {
+		return
+	}
 	if p := a.active(); p != nil {
 		p.be.Close()
 	}
 }
 
 func (a *App) actionCloseTab() {
-	if t := a.tab(); t != nil {
+	if t := a.tab(); t != nil && !t.home {
 		if a.tmux != nil && t.tmuxID != "" {
 			a.tmux.killWindow(t)
 			return
@@ -308,7 +315,7 @@ func (a *App) reapPanes() bool {
 			a.removePane(p)
 		}
 	}
-	return len(a.tabs) > 0
+	return a.workTabs() > 0
 }
 
 // removePane drops p from its tab (and the tab if it becomes empty).
@@ -390,7 +397,11 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 	}
 	maxW := max(8, min(30, cols/max(1, len(a.tabs))))
 	for i, t := range a.tabs {
-		num := strconv.Itoa(i + 1)
+		pos := i + 1
+		if a.tabs[0].home {
+			pos = i // home is ⌂; work tabs count from 1
+		}
+		num := strconv.Itoa(pos)
 		if t.index != "" {
 			num = t.index // match tmux's select-window keys
 		}

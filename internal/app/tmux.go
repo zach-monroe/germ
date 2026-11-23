@@ -410,7 +410,7 @@ func (c *tmuxController) refresh() {
 			// Later active-window changes arrive as notifications; only the
 			// first refresh picks the starting tab, so it can't override a
 			// switch the user already made.
-			if active >= 0 && !c.ready {
+			if active >= 0 && !c.ready && !c.a.homeFocused() {
 				c.showWindow(active)
 			}
 			c.ready = true
@@ -440,8 +440,12 @@ func (c *tmuxController) refresh() {
 func (c *tmuxController) sortTabs() {
 	a := c.a
 	cur := a.tab()
-	for i := 1; i < len(a.tabs); i++ {
-		for j := i; j > 0; j-- {
+	first := 0
+	if len(a.tabs) > 0 && a.tabs[0].home {
+		first = 1 // home stays first
+	}
+	for i := first + 1; i < len(a.tabs); i++ {
+		for j := i; j > first; j-- {
 			x, _ := parseTmuxID(a.tabs[j-1].tmuxID)
 			y, _ := parseTmuxID(a.tabs[j].tmuxID)
 			if x > y {

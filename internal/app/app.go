@@ -182,6 +182,9 @@ func Run(opts Options) error {
 		a.baseEnv = []string{"TERM=" + cfg.Shell.Term}
 	}
 
+	if h := a.buildHome(); h != nil {
+		a.tabs = []*tab{h}
+	}
 	tmuxStarted := false
 	if opts.UseTmux {
 		if err := a.startTmux(opts.TmuxSession); err != nil {
@@ -195,9 +198,12 @@ func Run(opts Options) error {
 		if err != nil {
 			return err
 		}
-		a.tabs = []*tab{newTab(p)}
-		a.relayout()
+		a.tabs = append(a.tabs, newTab(p))
+		if !a.homeFocused() {
+			a.cur = len(a.tabs) - 1
+		}
 	}
+	a.relayout()
 
 	win.SetCharModsCallback(a.onChar)
 	win.SetKeyCallback(a.onKey)
@@ -232,7 +238,7 @@ func Run(opts Options) error {
 		if a.paneExited.Swap(false) && !a.reapPanes() {
 			break
 		}
-		if len(a.tabs) == 0 && (a.tmux == nil || a.tmux.ready) {
+		if a.workTabs() == 0 && (a.tmux == nil || a.tmux.ready) {
 			break
 		}
 		if text := a.clipboard.Swap(nil); text != nil {
@@ -479,6 +485,9 @@ func (a *App) reloadConfig() {
 	}
 	if refit {
 		a.refit()
+	}
+	if homeConfigChanged(&old, &a.cfg) {
+		a.rebuildHome()
 	}
 	a.forceRedraw = true
 }

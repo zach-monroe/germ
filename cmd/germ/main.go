@@ -13,6 +13,7 @@ import (
 	"github.com/zach-monroe/germ/internal/app"
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/theme"
+	"github.com/zach-monroe/germ/internal/widgets"
 )
 
 func init() {
@@ -21,6 +22,21 @@ func init() {
 }
 
 func main() {
+	// `germ widget NAME` runs a built-in home-screen widget (germ starts
+	// these itself in the home tab; running one by hand is handy for
+	// testing).
+	if len(os.Args) >= 2 && os.Args[1] == "widget" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: germ widget NAME   (built-in: "+strings.Join(widgets.Names(), ", ")+")")
+			os.Exit(2)
+		}
+		if err := widgets.Run(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, "germ:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	configPath := flag.String("config", config.Path(), "config file")
 	shell := flag.String("shell", "", "shell to run (overrides config; default $SHELL)")
 	fontFamily := flag.String("font", "", "font family (overrides config)")

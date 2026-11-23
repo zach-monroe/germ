@@ -11,6 +11,9 @@ built-in tmux and fish integration.
   splits — with germ's own scrollback, selection, and clipboard. Your tmux
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
+- **Home screen**: the first tab is a dashboard of widgets (clock,
+  weather, news, stocks), and any program can be a widget, so you can write
+  your own in any language. See [docs/widgets.md](docs/widgets.md).
 - **fish integration**, zero setup: jump between prompts, copy the last
   command's output, failed-command marks, new tabs/splits in the current
   directory, notifications for long commands, kitty keyboard protocol.
@@ -40,6 +43,7 @@ germ -no-tmux        # a plain shell, no tmux
 germ -theme dracula  # override the config for one window
 germ htop            # run a program instead of the shell
 germ -list-themes
+germ widget weather  # run a home-screen widget on its own
 ```
 
 ## Configuration
@@ -80,5 +84,6 @@ Rebind or remove any of these under `[keybindings]`.
 ## More
 
 - [docs/tmux.md](docs/tmux.md) — tmux setup and control mode
+- [docs/widgets.md](docs/widgets.md) — the home screen and writing widgets
 - [PLAN.md](PLAN.md) — design, architecture, and project status
 - `scripts/e2e/` — end-to-end tests on a virtual X server

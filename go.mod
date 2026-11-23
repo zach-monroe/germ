@@ -11,10 +11,10 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/mattn/go-runewidth v0.0.31
 	golang.org/x/image v0.48.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 )
