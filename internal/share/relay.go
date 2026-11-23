@@ -2,11 +2,13 @@ package share
 
 import (
 	"context"
+	"embed"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -46,6 +48,10 @@ type Relay struct {
 	mu    sync.Mutex
 	rooms map[string]*room
 	Log   *log.Logger
+	// OnlyRoom, if set, makes this a private relay for one share (germ
+	// share's built-in relay): other rooms are refused, and only this
+	// machine may connect as the host.
+	OnlyRoom string
 }
 
 type room struct {
@@ -63,6 +69,7 @@ func (rl *Relay) Handler() http.Handler {
 	mux.HandleFunc("GET /ws/host/{room}", rl.serveHost)
 	mux.HandleFunc("GET /ws/guest/{room}", rl.serveGuest)
 	mux.HandleFunc("GET /j/{room}", rl.serveJoinPage)
+	mux.HandleFunc("GET /web/{file}", rl.serveWeb)
 	mux.HandleFunc("GET /api/room/{room}", rl.serveRoomInfo)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
@@ -111,6 +118,10 @@ func (rl *Relay) serveHost(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("room")
 	if !roomRE.MatchString(name) {
 		http.Error(w, "bad room", http.StatusBadRequest)
+		return
+	}
+	if rl.OnlyRoom != "" && (name != rl.OnlyRoom || !isLoopback(r) || r.Header.Get("Cf-Connecting-Ip") != "") {
+		http.Error(w, "not here", http.StatusForbidden)
 		return
 	}
 	rl.mu.Lock()
@@ -191,6 +202,10 @@ func (rl *Relay) serveHost(w http.ResponseWriter, r *http.Request) {
 
 func (rl *Relay) serveGuest(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("room")
+	if rl.OnlyRoom != "" && name != rl.OnlyRoom {
+		http.Error(w, "no such session", http.StatusNotFound)
+		return
+	}
 	rl.mu.Lock()
 	rm := rl.rooms[name]
 	ok := rm != nil && rm.host != nil && len(rm.guests) < maxGuests
@@ -258,67 +273,42 @@ func (rl *Relay) serveRoomInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
+// serveJoinPage serves the browser viewer for an invite link.
 func (rl *Relay) serveJoinPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "no-store")
-	joinPage.Execute(w, map[string]string{"Room": r.PathValue("room")})
+	w.Header().Set("X-Frame-Options", "DENY")
+	// Everything the page loads comes from here; it only talks to here.
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; "+
+		"style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-ancestors 'none'")
+	prefix := strings.TrimSuffix(r.URL.Path, "/j/"+r.PathValue("room"))
+	viewerPage.Execute(w, map[string]string{"Room": r.PathValue("room"), "Prefix": prefix})
 }
 
-var joinPage = template.Must(template.New("join").Parse(strings.TrimSpace(`
-<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Join a germ session</title>
-<style>
- :root { color-scheme: dark; }
- body { font: 16px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace; background: #1a1b26; color: #c0caf5;
-        max-width: 44rem; margin: 3rem auto; padding: 0 1.25rem; }
- h1 { color: #7aa2f7; font-size: 1.4rem; } h2 { color: #bb9af7; font-size: 1.05rem; margin-top: 2rem; }
- a.button { display: inline-block; background: #7aa2f7; color: #1a1b26; padding: .6rem 1.1rem; border-radius: 6px;
-            text-decoration: none; font-weight: bold; }
- pre { background: #24283b; padding: .8rem 1rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
- .dim { color: #565f89; } #status { margin: 1rem 0; } .live { color: #9ece6a; } .dead { color: #f7768e; }
-</style></head>
-<body>
-<h1>◆ You're invited to a germ session</h1>
-<p>Someone shared their terminal with you: <a href="https://github.com/zach-monroe/germ">germ</a> is a terminal built
-for pair programming with people and coding agents.</p>
-<p id="status" class="dim">Checking the session…</p>
+func (rl *Relay) serveWeb(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("file")
+	data, err := webFS.ReadFile("web/" + name)
+	if err != nil || strings.HasSuffix(name, ".html") {
+		http.NotFound(w, r)
+		return
+	}
+	switch {
+	case strings.HasSuffix(name, ".js"):
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	case strings.HasSuffix(name, ".css"):
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	default:
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(data)
+}
 
-<h2>Have germ?</h2>
-<p><a class="button" id="open" href="#">Open in germ</a></p>
-<p class="dim">Nothing happened? Run this instead:</p>
-<pre id="cmd">germ join '…'</pre>
+//go:embed web
+var webFS embed.FS
 
-<h2>New to germ?</h2>
-<p>Install it (Linux, x86_64 or arm64) with one command:</p>
-<pre>curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh</pre>
-<p class="dim">or with a package manager: <code>yay -S germ-bin</code> (Arch) or
-<code>brew install zach-monroe/germ/germ</code>.</p>
-<p>then come back and click <b>Open in germ</b>, or run the command above.</p>
-
-<p class="dim" style="margin-top:2.5rem">The session is end-to-end encrypted. The key is in this page's address after
-"#", which your browser never sends to the server, so the relay can't read anything you see or type.</p>
-<script>
-(function () {
-  var key = location.hash.slice(1);
-  var room = {{.Room}};
-  var link = location.href;
-  var prefix = location.pathname.replace(/\/j\/[^/]*$/, "");
-  var germ = "germ://join/" + (location.protocol === "http:" ? "http:" : "") + location.host + prefix + "/" + room + "#" + key;
-  document.getElementById("open").href = germ;
-  document.getElementById("cmd").textContent = "germ join '" + link + "'";
-  var st = document.getElementById("status");
-  if (!key) { st.textContent = "This link is missing its key (the part after #). Ask for the full link."; st.className = "dead"; return; }
-  fetch(prefix + "/api/room/" + encodeURIComponent(room)).then(function (r) { return r.json(); }).then(function (j) {
-    if (j.live) { st.textContent = "● Session is live" + (j.guests ? " (" + j.guests + " already joined)" : ""); st.className = "live"; }
-    else { st.textContent = "This session isn't running right now. It may have ended."; st.className = "dead"; }
-  }).catch(function () { st.textContent = ""; });
-})();
-</script>
-</body></html>
-`)))
+var viewerPage = template.Must(template.ParseFS(webFS, "web/viewer.html"))
 
 // dropAll cuts every connection abruptly, as a network failure would
 // (for tests).
@@ -337,4 +327,16 @@ func (rl *Relay) dropAll() {
 	for _, c := range conns {
 		c.CloseNow()
 	}
+}
+
+// isLoopback reports whether the request came from this machine. (A
+// tunnel's requests also arrive from localhost, which serveHost rules out
+// by its forwarding header.)
+func isLoopback(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

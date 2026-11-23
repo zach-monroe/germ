@@ -78,7 +78,10 @@ enabled = true          # control socket for `germ ctl` / `germ mcp` (docs/agent
 allow_input = true      # let clients type into panes and open new ones
 
 [share]
-# relay = "https://your-relay.fly.dev"   # for Ctrl+Shift+P / germ share (see docs/coworking.md)
+mode = "auto"            # how guests reach you: auto (direct via UPnP, else a free Cloudflare tunnel), direct, tunnel
+# port = 7681            # fixed port for direct links (default: any free one)
+# public_address = "me.example.com"     # you forward the port yourself; skips UPnP
+# relay = "https://your-relay.fly.dev"  # use your own relay server instead (docs/coworking.md)
 
 # Key bindings: "chord" = "action". Use "none" to remove a default.
 # Actions: copy, paste, paste_primary, zoom_in, zoom_out, zoom_reset,

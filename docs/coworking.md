@@ -35,8 +35,9 @@ You can also run `germ share` in any pane of a germ tmux session, or
 
 ## Join
 
-Open the link in a browser. The page shows an **Open in germ** button and
-the command to run if the button doesn't work:
+Open the link in a browser: the session appears right there (see
+"Joining in a browser" below). To use the germ app instead, click **Open in
+germ**, or run:
 
 ```sh
 germ join 'https://relay.example.com/j/ROOM#KEY'
@@ -61,57 +62,70 @@ or `yay -S germ-bin` / `brew install zach-monroe/germ/germ`.
 Run `germ setup` once so `germ://` links (the **Open in germ** button)
 launch germ. `germ share` and `germ join` also do this automatically.
 
-## The relay
+## How guests reach you (free, no accounts)
 
-Two machines behind home or office routers usually can't connect to each
-other directly, so germ meets in the middle at a small relay you host. The
-relay only pairs connections and forwards encrypted bytes. It has no
-accounts, keeps nothing on disk, and can't read anything.
+`germ share` serves the session from your own machine. It tries, in order:
 
-### Deploy it on Fly.io
+1. **Direct**: it asks your router to forward a port to this machine
+   (UPnP) and gives an `http://your-ip:port/...` link. Nothing in between.
+2. **Cloudflare quick tunnel**: if the router won't (UPnP is off, or your
+   ISP shares one public address between customers), it starts Cloudflare's
+   free `cloudflared` (downloaded once into `~/.cache/germ/bin`; no
+   account) and gives an `https://...trycloudflare.com/...` link that works
+   from anywhere.
 
-1. Install flyctl and log in (it asks for a card; the relay sleeps when
-   nobody is sharing, so it costs pennies a month at most):
-   ```sh
-   curl -L https://fly.io/install.sh | sh     # or: yay -S flyctl-bin
-   fly auth login
-   ```
-2. From the germ repository:
-   ```sh
-   deploy/relay/deploy.sh            # app name defaults to germ-relay-$USER
-   ```
-   It creates the app, deploys a single machine (rooms live in memory, so
-   there must be exactly one), checks `/healthz`, and prints the config
-   line for the next step.
-
-### Or anywhere else
-
-`germ-relay` is a single static binary (no cgo):
-
-```sh
-CGO_ENABLED=0 go build -o germ-relay ./cmd/germ-relay
-./germ-relay -addr :8080      # put it behind TLS: Caddy, nginx, a tunnel...
-```
-
-There's also a Dockerfile in `deploy/relay`. On a LAN you can skip TLS and
-use `http://host:8080` directly.
-
-### Point germ at it
+Either way it's free and there's nothing to sign up for. The link works
+while `germ share` runs; stopping it (or your laptop sleeping) ends it.
 
 ```toml
 [share]
-relay = "https://your-relay.fly.dev"
+mode = "auto"              # "direct", "tunnel", or "auto" (direct, else tunnel)
+# port = 7681              # fixed port (default: any free one)
+# public_address = "me.example.com"   # you forward the port yourself; skips UPnP
 ```
 
-Guests don't need this setting. The link carries the relay's address.
+Notes:
+- Many ISP routers ship with UPnP off. Turn it on in the router's settings
+  for direct links, forward a port yourself (set `port` and
+  `public_address`), or just let germ use the tunnel.
+- Direct links are plain `http`, since there's no certificate for a home IP.
+  Everything you type and see is still end-to-end encrypted in the page.
+  But someone on the network path could tamper with the page itself as it
+  loads, which tunnel links (`https`) rule out. Prefer the tunnel on
+  networks you don't trust (`mode = "tunnel"`).
+- Cloudflare offers quick tunnels for testing and development, without an
+  uptime guarantee.
+- germ's built-in relay only serves your one share: nobody can use your
+  machine to relay anything else.
+
+## Joining in a browser
+
+Opening a link shows the session right in the browser (xterm.js), with no
+install. Guests enter a name and they're in: your tabs as tmux draws them,
+live. Can-type links type; watch-only links can't (their keystrokes are
+dropped on your machine, and tmux also runs their view read-only).
+Guests with germ can click **Open in germ** for native tabs and splits.
+
+## Your own relay (optional)
+
+Teams who want a stable address can still run `germ-relay` somewhere and
+set `[share] relay = "https://..."`; then germ share uses it instead of
+serving from your machine. It pairs connections and forwards encrypted
+bytes it can't read; no accounts, nothing on disk.
+
+- **Fly.io**: `deploy/relay/deploy.sh` (needs a Fly account).
+- **Anywhere**: `CGO_ENABLED=0 go build -o germ-relay ./cmd/germ-relay`,
+  or the Dockerfile in `deploy/relay`, behind TLS (Caddy, nginx, ...).
 
 ## Security
 
 - **End-to-end encrypted.** Each share makes two random 256-bit keys, one
   for each link. They live only in the link's `#fragment`, which browsers
-  never send to servers, so the relay (and its host) see who connects and
-  how much traffic flows, but not a single keystroke or byte of output.
-  Messages are sealed with AES-256-GCM.
+  never send to servers, so a relay or tunnel sees who connects and how
+  much traffic flows, but not a single keystroke or byte of output.
+  Messages are sealed with NaCl secretbox (XSalsa20-Poly1305), which the
+  browser viewer runs in plain JavaScript (tweetnacl), so it works on
+  plain-http direct links too.
 - **The link is the password.** Anyone with a link can join until you stop
   sharing. Each `germ share` makes new links, and old ones stop working.
 - **Watch-only is enforced on your machine**, not trusted to the guest's

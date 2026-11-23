@@ -236,6 +236,12 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
+## Status (after zero-setup sharing)
+- `germ share` without `[share] relay` runs a private relay in-process (one room; host only from loopback and not via the tunnel) and exposes it: UPnP port mapping on the router (public, non-CGNAT address required) else a Cloudflare quick tunnel (`cloudflared` downloaded once to ~/.cache/germ/bin).
+- Browser viewer at the invite link: xterm.js + addon-fit + tweetnacl vendored in `internal/share/web` (THIRD_PARTY_LICENSES.txt). Browser guests get a plain `tmux attach` in a pty (watchers: `-r -f ignore-size`, input dropped on the host); native germ guests keep control mode.
+- Crypto switched to NaCl secretbox (protocol v2) because Web Crypto needs a secure context and direct links are http; `TestBrowserCrypto` checks Go ↔ tweetnacl.
+- Verified: direct (manual address) and tunnel modes with Firefox on Xvfb (type / watch-only), native join through the tunnel.
+
 ## Status (after Phase 16)
 - Agent state also comes from the screen: the bottom 12 non-blank lines are matched against `[agents] working_patterns` ("esc to interrupt", which Claude Code and Codex show while working) and `waiting_patterns` (permission/question prompts). A prompt appearing acts like a notification (desktop notify when not visible; the question line becomes the message) and shows as waiting while it lasts. Works without the agent's notification setup.
 - Per-second state history (30 min ring) → `PaneInfo.History` (10 s buckets) with `list_panes {"history": true}`; the agents widget draws a one-cell-per-minute timeline.

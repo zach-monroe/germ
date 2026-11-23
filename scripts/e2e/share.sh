@@ -100,8 +100,11 @@ xdotool type --delay 15 'echo after-reconnect'; xdotool key Return; sleep 1.5
 if tmux -L $SOCK capture-pane -p -t %0 | grep -qx 'after-reconnect'; then echo "ok   host and guest reconnected after the relay restarted"
 else echo "FAIL reconnect"; tail -5 "$TMP/relay.log"; fail=1; fi
 
-# Remove the watcher from the share pane (guest 2), without new links.
-$CTL send "$SHARE" -no-enter 2 >/dev/null; sleep 0.3
+# Remove the watcher from the share pane, without new links. Numbers follow
+# join order, which the reconnect above may have shuffled: find "(watching)".
+sleep 1
+N=$($CTL read "$SHARE" -n 40 | grep -E '^ +1 ' | tail -1 | grep -oE '[0-9] [^()]*\(watching\)' | grep -oE '^[0-9]')
+$CTL send "$SHARE" -no-enter "${N:-2}" >/dev/null; sleep 0.3
 $CTL send "$SHARE" -no-enter y >/dev/null; sleep 0.3
 $CTL send "$SHARE" -no-enter n >/dev/null
 for _ in $(seq 30); do kill -0 $ROG 2>/dev/null || break; sleep 0.2; done

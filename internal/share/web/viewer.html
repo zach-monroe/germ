@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>germ · shared session</title>
+<link rel="stylesheet" href="{{.Prefix}}/web/xterm.css">
+<style>
+  :root { color-scheme: dark; --bg: #1a1b26; --bar: #16161e; --fg: #c0caf5; --dim: #565f89;
+          --blue: #7aa2f7; --green: #9ece6a; --yellow: #e0af68; --red: #f7768e; --purple: #bb9af7; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+               font: 14px/1.4 "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: .8rem; padding: .35rem .8rem; background: var(--bar);
+           border-bottom: 1px solid #292e42; white-space: nowrap; overflow: hidden; }
+  header .brand { color: var(--blue); font-weight: bold; }
+  header .who { overflow: hidden; text-overflow: ellipsis; }
+  header .badge { padding: 0 .45rem; border-radius: 4px; font-weight: bold; color: var(--bg); }
+  .badge.type { background: var(--green); } .badge.watch { background: var(--purple); }
+  .badge.wait { background: var(--dim); } .badge.err { background: var(--red); }
+  header .people { color: var(--dim); overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  header a, header button { color: var(--fg); background: #24283b; border: 1px solid #3b4261; border-radius: 4px;
+           padding: .15rem .55rem; text-decoration: none; font: inherit; cursor: pointer; }
+  header a:hover, header button:hover { border-color: var(--blue); }
+  #term { flex: 1; padding: 4px 6px; min-height: 0; }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+             background: rgba(16,16,24,.88); z-index: 10; }
+  #overlay .card { background: var(--bar); border: 1px solid #3b4261; border-radius: 8px; padding: 1.4rem 1.6rem;
+                   max-width: 34rem; width: calc(100% - 2rem); }
+  .card h1 { margin: 0 0 .6rem; font-size: 1.15rem; color: var(--blue); }
+  .card p { margin: .5rem 0; } .card .dim { color: var(--dim); }
+  .card input { width: 100%; font: inherit; padding: .4rem .55rem; background: var(--bg); color: var(--fg);
+                border: 1px solid #3b4261; border-radius: 4px; margin: .4rem 0 .8rem; }
+  .card button { font: inherit; font-weight: bold; padding: .45rem 1rem; border: 0; border-radius: 5px;
+                 background: var(--blue); color: var(--bg); cursor: pointer; }
+  .card pre { background: var(--bg); padding: .6rem .8rem; border-radius: 5px; white-space: pre-wrap;
+              word-break: break-all; margin: .4rem 0; }
+  #install { display: none; }
+</style></head>
+<body>
+<header>
+  <span class="brand">◆ germ</span>
+  <span class="who" id="who">shared session</span>
+  <span class="badge wait" id="mode">connecting</span>
+  <span class="people" id="people"></span>
+  <a id="native" href="#" title="Open this session in the germ app">Open in germ</a>
+  <button id="installBtn" type="button">Get germ</button>
+</header>
+<div id="term"></div>
+
+<div id="overlay">
+  <div class="card" id="join">
+    <h1>◆ You're invited to a terminal session</h1>
+    <p>Someone is sharing their terminal with you, live, using
+      <a href="https://github.com/zach-monroe/germ" style="color:var(--blue)">germ</a>.</p>
+    <form id="nameForm">
+      <p class="dim">Your name, so they know who joined:</p>
+      <input id="name" maxlength="32" autocomplete="nickname" placeholder="e.g. alex" autofocus>
+      <button type="submit">Join in the browser</button>
+    </form>
+    <p class="dim" style="margin-top:1rem">End-to-end encrypted: the key is in this page's address after "#",
+      which your browser never sends anywhere.</p>
+  </div>
+  <div class="card" id="install">
+    <h1>Get germ</h1>
+    <p>The browser is all you need to join. For the full app (Linux, x86_64 or arm64):</p>
+    <pre>curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh</pre>
+    <p class="dim">or <code>yay -S germ-bin</code> · <code>brew install zach-monroe/germ/germ</code></p>
+    <p>Then click <b>Open in germ</b>, or run:</p>
+    <pre id="cmd"></pre>
+    <button type="button" id="closeInstall">Close</button>
+  </div>
+</div>
+
+<script>window.GERM = { room: {{.Room}}, prefix: {{.Prefix}} };</script>
+<script src="{{.Prefix}}/web/xterm.js"></script>
+<script src="{{.Prefix}}/web/addon-fit.js"></script>
+<script src="{{.Prefix}}/web/nacl-fast.min.js"></script>
+<script src="{{.Prefix}}/web/viewer.js"></script>
+</body></html>

@@ -16,12 +16,17 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/zach-monroe/germ/internal/pty"
 )
 
 // Host shares a tmux session: each guest gets its own tmux control-mode
 // client, tunnelled through the relay.
 type Host struct {
-	Relay    *url.URL
+	Relay *url.URL // public base URL, used in links
+	// Dial, if set, is where the host itself connects (germ share's
+	// built-in relay, on this machine); default Relay.
+	Dial     *url.URL
 	Session  string   // tmux session to share
 	TmuxArgs []string // e.g. ["-L", "socket"]; empty uses $TMUX / default
 	Name     string   // shown to guests, e.g. zach@laptop
@@ -55,6 +60,8 @@ type hostGuest struct {
 	sessionID string // its ID, e.g. "$4"
 	typed     time.Time
 	typing    bool
+	web       bool // browser guest: a tmux attach in a pty
+	pty       *pty.Session
 	// Blocked commands are logged at most every few seconds.
 	lastBlockLog time.Time
 	blocked      int
@@ -86,6 +93,9 @@ func (h *Host) Links() (readWrite, readOnly Link) {
 // connection drops.
 func (h *Host) Run(ctx context.Context) error {
 	link, _ := h.Links()
+	if h.Dial != nil {
+		link.Relay = h.Dial
+	}
 	c, _, err := websocket.Dial(ctx, link.websocketURL("host"), nil)
 	if err != nil {
 		return fmt.Errorf("connecting to relay %s: %w", h.Relay.Host, err)
@@ -210,8 +220,16 @@ func (h *Host) fromGuest(id uint32, data []byte) {
 		h.kick(id)
 		return
 	}
-	if msg[0] == msgData {
+	switch {
+	case msg[0] == msgData && g.web:
+		h.webInput(g, msg[1:])
+	case msg[0] == msgData:
 		h.input(g, msg[1:])
+	case msg[0] == msgResize && g.web && g.pty != nil:
+		var sz Size
+		if json.Unmarshal(msg[1:], &sz) == nil && sz.Cols > 0 && sz.Rows > 0 {
+			g.pty.Resize(uint16(min(sz.Cols, 500)), uint16(min(sz.Rows, 300)))
+		}
 	}
 }
 
@@ -222,6 +240,11 @@ func (h *Host) hello(g *hostGuest, msg []byte) {
 		return
 	}
 	name := sanitizeName(hello.Name)
+	if hello.Version != protocolVersion {
+		h.sendMsg(g, msgBye, []byte("this session needs a newer germ (update germ and try again)"))
+		h.kick(g.id)
+		return
+	}
 	welcome := func() {
 		w, _ := json.Marshal(Welcome{Host: h.Name, Session: h.Session, ReadOnly: g.readOnly})
 		h.sendMsg(g, msgWelcome, w)
@@ -234,6 +257,14 @@ func (h *Host) hello(g *hostGuest, msg []byte) {
 		}
 		h.Log("%s joined (%s)", name, mode)
 		h.changed()
+	}
+	if hello.Kind == "web" {
+		g.web = true
+		if err := h.startWebTmux(g, hello.Size, welcome); err != nil {
+			h.sendMsg(g, msgBye, []byte("couldn't attach to tmux: "+err.Error()))
+			h.kick(g.id)
+		}
+		return
 	}
 	if err := h.startTmux(g, welcome); err != nil {
 		h.sendMsg(g, msgBye, []byte("couldn't attach to tmux: "+err.Error()))
@@ -435,6 +466,9 @@ func (h *Host) typingLoop(ctx context.Context) {
 }
 
 func (h *Host) stopGuest(g *hostGuest) {
+	if g.pty != nil {
+		g.pty.Close()
+	}
 	if g.session != "" {
 		go h.tmux("kill-session", "-t", g.session)
 	}
@@ -464,7 +498,7 @@ func (h *Host) Participants() []Participant {
 	sort.Slice(gs, func(i, j int) bool { return gs[i].joined.Before(gs[j].joined) })
 	out := []Participant{{Name: h.Name, Host: true}}
 	for _, g := range gs {
-		out = append(out, Participant{ID: g.id, Name: g.name, ReadOnly: g.readOnly, Typing: g.typing})
+		out = append(out, Participant{ID: g.id, Name: g.name, ReadOnly: g.readOnly, Typing: g.typing, Web: g.web})
 	}
 	return out
 }
@@ -534,4 +568,68 @@ func (h *Host) Kick(name string) bool {
 		h.kick(id)
 	}
 	return len(ids) > 0
+}
+
+// tmuxSocketArgs points tmux at the host's server explicitly: inside a tmux
+// pane $TMUX says which server, but a plain attach refuses to run with
+// $TMUX set, so the web attach runs without it.
+func (h *Host) tmuxSocketArgs() []string {
+	if len(h.TmuxArgs) > 0 {
+		return h.TmuxArgs
+	}
+	if t := os.Getenv("TMUX"); t != "" {
+		if sock, _, _ := strings.Cut(t, ","); sock != "" {
+			return []string{"-S", sock}
+		}
+	}
+	return nil
+}
+
+// startWebTmux attaches an ordinary tmux client in a pty for a browser
+// guest; what tmux draws streams to the guest's xterm.js. Watchers attach
+// read-only and ignoring their size, and their keystrokes never reach it.
+func (h *Host) startWebTmux(g *hostGuest, sz Size, welcome func()) error {
+	args := []string{"env", "-u", "TMUX", "tmux"}
+	args = append(args, h.tmuxSocketArgs()...)
+	args = append(args, "attach-session", "-t", h.Session)
+	if g.readOnly {
+		args = append(args, "-r", "-f", "ignore-size")
+	}
+	cols, rows := max(sz.Cols, 20), max(sz.Rows, 5)
+	sess, err := pty.Start(args, uint16(min(cols, 500)), uint16(min(rows, 300)))
+	if err != nil {
+		return err
+	}
+	g.pty = sess
+	welcome()
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := sess.Read(buf)
+			if n > 0 && h.sendMsg(g, msgData, buf[:n]) != nil {
+				break
+			}
+			if err != nil {
+				break
+			}
+		}
+		sess.Close()
+		h.mu.Lock()
+		still := h.guests[g.id] == g
+		h.mu.Unlock()
+		if still {
+			h.sendMsg(g, msgBye, []byte("the tmux session ended"))
+			h.kick(g.id)
+		}
+	}()
+	return nil
+}
+
+// webInput types a browser guest's keystrokes, if they may type.
+func (h *Host) webInput(g *hostGuest, data []byte) {
+	if g.readOnly || g.pty == nil {
+		return
+	}
+	h.noteTyping(g)
+	g.pty.Write(data)
 }

@@ -12,12 +12,23 @@ const (
 	msgData     byte = 'D' // tmux control-mode stream, both directions
 	msgPresence byte = 'P' // host -> guest: JSON []Participant
 	msgBye      byte = 'B' // host -> guest: reason text
+	msgResize   byte = 'R' // web guest -> host: JSON Size
 )
+
+// Size is a web guest's terminal size.
+type Size struct {
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
+}
 
 // Hello introduces a guest.
 type Hello struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
+	// Kind is "web" for the browser viewer, which gets a plain terminal
+	// stream (tmux attach) instead of tmux control mode.
+	Kind string `json:"kind,omitempty"`
+	Size
 }
 
 // Welcome tells a guest what it joined.
@@ -31,12 +42,14 @@ type Welcome struct {
 type Participant struct {
 	ID       uint32 `json:"id,omitempty"` // guest number (0 for the host)
 	Name     string `json:"name"`
+	Web      bool   `json:"web,omitempty"` // in a browser
 	ReadOnly bool   `json:"readonly,omitempty"`
 	Host     bool   `json:"host,omitempty"`
 	Typing   bool   `json:"typing,omitempty"`
 }
 
-const protocolVersion = 1
+// protocolVersion 2: NaCl secretbox (1 was AES-GCM).
+const protocolVersion = 2
 
 // Guests drive the host's tmux through tmux control-mode commands, one per
 // line. tmux's read-only client mode only blocks typing, not commands

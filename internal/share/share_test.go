@@ -3,11 +3,14 @@ package share
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -280,4 +283,73 @@ func TestShareV2(t *testing.T) {
 	expect(ReconnectMarker)
 	alice.Write([]byte("send-keys -t s -l back-again\n"))
 	expect("back-again")
+}
+
+// TestBrowserCrypto checks the browser viewer's crypto (tweetnacl, as
+// shipped in web/) against Go's, in both directions.
+func TestBrowserCrypto(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not installed")
+	}
+	k, _ := NewKey()
+	b := newBox(k)
+	sealed := base64.StdEncoding.EncodeToString(b.seal([]byte("from go")))
+	nacl, _ := filepath.Abs("web/nacl-fast.min.js")
+	script := `
+const nacl = require(process.argv[1]);
+const key = Buffer.from(process.argv[2], "base64url");
+const data = Buffer.from(process.argv[3], "base64");
+const msg = nacl.secretbox.open(data.subarray(24), data.subarray(0, 24), key);
+if (!msg) { console.log("OPEN FAILED"); process.exit(1); }
+const nonce = nacl.randomBytes(24);
+const box = nacl.secretbox(Buffer.from(Buffer.from(msg).toString() + " and back from js"), nonce, key);
+console.log(Buffer.concat([nonce, box]).toString("base64"));`
+	out, err := exec.Command("node", "-e", script, nacl, k.String(), sealed).Output()
+	if err != nil {
+		t.Fatalf("node: %v %s", err, out)
+	}
+	data, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(string(out)))
+	msg, err := b.open(data)
+	if err != nil || string(msg) != "from go and back from js" {
+		t.Fatalf("got %q, %v", msg, err)
+	}
+}
+
+// TestPrivateRelay checks germ share's built-in relay serves only its own
+// room, and only lets this machine host it.
+func TestPrivateRelay(t *testing.T) {
+	rl := NewRelay()
+	rl.OnlyRoom = "myroom12345"
+	srv := httptest.NewServer(rl.Handler())
+	defer srv.Close()
+	get := func(path string, hdr map[string]string) int {
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := get("/ws/host/otherroom123", nil); c != 403 {
+		t.Errorf("other room hosted: %d", c)
+	}
+	if c := get("/ws/host/myroom12345", map[string]string{"Cf-Connecting-Ip": "1.2.3.4"}); c != 403 {
+		t.Errorf("host through the tunnel allowed: %d", c)
+	}
+	if c := get("/ws/guest/otherroom123", nil); c != 404 {
+		t.Errorf("other room joinable: %d", c)
+	}
+	if c := get("/j/myroom12345", nil); c != 200 {
+		t.Errorf("viewer page: %d", c)
+	}
+	if c := get("/web/viewer.js", nil); c != 200 {
+		t.Errorf("viewer script: %d", c)
+	}
+	if c := get("/web/viewer.html", nil); c != 404 {
+		t.Errorf("raw template served: %d", c)
+	}
 }

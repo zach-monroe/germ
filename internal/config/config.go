@@ -122,9 +122,19 @@ type Control struct {
 
 // Share configures session sharing (germ share / germ join).
 type Share struct {
-	// Relay is the relay's public URL, e.g. https://germ-relay.fly.dev
-	// (see deploy/relay).
+	// Relay is a relay server to use, e.g. https://germ-relay.fly.dev (see
+	// deploy/relay). Empty (the default): germ share serves the session
+	// from this machine, reachable directly or through a free tunnel.
 	Relay string `toml:"relay"`
+	// Mode, without a relay: "auto" (default: a direct connection if the
+	// router allows it, else a Cloudflare quick tunnel), "direct", or
+	// "tunnel".
+	Mode string `toml:"mode"`
+	// Port for direct connections (0: any free port).
+	Port int `toml:"port"`
+	// PublicAddress is a host name or IP that already forwards Port to
+	// this machine (a manual port forward or dynamic DNS); skips UPnP.
+	PublicAddress string `toml:"public_address"`
 }
 
 // Widget is a resolved widget definition.

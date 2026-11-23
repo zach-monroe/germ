@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -43,21 +46,18 @@ func whoami() string {
 func runShare(args []string) int {
 	cfg := loadConfig()
 	fs := flag.NewFlagSet("germ share", flag.ExitOnError)
-	relay := fs.String("relay", cfg.Share.Relay, "relay URL (default from [share] relay)")
+	relay := fs.String("relay", cfg.Share.Relay, "relay server URL (default from [share] relay; none: serve from this machine)")
+	mode := fs.String("mode", cfg.Share.Mode, "without a relay: auto (direct, else tunnel), direct, or tunnel")
 	session := fs.String("session", "", "tmux session to share (default: the one this pane is in)")
 	fs.Parse(args)
-	if *relay == "" {
-		fmt.Fprintln(os.Stderr, `germ share: no relay configured. Deploy one (see deploy/relay in the germ repo, e.g. on Fly.io),
-then add to ~/.config/germ/config.toml:
-
-  [share]
-  relay = "https://your-relay.fly.dev"`)
-		return pause(1)
-	}
-	u, err := url.Parse(*relay)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		fmt.Fprintf(os.Stderr, "germ share: bad relay URL %q\n", *relay)
-		return pause(1)
+	var u *url.URL
+	if *relay != "" {
+		var err error
+		u, err = url.Parse(*relay)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			fmt.Fprintf(os.Stderr, "germ share: bad relay URL %q\n", *relay)
+			return pause(1)
+		}
 	}
 	var tmuxArgs []string
 	if *session == "" {
@@ -75,10 +75,34 @@ then add to ~/.config/germ/config.toml:
 		tmuxArgs = []string{"-L", cfg.Tmux.Socket}
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	logf := func(format string, a ...any) {
+		fmt.Printf("%s%s%s  %s\n", dim, time.Now().Format("15:04"), reset, fmt.Sprintf(format, a...))
+	}
+
 	h, err := share.NewHost(u, *session)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "germ share:", err)
 		return pause(1)
+	}
+	via := ""
+	if u != nil {
+		via = "via relay " + u.Host
+	} else {
+		// No relay: serve the session from this machine.
+		fmt.Printf("%sopening a connection…%s\n", dim, reset)
+		exp, local, err := serveLocally(ctx, h, cfg.Share, *mode, logf)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "germ share:", err)
+			return pause(1)
+		}
+		defer exp.Close()
+		h.Relay, h.Dial = exp.URL, local
+		via = "directly from this machine (" + exp.URL.Host + ")"
+		if exp.Mode == "tunnel" {
+			via = "through a Cloudflare quick tunnel"
+		}
 	}
 	h.Name = whoami()
 	h.TmuxArgs = tmuxArgs
@@ -88,9 +112,7 @@ then add to ~/.config/germ/config.toml:
 			ctl.Call(control.Request{Cmd: control.CmdSetStatus, Text: text, TTL: 90})
 		}
 	}
-	h.Log = func(format string, a ...any) {
-		fmt.Printf("%s%s%s  %s\n", dim, time.Now().Format("15:04"), reset, fmt.Sprintf(format, a...))
-	}
+	h.Log = logf
 	lastPeople := ""
 	h.OnChange = func(ps []share.Participant) {
 		status(presence(ps))
@@ -111,7 +133,8 @@ then add to ~/.config/germ/config.toml:
 		fmt.Printf("%sWatch only%s:\n  %s%s%s\n\n", bold+green, reset, cyan, ro, reset)
 		copyOSC52(ro.String())
 	}
-	fmt.Printf("%s◆ sharing tmux session %q%s via %s\n\n", bold+blue, *session, reset, u.Host)
+	fmt.Printf("%s◆ sharing tmux session %q%s %s\n", bold+blue, *session, reset, via)
+	fmt.Printf("%sGuests open a link in any browser (or in germ). Nothing to install.%s\n\n", dim, reset)
 	printLinks()
 	help := func() {
 		fmt.Printf("%sThe watch-only link is on your clipboard.%s\n", dim, reset)
@@ -120,8 +143,6 @@ then add to ~/.config/germ/config.toml:
 	}
 	help()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
 	status("◉ sharing")
 	go func() { // keep the status alive (it expires if we die)
 		t := time.NewTicker(60 * time.Second)
@@ -345,4 +366,34 @@ Terminal=false
 		fmt.Println("germ:// links now open germ (", path, ")")
 	}
 	return nil
+}
+
+// serveLocally runs a private relay for this share on this machine and
+// makes it reachable: directly (UPnP port forward) or through a tunnel.
+// It returns the exposure and the local URL the host connects to.
+func serveLocally(ctx context.Context, h *share.Host, sc config.Share, mode string, logf func(string, ...any)) (*share.Exposure, *url.URL, error) {
+	if mode == "" {
+		mode = "auto"
+	}
+	addr := fmt.Sprintf(":%d", sc.Port)
+	if mode == "tunnel" {
+		addr = fmt.Sprintf("127.0.0.1:%d", sc.Port) // only the tunnel needs to reach it
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listening on %s: %w", addr, err)
+	}
+	rl := share.NewRelay()
+	rl.OnlyRoom = h.Room
+	rl.Log.SetOutput(io.Discard)
+	srv := &http.Server{Handler: rl.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	go srv.Serve(ln)
+	go func() { <-ctx.Done(); srv.Close() }()
+	port := ln.Addr().(*net.TCPAddr).Port
+	exp, err := share.Expose(ctx, port, share.ExposeOptions{Mode: mode, PublicAddress: sc.PublicAddress, Log: logf})
+	if err != nil {
+		srv.Close()
+		return nil, nil, err
+	}
+	return exp, &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)}, nil
 }

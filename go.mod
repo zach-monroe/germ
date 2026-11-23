@@ -10,10 +10,15 @@ require (
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260823155953-d41da22a9587
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
+	github.com/huin/goupnp v1.3.1
 	github.com/mattn/go-runewidth v0.0.31
+	golang.org/x/crypto v0.59.0
 	golang.org/x/image v0.48.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
 )
 
-require github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+require (
+	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+)

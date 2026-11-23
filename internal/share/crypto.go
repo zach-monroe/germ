@@ -5,15 +5,15 @@
 package share
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+
+	"golang.org/x/crypto/nacl/secretbox"
 )
 
-// KeySize is the size of a session key (AES-256).
+// KeySize is the size of a session key.
 const KeySize = 32
 
 // Key is a symmetric session key.
@@ -40,39 +40,35 @@ func ParseKey(s string) (Key, error) {
 	return k, nil
 }
 
-// box seals and opens messages with AES-256-GCM and random nonces.
-type box struct{ aead cipher.AEAD }
+// box seals and opens messages with NaCl secretbox (XSalsa20-Poly1305)
+// and random nonces: nonce (24 bytes) || box. Browsers can run the same
+// construction in plain JavaScript (tweetnacl), which matters because Web
+// Crypto only exists on https pages and direct shares are plain http.
+type box struct{ key [KeySize]byte }
 
-func newBox(k Key) *box {
-	block, err := aes.NewCipher(k[:])
-	if err != nil {
-		panic(err) // only fails for bad key sizes
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err)
-	}
-	return &box{aead}
-}
+func newBox(k Key) *box { return &box{key: k} }
 
-// seal encrypts msg: nonce || ciphertext.
+const nonceSize = 24
+
+// seal encrypts msg.
 func (b *box) seal(msg []byte) []byte {
-	out := make([]byte, b.aead.NonceSize(), b.aead.NonceSize()+len(msg)+b.aead.Overhead())
-	if _, err := rand.Read(out); err != nil {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
 		panic(err)
 	}
-	return b.aead.Seal(out, out, msg, nil)
+	return secretbox.Seal(nonce[:], msg, &nonce, &b.key)
 }
 
 var errDecrypt = errors.New("message failed to decrypt (wrong key?)")
 
 func (b *box) open(data []byte) ([]byte, error) {
-	n := b.aead.NonceSize()
-	if len(data) < n+b.aead.Overhead() {
+	if len(data) < nonceSize+secretbox.Overhead {
 		return nil, errDecrypt
 	}
-	msg, err := b.aead.Open(nil, data[:n], data[n:], nil)
-	if err != nil {
+	var nonce [nonceSize]byte
+	copy(nonce[:], data)
+	msg, ok := secretbox.Open(nil, data[nonceSize:], &nonce, &b.key)
+	if !ok {
 		return nil, errDecrypt
 	}
 	return msg, nil
