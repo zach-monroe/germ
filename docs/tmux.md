@@ -42,13 +42,32 @@ displaying tmux's own drawing:
 
 - each tmux window is a germ tab and each pane a native split, with germ's
   own scrollback, selection, and clipboard per pane;
-- splitting, switching, resizing, and closing use germ shortcuts (no prefix
-  key);
+- splitting, switching, and closing work with germ shortcuts *and* with
+  your tmux prefix bindings (`C-b c`, `C-b %`, `C-b 1`, custom binds...);
 - sessions keep running after you close germ; the next window reattaches.
 
-Start it with `germ -tmux` (session `main`, created if needed), pick a
-session with `germ -tmux -session work`, or set `[tmux] enabled = true` to
-make it the default (`germ -no-tmux` then opts out for one window).
+Control mode is the default. Each window gets its own session: `germ`,
+then `germ-2`, `germ-3`... for windows opened while the others are in use.
+A session nobody is attached to (say, from a window you closed) is reused
+before a new one is made. Use `germ -session work` (or `session = "work"`
+under `[tmux]`) to pick a session, `germ -no-tmux` for a plain shell, or
+`[tmux] enabled = false` to turn it off. Running a command (`germ htop`)
+skips tmux. If tmux isn't installed, germ falls back to a plain shell.
+
+### tmux key bindings
+
+Keys normally go straight to the pane (`send-keys`), which skips tmux's
+key tables. So germ watches for your prefix (`prefix`/`prefix2`, read from
+tmux, so a custom prefix works) and sends it plus the next key with
+`send-keys -K`, which tmux looks up exactly as if typed into a regular
+client. While the prefix is pending, the session label in the tab bar
+shows it. Tabs are numbered with tmux's window indices, so `C-b 0`
+selects the tab labelled 0.
+
+tmux modes (copy mode, `choose-tree`, ...) can't be displayed in control
+mode, so germ cancels them when a pane enters one; use germ's scrollback
+(Shift+PgUp, mouse wheel) and selection instead of copy mode. The command
+prompt (`C-b :`) isn't shown either; run `tmux` commands in a pane.
 
 | Action | Default key | tmux command germ sends |
 |---|---|---|
@@ -72,5 +91,4 @@ history with `capture-pane`. Applications inside tmux answer to tmux, so
 germ never replies to their terminal queries itself.
 
 Limitations: dragging separators doesn't resize panes yet (use tmux's
-`resize-pane`), and copy mode isn't needed — use germ's own scrollback and
-selection.
+`resize-pane`); tmux modes and the command prompt aren't shown (see above).

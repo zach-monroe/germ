@@ -22,6 +22,7 @@ type tab struct {
 	fixed  bool
 	tmuxID string
 	name   string // tmux window name
+	index  string // tmux window index, shown instead of the position
 }
 
 func newTab(p *pane) *tab {
@@ -375,9 +376,13 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 	var spans []tabSpan
 	x := 0
 	if a.tmux != nil { // session name first, like tmux's status line
-		for _, r := range " " + a.tmux.session + " " {
+		label, bg := " "+a.tmux.session+" ", th.Palette[2]
+		if p := a.tmux.prefixPending; p != "" { // like tmux's client_prefix
+			label, bg = " "+p+" ", th.Palette[3]
+		}
+		for _, r := range label {
 			if x < cols {
-				cells[x] = term.Cell{Rune: r, FG: rgb(th.Background), BG: rgb(th.Palette[2]), Attrs: term.AttrBold}
+				cells[x] = term.Cell{Rune: r, FG: rgb(th.Background), BG: rgb(bg), Attrs: term.AttrBold}
 				x++
 			}
 		}
@@ -385,7 +390,11 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 	}
 	maxW := max(8, min(30, cols/max(1, len(a.tabs))))
 	for i, t := range a.tabs {
-		label := []rune(" " + strconv.Itoa(i+1) + " " + t.title() + " ")
+		num := strconv.Itoa(i + 1)
+		if t.index != "" {
+			num = t.index // match tmux's select-window keys
+		}
+		label := []rune(" " + num + " " + t.title() + " ")
 		if len(label) > maxW {
 			label = append(label[:maxW-2], '…', ' ')
 		}

@@ -54,9 +54,12 @@ type Shell struct {
 
 // Tmux configures tmux control-mode integration.
 type Tmux struct {
-	// Enabled starts every window attached to tmux in control mode.
+	// Enabled starts every window attached to tmux in control mode
+	// (default true; falls back to a plain shell if tmux is missing).
 	Enabled bool `toml:"enabled"`
-	// Session is the session name to attach to or create.
+	// Session is the session name to attach to or create. Empty (the
+	// default) gives each window its own session: germ, germ-2, ...,
+	// reattaching one no other client is using before creating a new one.
 	Session string `toml:"session"`
 	// Socket selects a tmux server socket name (tmux -L).
 	Socket string `toml:"socket"`
@@ -75,7 +78,7 @@ func Default() Config {
 		Font:       Font{Family: "monospace", Size: 11},
 		Window:     Window{Padding: 4, Columns: 100, Rows: 30},
 		Scrollback: Scrollback{Lines: 10000},
-		Tmux:       Tmux{Session: "main"},
+		Tmux:       Tmux{Enabled: true},
 		Shells:     ShellIntegration{Mode: "auto"},
 	}
 }
@@ -143,9 +146,6 @@ func Parse(data []byte) (Config, []string, error) {
 	}
 	if cfg.Theme == "" {
 		cfg.Theme = d.Theme
-	}
-	if cfg.Tmux.Session == "" {
-		cfg.Tmux.Session = d.Tmux.Session
 	}
 	if cfg.Shells.Mode == "" {
 		cfg.Shells.Mode = d.Shells.Mode

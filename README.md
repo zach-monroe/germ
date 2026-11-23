@@ -6,10 +6,10 @@ built-in tmux and fish integration.
 - **Fast**: OpenGL 3.3 renderer (glyph atlas, three instanced draw calls per
   frame, only changed rows rebuilt, zero CPU when idle), a zero-allocation
   escape-sequence parser, and synchronized output.
-- **tmux, built in**: `germ -tmux` drives tmux in control mode, so tmux
-  windows and panes become native germ tabs and splits — with germ's own
-  scrollback, selection, and clipboard — and your session survives closing
-  the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
+- **tmux, built in**: every germ window is a tmux session, driven in
+  control mode, so tmux windows and panes become native germ tabs and
+  splits — with germ's own scrollback, selection, and clipboard. Your tmux
+  prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
 - **fish integration**, zero setup: jump between prompts, copy the last
   command's output, failed-command marks, new tabs/splits in the current
@@ -34,9 +34,9 @@ git clone https://github.com/zach-monroe/germ && cd germ && go build -o germ ./c
 ## Usage
 
 ```sh
-germ                 # your $SHELL (or [shell] program)
-germ -tmux           # attach to tmux session "main" in control mode
-germ -tmux -session work
+germ                 # a tmux session (germ, germ-2, ...) running your $SHELL
+germ -session work   # attach to (or create) tmux session "work"
+germ -no-tmux        # a plain shell, no tmux
 germ -theme dracula  # override the config for one window
 germ htop            # run a program instead of the shell
 germ -list-themes
@@ -56,7 +56,7 @@ family = "JetBrainsMono Nerd Font"
 size = 10
 
 [tmux]
-enabled = true
+enabled = false   # plain shells by default instead of tmux
 ```
 
 ## Default key bindings

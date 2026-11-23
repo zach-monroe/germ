@@ -40,9 +40,10 @@ type Options struct {
 	ConfigPath string
 	Overrides  Overrides // command-line flags that beat the config file
 
-	// Tmux, if non-empty, attaches to (or creates) this tmux session in
-	// control mode instead of running Command.
-	Tmux string
+	// UseTmux attaches to tmux in control mode instead of running Command.
+	// TmuxSession names the session; empty picks a free germ-N session.
+	UseTmux     bool
+	TmuxSession string
 
 	// Screenshot, if set, saves the window contents as PNG to this path
 	// after ScreenshotDelay and exits. Used for testing the renderer.
@@ -182,8 +183,8 @@ func Run(opts Options) error {
 	}
 
 	tmuxStarted := false
-	if opts.Tmux != "" {
-		if err := a.startTmux(opts.Tmux); err != nil {
+	if opts.UseTmux {
+		if err := a.startTmux(opts.TmuxSession); err != nil {
 			fmt.Fprintln(os.Stderr, "germ:", err, "(starting a plain shell instead)")
 		} else {
 			tmuxStarted = true

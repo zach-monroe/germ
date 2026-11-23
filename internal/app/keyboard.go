@@ -80,6 +80,10 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	if key == glfw.KeyLeftControl || key == glfw.KeyRightControl {
 		a.updateLinkHover() // Ctrl toggles hyperlink hover
 	}
+	if action != glfw.Release && a.tmuxPrefixKey(key, scancode, mods) {
+		a.suppressChar = a.tmux.prefixPending == "" // the char completes a pending prefix
+		return
+	}
 	if action != glfw.Release && a.binding(key, scancode, mods) {
 		a.suppressChar = true
 		return
@@ -115,6 +119,9 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 // onChar handles printable text (already composed by the OS/IME).
 func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
 	if a.suppressChar {
+		return
+	}
+	if a.tmuxPrefixChar(r) {
 		return
 	}
 	a.sendUser(input.EncodeText(r, toMods(mods)&input.ModAlt, input.State{}))

@@ -58,6 +58,14 @@ type tmuxController struct {
 	// wantActive remembers a window's active pane when tmux announces it
 	// before the pane's layout arrives.
 	wantActive map[int]int
+	// wantWindow is a window tmux switched to before announcing it
+	// (%session-window-changed precedes %window-add), or -1.
+	wantWindow int
+
+	// Key bindings (see tmuxkeys.go).
+	client        string // this control client's name
+	prefixes      []tmuxPrefix
+	prefixPending string // prefix key name while waiting for the next key
 }
 
 // tmuxBackend sends a pane's input to tmux.
@@ -80,10 +88,14 @@ func (a *App) startTmux(session string) error {
 	if err != nil {
 		return fmt.Errorf("tmux not found: %w", err)
 	}
-	args := []string{"-C", "new-session", "-A", "-s", session}
-	if sock := a.cfg.Tmux.Socket; sock != "" {
-		args = append([]string{"-L", sock}, args...)
+	var sock []string
+	if s := a.cfg.Tmux.Socket; s != "" {
+		sock = []string{"-L", s}
 	}
+	if session == "" {
+		session = pickSession(listSessions(path, sock))
+	}
+	args := append(sock, "-C", "new-session", "-A", "-s", session)
 	cmd := exec.Command(path, args...)
 	cmd.Env = append(os.Environ(), a.baseEnv...)
 	cmd.Env = append(cmd.Env, "TERM_PROGRAM=germ", "COLORTERM=truecolor")
@@ -107,13 +119,44 @@ func (a *App) startTmux(session string) error {
 	c := &tmuxController{
 		a: a, cmd: cmd, stdin: stdin, session: session,
 		terms: map[int]*term.Terminal{}, pending: map[int][]byte{},
-		tabs: map[int]*tab{}, panes: map[int]*pane{}, wantActive: map[int]int{},
+		tabs: map[int]*tab{}, panes: map[int]*pane{}, wantActive: map[int]int{}, wantWindow: -1,
 	}
 	a.tmux = c
 	go c.readLoop(stdout)
+	c.queryKeys()
 	c.clientSize(a.content())
 	c.refresh()
 	return nil
+}
+
+// listSessions returns the server's sessions and how many clients each
+// has attached; none if no server is running.
+func listSessions(tmux string, sock []string) map[string]int {
+	out, err := exec.Command(tmux, append(sock, "list-sessions", "-F", "#{session_name}\t#{session_attached}")...).Output()
+	if err != nil {
+		return nil
+	}
+	m := map[string]int{}
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name, n, _ := strings.Cut(l, "\t")
+		m[name], _ = strconv.Atoi(n)
+	}
+	return m
+}
+
+// pickSession chooses germ's session for a new window: the first germ-N
+// session nobody is attached to, else the first unused name. Closing a
+// window leaves its session running, so reopening germ picks it back up.
+func pickSession(sessions map[string]int) string {
+	for i := 1; ; i++ {
+		name := "germ"
+		if i > 1 {
+			name = "germ-" + strconv.Itoa(i)
+		}
+		if n, ok := sessions[name]; !ok || n == 0 {
+			return name
+		}
+	}
 }
 
 // command sends a tmux command; cb (may be nil) gets its output on the
@@ -277,7 +320,8 @@ func (c *tmuxController) notification(line string) {
 				c.applyLayout(id, f[2], f[3])
 			}
 		}
-	case "%window-add", "%window-close", "%unlinked-window-close", "%sessions-changed", "%session-changed":
+	case "%window-add", "%window-close", "%unlinked-window-close", "%sessions-changed", "%session-changed",
+		"%session-renamed":
 		c.refresh()
 	case "%window-renamed":
 		if len(f) >= 3 {
@@ -291,6 +335,10 @@ func (c *tmuxController) notification(line string) {
 			if id, ok := parseTmuxID(f[2]); ok {
 				c.showWindow(id)
 			}
+		}
+	case "%pane-mode-changed":
+		if len(f) >= 2 {
+			c.paneModeChanged(f[1])
 		}
 	case "%window-pane-changed":
 		if len(f) >= 3 {
@@ -328,7 +376,7 @@ func (c *tmuxController) setActivePane(wid, pid int) {
 
 // refresh re-reads all windows and their active panes.
 func (c *tmuxController) refresh() {
-	c.command(`list-windows -F "#{window_id}	#{window_active}	#{window_name}	#{window_layout}	#{window_visible_layout}"`,
+	c.command(`list-windows -F "#{window_id}	#{window_active}	#{window_name}	#{window_layout}	#{window_visible_layout}	#{window_index}"`,
 		func(lines []string, failed bool) {
 			if failed {
 				return
@@ -337,7 +385,7 @@ func (c *tmuxController) refresh() {
 			active := -1
 			for _, l := range lines {
 				f := strings.Split(l, "\t")
-				if len(f) < 5 {
+				if len(f) < 6 {
 					continue
 				}
 				id, ok := parseTmuxID(f[0])
@@ -347,7 +395,7 @@ func (c *tmuxController) refresh() {
 				seen[id] = true
 				c.applyLayout(id, f[3], f[4])
 				if t := c.tabs[id]; t != nil {
-					t.name = f[2]
+					t.name, t.index = f[2], f[5]
 				}
 				if f[1] == "1" {
 					active = id
@@ -368,6 +416,12 @@ func (c *tmuxController) refresh() {
 			c.ready = true
 			c.a.forceRedraw = true
 		})
+	c.command(`display -p "#{session_name}"`, func(lines []string, failed bool) {
+		if !failed && len(lines) > 0 && lines[0] != c.session {
+			c.session = lines[0] // renamed, or switched with choose-tree etc.
+			c.a.forceRedraw = true
+		}
+	})
 	c.command(`list-panes -s -F "#{window_id}	#{pane_id}	#{pane_active}"`, func(lines []string, failed bool) {
 		for _, l := range lines {
 			f := strings.Split(l, "\t")
@@ -405,8 +459,10 @@ func (c *tmuxController) sortTabs() {
 func (c *tmuxController) showWindow(id int) {
 	t := c.tabs[id]
 	if t == nil {
+		c.wantWindow = id
 		return
 	}
+	c.wantWindow = -1
 	for i, x := range c.a.tabs {
 		if x == t && i != c.a.cur {
 			old := c.a.active()
@@ -490,6 +546,9 @@ func (c *tmuxController) applyLayout(wid int, layout, visible string) {
 	}
 	for _, p := range t.panes {
 		a.resizePane(p, p.rect.W, p.rect.H)
+	}
+	if c.wantWindow == wid {
+		c.showWindow(wid)
 	}
 	a.forceRedraw = true
 }

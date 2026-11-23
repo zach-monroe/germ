@@ -26,9 +26,9 @@ func main() {
 	fontFamily := flag.String("font", "", "font family (overrides config)")
 	fontSize := flag.Float64("font-size", 0, "font size in points (overrides config)")
 	themeName := flag.String("theme", "", "theme name or path (overrides config)")
-	tmuxFlag := flag.Bool("tmux", false, "attach to tmux in control mode (tabs and splits become tmux windows and panes)")
-	noTmux := flag.Bool("no-tmux", false, "don't use tmux even if enabled in the config")
-	session := flag.String("session", "", "tmux session name for -tmux (default from config, else \"main\")")
+	tmuxFlag := flag.Bool("tmux", false, "attach to tmux in control mode even if disabled in the config")
+	noTmux := flag.Bool("no-tmux", false, "run a plain shell instead of tmux")
+	session := flag.String("session", "", "tmux session to attach to or create (default from config, else a free germ-N session)")
 	listThemes := flag.Bool("list-themes", false, "list bundled themes and exit")
 	quote := flag.Bool("quote", false, "log child output as quoted strings to show escape sequences")
 	shot := flag.String("screenshot", "", "save a PNG of the window to this path after -screenshot-delay, then exit (testing)")
@@ -86,17 +86,16 @@ func main() {
 		}
 	}
 
-	tmuxSession := ""
-	if (*tmuxFlag || cfg.Tmux.Enabled) && !*noTmux && len(flag.Args()) == 0 {
-		tmuxSession = cfg.Tmux.Session
-		if *session != "" {
-			tmuxSession = *session
-		}
+	// tmux is the default; an explicit command runs without it.
+	useTmux := (*tmuxFlag || *session != "" || cfg.Tmux.Enabled) && !*noTmux && len(flag.Args()) == 0
+	tmuxSession := cfg.Tmux.Session
+	if *session != "" {
+		tmuxSession = *session
 	}
 
 	if err := app.Run(app.Options{
 		Command: cmd, ShellCommand: shellCmd, Out: os.Stdout, Quote: *quote, Dump: *dump,
-		Config: cfg, ConfigPath: *configPath, Overrides: over, Tmux: tmuxSession,
+		Config: cfg, ConfigPath: *configPath, Overrides: over, UseTmux: useTmux, TmuxSession: tmuxSession,
 		Screenshot: *shot, ScreenshotDelay: *shotDelay,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)

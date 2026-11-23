@@ -3,6 +3,8 @@ package app
 import (
 	"reflect"
 	"testing"
+
+	"github.com/zach-monroe/germ/internal/config"
 )
 
 func TestUnescapeOutput(t *testing.T) {
@@ -52,5 +54,43 @@ func TestParseLayout(t *testing.T) {
 func TestTmuxQuote(t *testing.T) {
 	if got := tmuxQuote("it's /tmp"); got != `'it'\''s /tmp'` {
 		t.Errorf("got %s", got)
+	}
+}
+
+func TestParseTmuxKey(t *testing.T) {
+	for in, want := range map[string]config.Chord{
+		"C-b":     {Mods: config.ModCtrl, Key: "b"},
+		"^A":      {Mods: config.ModCtrl, Key: "a"},
+		"M-a":     {Mods: config.ModAlt, Key: "a"},
+		"C-Space": {Mods: config.ModCtrl, Key: "space"},
+		"C-M-x":   {Mods: config.ModCtrl | config.ModAlt, Key: "x"},
+		"F12":     {Key: "f12"},
+		"`":       {Key: "`"},
+	} {
+		if got, ok := parseTmuxKey(in); !ok || got != want {
+			t.Errorf("%s: got %+v %v, want %+v", in, got, ok, want)
+		}
+	}
+	for _, bad := range []string{"None", "", "X-b", "Bogus"} {
+		if _, ok := parseTmuxKey(bad); ok {
+			t.Errorf("%q: expected failure", bad)
+		}
+	}
+}
+
+func TestPickSession(t *testing.T) {
+	for _, c := range []struct {
+		have map[string]int
+		want string
+	}{
+		{nil, "germ"},
+		{map[string]int{"main": 1}, "germ"},
+		{map[string]int{"germ": 0}, "germ"},
+		{map[string]int{"germ": 1}, "germ-2"},
+		{map[string]int{"germ": 1, "germ-2": 2, "germ-3": 0}, "germ-3"},
+	} {
+		if got := pickSession(c.have); got != c.want {
+			t.Errorf("%v: got %s, want %s", c.have, got, c.want)
+		}
 	}
 }
