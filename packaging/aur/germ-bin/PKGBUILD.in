@@ -15,6 +15,7 @@ optdepends=('xclip: X11 primary selection and pasting images'
             'ttf-jetbrains-mono-nerd: a good default font')
 provides=('germ')
 conflicts=('germ')
+options=('!debug' '!strip')  # Go binaries, already stripped
 source_x86_64=("germ-$pkgver-x86_64.tar.gz::$url/releases/download/v$pkgver/germ-linux-x86_64.tar.gz")
 source_aarch64=("germ-$pkgver-aarch64.tar.gz::$url/releases/download/v$pkgver/germ-linux-aarch64.tar.gz")
 sha256sums_x86_64=('@SHA_X86_64@')

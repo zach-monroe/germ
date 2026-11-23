@@ -43,7 +43,7 @@ if curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" 2>/dev/null; then
 else
   warn "no checksums published; skipping verification"
 fi
-tar -C "$tmp" -xzf "$tmp/$asset"
+tar -C "$tmp" -xzmf "$tmp/$asset" # -m: ignore archive times (clock skew)
 src="$tmp/germ-linux-$arch"
 
 mkdir -p "$dir"
