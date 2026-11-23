@@ -183,6 +183,9 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **11. Parallel agents** ✅ | Ctrl+Shift+A: task → `git worktree` → tmux window running the agent; live diff-stat side pane; clickable `file:line` → `$EDITOR` | One key spawns an isolated agent; its changes are visible at a glance |
 | **12. Agent input polish** ✅ | Shift+Enter newlines, image paste, "send selection to agent pane" | Multi-line prompts and screenshots just work in agent UIs |
 | **13. Coworking** ✅ | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
+| **14. Coworking v2** ✅ | Remove/ban guests from the share pane, rotate links; guests navigate tabs independently (grouped tmux sessions) with a follow-the-host toggle; "who's typing" presence; automatic reconnect for guests and host | A guest's Wi-Fi blips and they're back a few seconds later; you remove one guest without stopping the share |
+| **15. Daily-driver polish** | Drag separators to resize; OSC 8 hyperlinks; combining characters; zsh/bash shell integration | Your zsh gets prompt jumping, command marks, and notifications like fish |
+| **16. Agent tuning** | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -232,6 +235,14 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 14)
+- Guests get grouped tmux sessions (`<session>-guest-N-xxx`, tagged `@germ-guest`, removed on leave, swept on start); window targets are session-qualified (`$id:@w`) everywhere since `@w` is ambiguous in a group; watchers may only `select-window -t $own:@w`.
+- Follow mode: guests track `%session-window-changed` for the host's session until they switch tabs; Ctrl+Shift+F resumes. Each germ only reacts to its own session's window changes.
+- Presence carries IDs and typing (send-keys within 3 s); share pane is interactive (copy links, remove by number, rotate links, quit).
+- Reconnect: guests retry for 90 s unless removed/said goodbye (`msgBye` before an intentional stop; reads use their own context so the goodbye gets out); the stream restarts with `%germ-reconnect`, on which the controller drops stale callbacks and re-reads everything (commands are dropped while offline). The host waits for tmux's `%session-changed` before welcoming, or early commands return empty. `germ share` reconnects to the relay with backoff.
+- `germ <command>` skips the home tab. `GERM_DEBUG_TMUX=file` logs the control-mode conversation.
+- Tests: `TestShareV2` (grouped sessions, typing, removal, relay drop + reconnect); `scripts/e2e/share.sh` now 10 checks incl. follow, independent tabs, relay restart, removal.
 
 ## Status (after Phase 13)
 - `germ share` / Ctrl+Shift+P: per-guest `tmux -C attach` tunnelled over WebSocket through `germ-relay`; two links (can-type / watch-only) with separate AES-256-GCM keys in the URL fragment; host-side command filter (allowlist for watchers, denylist for typists, no `;` or `#(`); presence in the tab bar via `set_status`.

@@ -319,3 +319,22 @@ for pair programming with people and coding agents.</p>
 </script>
 </body></html>
 `)))
+
+// dropAll cuts every connection abruptly, as a network failure would
+// (for tests).
+func (rl *Relay) dropAll() {
+	rl.mu.Lock()
+	var conns []*websocket.Conn
+	for _, rm := range rl.rooms {
+		if rm.host != nil {
+			conns = append(conns, rm.host)
+		}
+		for _, g := range rm.guests {
+			conns = append(conns, g)
+		}
+	}
+	rl.mu.Unlock()
+	for _, c := range conns {
+		c.CloseNow()
+	}
+}

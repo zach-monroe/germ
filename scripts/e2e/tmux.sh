@@ -5,12 +5,15 @@
 #   Xvfb :99 -screen 0 1280x800x24 &
 #   scripts/e2e/tmux.sh
 set -e
+tmux -L germ-e2e kill-server 2>/dev/null || true
+rm -f "/tmp/tmux-$(id -u)/germ-e2e"
+unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET
 HERE=$(cd "$(dirname "$0")" && pwd)
 GERM=${GERM:-$HERE/../../germ}
 export DISPLAY=${DISPLAY_E2E:-:99}
 TMP=$(mktemp -d)
 trap 'tmux -L germ-e2e kill-server 2>/dev/null; rm -rf "$TMP"' EXIT
-printf '[tmux]\nsocket = "germ-e2e"\nsession = "e2e"\n' > "$TMP/config.toml"
+printf '[tmux]\nsocket = "germ-e2e"\nsession = "e2e"\n[home]\nenabled = false\n' > "$TMP/config.toml"
 
 "$GERM" -config "$TMP/config.toml" -tmux -screenshot "$TMP/shot.png" -screenshot-delay 14s 2>/dev/null &
 GPID=$!

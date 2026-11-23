@@ -3,6 +3,7 @@ package share
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -68,8 +69,11 @@ func TestFilterCommand(t *testing.T) {
 		{`list-windows ; kill-server`, true, false},
 		{`display -p "#(touch /tmp/x)"`, true, false},
 		{`set-environment GERM_SOCKET /x`, false, false},
+		{`select-window -t $4:@2`, true, true},
+		{`select-window -t $1:@2`, true, false}, // someone else's session
+		{`select-window -t @2`, true, false},    // ambiguous in a group
 	} {
-		if _, ok := filterCommand(c.line, c.readOnly); ok != c.ok {
+		if _, ok := filterCommand(c.line, c.readOnly, "$4"); ok != c.ok {
 			t.Errorf("%q (ro=%v): ok=%v", c.line, c.readOnly, ok)
 		}
 	}
@@ -160,3 +164,120 @@ func TestShareEndToEnd(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// TestShareV2 covers typing presence, grouped guest sessions, removing a
+// guest, and reconnecting after the relay drops every connection.
+func TestShareV2(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("no tmux")
+	}
+	sock := "germ-share-test-" + randomID(4)
+	tmux := func(args ...string) (string, error) {
+		out, err := exec.Command("tmux", append([]string{"-L", sock}, args...)...).Output()
+		return string(out), err
+	}
+	if _, err := tmux("new-session", "-d", "-s", "s", "-x", "80", "-y", "24", "cat"); err != nil {
+		t.Skip("can't start tmux:", err)
+	}
+	defer tmux("kill-server")
+
+	relay := NewRelay()
+	relay.Log.SetOutput(new(strings.Builder))
+	srv := httptest.NewServer(relay.Handler())
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	h, _ := NewHost(u, "s")
+	h.TmuxArgs = []string{"-L", sock}
+	h.Log = func(f string, a ...any) { t.Logf(f, a...) }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { // like germ share: keep serving across relay drops
+		for ctx.Err() == nil {
+			h.Run(ctx)
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
+	rw, ro := h.Links()
+	time.Sleep(200 * time.Millisecond)
+
+	alice, err := Join(ctx, rw, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer alice.Close()
+	bob, err := Join(ctx, ro, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if cond() {
+				return
+			}
+		}
+		t.Fatalf("timed out waiting for %s", what)
+	}
+	go io.Copy(io.Discard, bob)
+	aliceOut := make(chan string, 1000)
+	go func() {
+		sc := bufio.NewScanner(alice)
+		for sc.Scan() {
+			aliceOut <- sc.Text()
+		}
+		close(aliceOut)
+	}()
+	expect := func(want string) {
+		t.Helper()
+		deadline := time.After(8 * time.Second)
+		for {
+			select {
+			case l, ok := <-aliceOut:
+				if !ok {
+					t.Fatalf("stream ended before %q", want)
+				}
+				if strings.Contains(l, want) {
+					return
+				}
+			case <-deadline:
+				t.Fatalf("never saw %q", want)
+			}
+		}
+	}
+
+	// Each guest gets its own session grouped with the host's.
+	waitFor("guest sessions", func() bool {
+		out, _ := tmux("list-sessions", "-F", "#{session_name}")
+		return strings.Count(out, "s-guest-") == 2
+	})
+	// Typing shows up in presence, then clears.
+	alice.Write([]byte("send-keys -t s -l typing\n"))
+	expect("typing")
+	waitFor("typing", func() bool {
+		for _, p := range h.Participants() {
+			if p.Name == "alice" && p.Typing {
+				return true
+			}
+		}
+		return false
+	})
+	// Removing bob ends his session for good, with a reason.
+	var bobID uint32
+	for _, p := range h.Participants() {
+		if p.Name == "bob" {
+			bobID = p.ID
+		}
+	}
+	h.Remove(bobID)
+	waitFor("bob removed", func() bool { return strings.Contains(bob.Reason(), "removed") })
+	waitFor("bob's session gone", func() bool {
+		out, _ := tmux("list-sessions", "-F", "#{session_name}")
+		return strings.Count(out, "s-guest-") == 1
+	})
+
+	// The relay drops everyone: alice comes back on her own.
+	relay.dropAll()
+	expect(ReconnectMarker)
+	alice.Write([]byte("send-keys -t s -l back-again\n"))
+	expect("back-again")
+}

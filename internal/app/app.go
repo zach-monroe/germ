@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,9 @@ type Options struct {
 	ConfigPath string
 	Overrides  Overrides // command-line flags that beat the config file
 
+	// ExplicitCommand is set when Command came from the command line
+	// (germ htop) rather than being the default shell.
+	ExplicitCommand bool
 	// UseTmux attaches to tmux in control mode instead of running Command.
 	// TmuxSession names the session; empty picks a free germ-N session.
 	UseTmux bool
@@ -90,7 +94,9 @@ type App struct {
 	prevTab     *tab                       // the tab shown before the last switch (for toggle_home)
 	status      atomic.Pointer[statusText] // right side of the tab bar
 	redrawAll   atomic.Bool                // set off the main thread
-	animating   bool                       // a working agent's spinner is showing
+	tasksMu     sync.Mutex
+	tasks       []func() // run on the main thread (mainThread)
+	animating   bool     // a working agent's spinner is showing
 	clipboard   atomic.Pointer[string]
 
 	// Main-thread state.
@@ -196,7 +202,9 @@ func Run(opts Options) error {
 	}
 	a.startControl()
 	defer a.stopControl()
-	if h := a.buildHome(); h != nil {
+	if opts.ExplicitCommand {
+		// `germ htop` is a window for that program, not a workspace.
+	} else if h := a.buildHome(); h != nil {
 		a.tabs = []*tab{h}
 	}
 	tmuxStarted := false
@@ -257,6 +265,7 @@ func Run(opts Options) error {
 			a.tmux.process()
 		}
 		a.processControl()
+		a.runTasks()
 		if a.redrawAll.Swap(false) {
 			a.forceRedraw = true
 		}

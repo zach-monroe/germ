@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
@@ -65,6 +66,15 @@ type tmuxController struct {
 
 	// remote is set when attached to someone else's shared session.
 	remote *share.Guest
+	// sessionID is this client's session ("$3"): with grouped sessions
+	// (guests), other sessions' window switches must be ignored.
+	sessionID string
+	// Guests: follow the host's current window (hostSessionID) until they
+	// switch tabs themselves.
+	follow        bool
+	hostSessionID string
+	// offline drops commands while a remote session reconnects.
+	offline atomic.Bool
 
 	// Key bindings (see tmuxkeys.go).
 	client        string // this control client's name
@@ -187,6 +197,9 @@ func (c *tmuxController) command(cmd string, cb func([]string, bool)) {
 }
 
 func (c *tmuxController) send(cmd string, cb tmuxCallback) {
+	if c.offline.Load() {
+		return // reconnecting: the state is re-read afterwards
+	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	c.mu.Lock()
@@ -196,6 +209,7 @@ func (c *tmuxController) send(cmd string, cb tmuxCallback) {
 	}
 	c.queue = append(c.queue, cb)
 	c.mu.Unlock()
+	debugTmux("> %s", cmd)
 	if _, err := io.WriteString(c.stdin, cmd+"\n"); err != nil {
 		c.mu.Lock()
 		c.done = true
@@ -227,8 +241,20 @@ func (c *tmuxController) readLoop(r io.Reader) {
 	for {
 		line, err := br.ReadString('\n')
 		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if !strings.HasPrefix(line, "%output") {
+			debugTmux("< %s", line)
+		}
 		if line != "" || err == nil {
 			switch {
+			case line == share.ReconnectMarker:
+				// A remote session's stream restarted: forget half-parsed
+				// replies and pending callbacks, then re-read everything.
+				inBlock, ours, block = false, false, nil
+				c.mu.Lock()
+				c.queue = nil
+				c.mu.Unlock()
+				c.offline.Store(false)
+				c.post(tmuxEvent{line: share.ReconnectMarker})
 			case inBlock && (strings.HasPrefix(line, "%end ") || strings.HasPrefix(line, "%error ")):
 				inBlock = false
 				if ours {
@@ -292,7 +318,7 @@ func (c *tmuxController) finish(lines []string, failed bool) {
 		cb, c.queue = c.queue[0], c.queue[1:]
 	}
 	c.mu.Unlock()
-	if failed && cb.fn == nil {
+	if failed && cb.fn == nil && (c.remote == nil || !c.remote.Welcome.ReadOnly) { // watchers' blocked actions are expected
 		fmt.Fprintln(os.Stderr, "germ: tmux:", strings.Join(lines, " "))
 	}
 	if cb.fn == nil {
@@ -354,10 +380,17 @@ func (c *tmuxController) notification(line string) {
 		}
 	case "%session-window-changed":
 		if len(f) >= 3 {
-			if id, ok := parseTmuxID(f[2]); ok {
+			id, ok := parseTmuxID(f[2])
+			switch {
+			case !ok:
+			case c.sessionID == "" || f[1] == c.sessionID:
 				c.showWindow(id)
+			case c.follow && f[1] == c.hostSessionID:
+				c.command("select-window -t "+c.windowTarget(f[2]), nil) // follow the host
 			}
 		}
+	case share.ReconnectMarker:
+		c.reconnected()
 	case "%pane-mode-changed":
 		if len(f) >= 2 {
 			c.paneModeChanged(f[1])
@@ -446,9 +479,14 @@ func (c *tmuxController) refresh() {
 			c.ready = true
 			c.a.forceRedraw = true
 		})
-	c.command(`display -p "#{session_name}"`, func(lines []string, failed bool) {
-		if !failed && len(lines) > 0 && lines[0] != c.session {
-			c.session = lines[0] // renamed, or switched with choose-tree etc.
+	c.command(`display -p "#{session_name}	#{session_id}"`, func(lines []string, failed bool) {
+		if failed || len(lines) == 0 {
+			return
+		}
+		name, id, _ := strings.Cut(lines[0], "\t")
+		c.sessionID = id
+		if name != c.session && c.remote == nil { // a guest keeps showing the host's name
+			c.session = name // renamed, or switched with choose-tree etc.
 			c.a.forceRedraw = true
 		}
 	})
@@ -708,7 +746,7 @@ func (c *tmuxController) selectPane(p *pane) {
 
 func (c *tmuxController) selectWindow(t *tab) {
 	if t.tmuxID != "" {
-		c.command("select-window -t "+t.tmuxID, nil)
+		c.command("select-window -t "+c.windowTarget(t.tmuxID), nil)
 	}
 }
 
@@ -752,4 +790,33 @@ func (c *tmuxController) detach() {
 	c.command("detach-client", nil)
 	c.stdin.Close()
 	c.wait()
+}
+
+// debugTmux logs the control-mode conversation (minus pane output) to the
+// file named by GERM_DEBUG_TMUX.
+var debugTmux = func() func(string, ...any) {
+	path := os.Getenv("GERM_DEBUG_TMUX")
+	if path == "" {
+		return func(string, ...any) {}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return func(string, ...any) {}
+	}
+	var mu sync.Mutex
+	return func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(f, time.Now().Format("15:04:05.000 ")+format+"\n", args...)
+	}
+}()
+
+// windowTarget qualifies a window ID with this client's session: a window
+// in a session group belongs to several sessions, and "@3" alone may pick
+// another one (moving someone else's view).
+func (c *tmuxController) windowTarget(wid string) string {
+	if c.sessionID != "" {
+		return c.sessionID + ":" + wid
+	}
+	return wid
 }

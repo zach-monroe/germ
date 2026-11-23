@@ -164,7 +164,7 @@ func main() {
 
 	if err := app.Run(app.Options{
 		Command: cmd, ShellCommand: shellCmd, Out: os.Stdout, Quote: *quote, Dump: *dump,
-		Config: cfg, ConfigPath: *configPath, Overrides: over, UseTmux: useTmux, TmuxSession: tmuxSession, Remote: remote,
+		Config: cfg, ConfigPath: *configPath, Overrides: over, ExplicitCommand: len(flag.Args()) > 0 && joinLink == "", UseTmux: useTmux, TmuxSession: tmuxSession, Remote: remote,
 		Screenshot: *shot, ScreenshotDelay: *shotDelay,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)

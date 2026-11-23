@@ -29,9 +29,11 @@ type Welcome struct {
 
 // Participant is someone in the session.
 type Participant struct {
+	ID       uint32 `json:"id,omitempty"` // guest number (0 for the host)
 	Name     string `json:"name"`
 	ReadOnly bool   `json:"readonly,omitempty"`
 	Host     bool   `json:"host,omitempty"`
+	Typing   bool   `json:"typing,omitempty"`
 }
 
 const protocolVersion = 1
@@ -61,11 +63,12 @@ var deniedCommands = map[string]bool{
 }
 
 // blockedCommand fails harmlessly, so the guest's reply queue stays in step.
-const blockedCommand = "display -p -t %NOSUCHPANE blocked"
+const blockedCommand = "select-window -t @999999999"
 
 // filterCommand vets a guest's tmux command line, returning what to send to
-// tmux and whether the original was allowed.
-func filterCommand(line string, readOnly bool) (string, bool) {
+// tmux and whether the original was allowed. own is the guest's own
+// session ID ("$4"), which watchers may switch windows in.
+func filterCommand(line string, readOnly bool, own string) (string, bool) {
 	t := strings.TrimSpace(line)
 	if t == "" {
 		return line, true
@@ -83,6 +86,17 @@ func filterCommand(line string, readOnly bool) (string, bool) {
 		return blockedCommand, false
 	}
 	if readOnly {
+		// Watchers may switch windows in their own (grouped) session only:
+		// "$own:@N". (A bare "@N" may resolve to another session in the
+		// group, such as yours.)
+		if name == "select-window" || name == "selectw" {
+			if f := strings.Fields(t); len(f) == 3 && f[1] == "-t" && own != "" {
+				if s, w, ok := strings.Cut(f[2], ":"); ok && s == own && isWindowID(w) {
+					return t, true
+				}
+			}
+			return blockedCommand, false
+		}
 		if !readOnlyCommands[name] {
 			return blockedCommand, false
 		}
@@ -108,4 +122,16 @@ func hasFlag(line string, f byte) bool {
 		}
 	}
 	return false
+}
+
+func isWindowID(s string) bool {
+	if len(s) < 2 || s[0] != '@' {
+		return false
+	}
+	for _, c := range s[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

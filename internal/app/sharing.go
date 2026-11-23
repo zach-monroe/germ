@@ -57,6 +57,9 @@ func presenceText(ps []share.Participant, prefix string) string {
 		if p.ReadOnly {
 			n += " (watching)"
 		}
+		if p.Typing {
+			n += " ✎"
+		}
 		names = append(names, n)
 	}
 	return prefix + strings.Join(names, ", ")
@@ -66,18 +69,17 @@ func presenceText(ps []share.Participant, prefix string) string {
 func (a *App) startRemote(g *share.Guest) {
 	c := a.newTmuxController(g, g, g.Welcome.Session, func() { g.Close() })
 	c.remote = g
-	label := "⇄ " + g.Welcome.Host
-	if g.Welcome.ReadOnly {
-		label += " (watching)"
+	c.follow = true
+	g.OnPresence = func([]share.Participant) {
+		a.mainThread(a.updateGuestStatus)
 	}
-	a.setStatus(label, 0)
-	g.OnPresence = func(ps []share.Participant) {
-		a.setStatus(presenceText(ps, "⇄ "), 0)
+	g.OnDisconnect = func() {
+		c.offline.Store(true)
+		a.setStatus("⇄ reconnecting…", 0)
 	}
-	if ps := g.People(); len(ps) > 0 { // arrived before the handler was set
-		g.OnPresence(ps)
-	}
+	a.updateGuestStatus()
 	c.begin()
+	c.findHost()
 }
 
 // guestName is how this user appears to others.
@@ -106,4 +108,79 @@ func (a *App) shareSession() {
 	noop := func(*control.Response) {}
 	a.ctlOpen(control.Request{Where: "down", Size: 30, Command: []string{self, "share"}},
 		a.workPane(), noop, noop)
+}
+
+// reconnected re-reads a remote session after its stream restarted.
+func (c *tmuxController) reconnected() {
+	c.begin()
+	for id, p := range c.panes {
+		c.capture(id, p)
+	}
+	c.findHost()
+	c.a.setStatus(presenceText(c.remote.People(), "⇄ "), 0)
+}
+
+// findHost learns the host session's ID (to follow it) and, when
+// following, jumps to the host's current window.
+func (c *tmuxController) findHost() {
+	host := c.remote.Welcome.Session
+	c.command(`display -p -t `+tmuxQuote(host)+` "#{session_id}	#{window_id}"`, func(lines []string, failed bool) {
+		if failed || len(lines) == 0 {
+			return
+		}
+		sid, wid, _ := strings.Cut(lines[0], "\t")
+		c.hostSessionID = sid
+		if c.follow && wid != "" {
+			c.command("select-window -t "+c.windowTarget(wid), nil)
+		}
+	})
+}
+
+// toggleFollow switches a guest between following the host's window and
+// looking around on their own.
+func (a *App) toggleFollow() bool {
+	c := a.tmux
+	if c == nil || c.remote == nil {
+		return false
+	}
+	c.follow = !c.follow
+	if c.follow {
+		c.findHost()
+	}
+	a.updateGuestStatus()
+	return true
+}
+
+// updateGuestStatus shows who's here and whether we follow the host.
+func (a *App) updateGuestStatus() {
+	c := a.tmux
+	if c == nil || c.remote == nil {
+		return
+	}
+	text := presenceText(c.remote.People(), "⇄ ")
+	if text == "⇄ " {
+		text = "⇄ " + c.remote.Welcome.Host
+	}
+	if !c.follow {
+		text += " · free (Ctrl+Shift+F follows)"
+	}
+	a.setStatus(text, 0)
+}
+
+// mainThread runs fn on the main thread soon. Safe from any goroutine.
+func (a *App) mainThread(fn func()) {
+	a.tasksMu.Lock()
+	a.tasks = append(a.tasks, fn)
+	a.tasksMu.Unlock()
+	glfw.PostEmptyEvent()
+}
+
+func (a *App) runTasks() {
+	a.tasksMu.Lock()
+	tasks := a.tasks
+	a.tasks = nil
+	a.tasksMu.Unlock()
+	for _, fn := range tasks {
+		fn()
+	}
 }

@@ -182,6 +182,10 @@ func (a *App) switchTab(i int) {
 	a.forceRedraw = true
 	if a.tmux != nil {
 		a.tmux.selectWindow(a.tab())
+		if a.tmux.remote != nil && a.tmux.follow { // a guest looking around on their own
+			a.tmux.follow = false
+			a.updateGuestStatus()
+		}
 	}
 }
 

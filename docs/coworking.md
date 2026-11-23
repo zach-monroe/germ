@@ -16,9 +16,19 @@ with two links:
 - **Watch only**: the guest sees everything live but can't change anything.
   This one is copied to your clipboard.
 
-The tab bar shows `◉ sharing · alice, bob (watching)` while people are
-connected. The share pane logs joins and leaves. **Ctrl+C in the share
-pane stops sharing** and disconnects everyone.
+The tab bar shows `◉ sharing · alice ✎, bob (watching)` while people are
+connected (✎: typing right now). The share pane lists who's here, numbered,
+and logs joins and leaves. In the share pane:
+
+| Key | |
+|---|---|
+| `c` / `w` | copy the can-type / watch-only link |
+| `1`-`9` | remove that person (and optionally make new links so they can't rejoin) |
+| `r` | make new links: the old ones stop working, people already here stay |
+| `q` (or Ctrl+C) | stop sharing and disconnect everyone |
+
+If your connection to the relay drops, `germ share` reconnects by itself,
+and guests reconnect too.
 
 You can also run `germ share` in any pane of a germ tmux session, or
 `germ share -session NAME` from anywhere.
@@ -32,8 +42,17 @@ the command to run if the button doesn't work:
 germ join 'https://relay.example.com/j/ROOM#KEY'
 ```
 
-A germ window opens on the shared session, with `⇄ alice, bob` in the tab
-bar. Your home tab stays yours. Closing the window leaves the session.
+A germ window opens on the shared session, with `⇄ zach, alice ✎` in the
+tab bar. Your home tab stays yours. Closing the window leaves the session.
+
+**Following**: you start out following the host: when they switch tabs, so
+do you. Switch tabs yourself to look around on your own (the host's view
+doesn't move); **Ctrl+Shift+F** follows them again. Typing goes to the pane
+you're looking at.
+
+**Dropped connection**: if your network blips (or the host's does), germ
+shows `⇄ reconnecting…` and picks up where it left off, for up to 90
+seconds.
 
 Guests without germ can install it with one command (shown on the invite
 page): `curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh`,
@@ -100,8 +119,11 @@ Guests don't need this setting. The link carries the relay's address.
 - **"Can type" guests** can do anything you could do from your keyboard
   in that session, but germ still refuses commands that would end or
   hijack it (`kill-server`, `kill-session`, `attach`, `source-file`, ...).
-- Guests share your tmux session's current window. When you switch tabs,
-  they follow.
+- Each guest gets their own tmux session grouped with yours (same windows,
+  own current window), so they can look around without moving your view.
+  Window switches are always qualified with the guest's own session, and
+  watchers may only switch windows in theirs. Guest sessions are removed
+  when guests leave (and swept up if `germ share` died).
 
 ## How it works
 
@@ -113,8 +135,8 @@ Guests don't need this setting. The link carries the relay's address.
             └─ filters guest commands        └─ native tabs/splits
 ```
 
-`germ share` runs `tmux -C attach-session` for each guest (watchers with
-`-f read-only,ignore-size`, so their window size doesn't change yours) and
-tunnels it, so the guest's germ runs the same tmux control-mode client as
+`germ share` creates a session grouped with yours for each guest and runs
+`tmux -C attach-session` on it (watchers with `-f read-only,ignore-size`,
+so their window size doesn't change yours), and tunnels it, so the guest's germ runs the same tmux control-mode client as
 your own window. Code: `internal/share` (relay, host, guest, protocol) and
 `cmd/germ-relay`.
