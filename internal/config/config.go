@@ -97,6 +97,9 @@ type Agents struct {
 	// Resume restarts the agent in the same worktree, continuing its
 	// conversation (default for claude: claude --continue).
 	Resume []string `toml:"resume"`
+	// ShiftEnter makes Shift+Enter insert a newline in agent panes (sends
+	// ESC CR) when the agent hasn't enabled an extended key protocol.
+	ShiftEnter bool `toml:"shift_enter_newline"`
 	// Worktrees is where agent worktrees go; "{repo}" is the repository's
 	// name. Default: a sibling of the repository, <repo>.worktrees.
 	Worktrees string `toml:"worktrees"`
@@ -182,7 +185,8 @@ func Default() Config {
 		Control: Control{Enabled: true, AllowInput: true},
 		Agents: Agents{Notify: true, Commands: []string{"claude", "codex", "aider", "gemini",
 			"opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"},
-			Launch: []string{"claude", "{task}"}, Resume: []string{"claude", "--continue"}},
+			ShiftEnter: true,
+			Launch:     []string{"claude", "{task}"}, Resume: []string{"claude", "--continue"}},
 		Shells: ShellIntegration{Mode: "auto"},
 	}
 }
@@ -308,6 +312,7 @@ const (
 	ActionReloadConfig   Action = "reload_config"
 	ActionHome           Action = "toggle_home"
 	ActionNewAgent       Action = "new_agent"
+	ActionSendToAgent    Action = "send_to_agent"
 )
 
 var actions = map[Action]bool{}
@@ -318,7 +323,7 @@ func init() {
 		ActionScrollTop, ActionScrollBottom, ActionPrevPrompt, ActionNextPrompt, ActionCopyLastOutput,
 		ActionNewTab, ActionCloseTab, ActionNextTab, ActionPrevTab, ActionSplitRight, ActionSplitDown,
 		ActionClosePane, ActionFocusLeft, ActionFocusRight, ActionFocusUp, ActionFocusDown,
-		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent} {
+		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent} {
 		actions[a] = true
 	}
 }
@@ -443,6 +448,7 @@ func DefaultBindings() map[string]Action {
 		"ctrl+shift+f5":          ActionReloadConfig,
 		"ctrl+shift+grave":       ActionHome,
 		"ctrl+shift+a":           ActionNewAgent,
+		"ctrl+shift+s":           ActionSendToAgent,
 	}
 }
 

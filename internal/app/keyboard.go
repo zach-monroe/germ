@@ -105,6 +105,11 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	}
 
 	st := a.inputState()
+	if b := a.agentShiftEnter(a.active(), ev, st); b != nil {
+		a.sendUser(b)
+		a.suppressChar = true
+		return
+	}
 	if !input.HandledAsKey(ev, st) {
 		return // the char callback will deliver the text
 	}

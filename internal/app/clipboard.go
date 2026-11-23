@@ -73,10 +73,6 @@ func (a *App) copySelection() {
 	}
 }
 
-func (a *App) pasteClipboard() {
-	a.paste(glfw.GetClipboardString())
-}
-
 // pastePrimary pastes the PRIMARY selection. The helper runs off the main
 // thread so a slow selection owner can't freeze the window.
 func (a *App) pastePrimary() {

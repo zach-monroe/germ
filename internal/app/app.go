@@ -222,6 +222,7 @@ func Run(opts Options) error {
 	win.SetFramebufferSizeCallback(a.onResize)
 	win.SetRefreshCallback(func(*glfw.Window) { a.forceRedraw = true; a.draw() })
 	win.SetFocusCallback(a.onFocus)
+	win.SetDropCallback(a.onDrop)
 
 	a.startAgentTicker()
 	if stop, err := config.Watch(func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {

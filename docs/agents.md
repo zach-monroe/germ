@@ -96,6 +96,31 @@ Hold Ctrl over a file reference in any pane (`internal/app/x.go:45:3`,
 ...) in a split beside the pane, GUI editors (VS Code, Cursor, Zed,
 Sublime) in their own window.
 
+## Typing to agents
+
+- **Shift+Enter inserts a newline** in agent panes. Most terminals send
+  Shift+Enter as a plain Enter, which submits the prompt; germ sends
+  ESC+Enter (what agents treat as "new line") unless the agent turned on
+  the kitty keyboard protocol and can tell Shift+Enter apart itself.
+  `[agents] shift_enter_newline = false` turns this off.
+- **Paste images**: when the clipboard holds an image (a screenshot, say),
+  Ctrl+Shift+V saves it under `~/.cache/germ/paste/` (cleaned after a
+  week) and pastes the file path, which Claude Code and other agents
+  attach as an image. Uses `xclip` (X11) or `wl-paste` (Wayland).
+- **Drop files** onto the window to paste their paths.
+- **Ctrl+Shift+S sends to the agent**: the selection (or, with no
+  selection, the last command's output in fish) goes to the agent pane you
+  used most recently, as a fenced block saying where it came from:
+
+  ````
+  selection from `bash` in /home/you/project:
+  ```
+  FAIL auth_test.go:42 expected 200, got 500
+  ```
+  ````
+
+  and that pane is focused so you can add your question.
+
 ## germ as a tool for agents (MCP)
 
 `germ mcp` is an [MCP](https://modelcontextprotocol.io) server that lets an

@@ -50,6 +50,8 @@ func (a *App) doExtended(act config.Action) bool {
 	case config.ActionZoomPane:
 		a.actionZoom()
 		return true
+	case config.ActionSendToAgent:
+		return a.sendToAgent()
 	case config.ActionHome:
 		return a.toggleHome()
 	case config.ActionNewAgent:

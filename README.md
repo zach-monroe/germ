@@ -86,6 +86,7 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+W, Ctrl+Shift+Z | close pane, zoom pane |
 | Ctrl+Shift+\` | home tab ↔ last tab |
 | Ctrl+Shift+A | new agent on its own git worktree (see docs/agents.md) |
+| Ctrl+Shift+S | send the selection (or last output) to your agent pane |
 | Ctrl+click | open URL, or `file:line` in `$EDITOR` |
 
 Rebind or remove any of these under `[keybindings]`.
