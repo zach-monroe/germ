@@ -93,7 +93,7 @@ func checkMarks(t *testing.T, out string) {
 }
 
 func TestZshIntegration(t *testing.T) {
-	out := runShell(t, []string{"zsh", "-i"}, "cd /tmp\n(exit 3)\necho $ZDOTDIR-$+GERM_ORIG_ZDOTDIR\nexit")
+	out := runShell(t, []string{"zsh", "-i"}, "cd /tmp\nsh -c 'exit 3'\necho $ZDOTDIR-$+GERM_ORIG_ZDOTDIR\nexit")
 	checkMarks(t, out)
 	if !strings.Contains(out, "\x1b]133;C\a-0") {
 		t.Errorf("ZDOTDIR not restored: %q", out)
@@ -101,8 +101,11 @@ func TestZshIntegration(t *testing.T) {
 }
 
 func TestBashIntegration(t *testing.T) {
-	out := runShell(t, []string{"bash", "-i"}, "cd /tmp\n(exit 3)\necho pc=$(env | grep -c ^PROMPT_COMMAND=)\nexit")
+	out := runShell(t, []string{"bash", "-i"}, "cd /tmp\nsh -c 'exit 3'\necho pc=$(env | grep -c ^PROMPT_COMMAND=)\nexit")
 	checkMarks(t, out)
+	if n := strings.Count(out, "\x1b]133;C\a"); n < 3 { // the first command counts too
+		t.Errorf("%d commands marked, want 3: %q", n, out)
+	}
 	if !strings.Contains(out, "pc=0") {
 		t.Errorf("PROMPT_COMMAND leaked into children: %q", out)
 	}

@@ -7,7 +7,9 @@
 
 # germ's bootstrap PROMPT_COMMAND (and fish's XDG_DATA_DIRS change) are
 # done; don't pass them on.
+__germ_bootstrap=
 if [[ $PROMPT_COMMAND == *germ-integration.bash* ]]; then
+  __germ_bootstrap=1
   PROMPT_COMMAND=
   export -n PROMPT_COMMAND
 fi
@@ -50,3 +52,8 @@ __germ_preexec() {
 
 PROMPT_COMMAND="__germ_save_status${PROMPT_COMMAND:+; $PROMPT_COMMAND}; __germ_precmd"
 trap '__germ_preexec' DEBUG
+# Loaded from the bootstrap PROMPT_COMMAND, i.e. just before the first
+# prompt: mark it too, so the first command counts.
+if [[ -n $__germ_bootstrap ]]; then
+  __germ_precmd
+fi
