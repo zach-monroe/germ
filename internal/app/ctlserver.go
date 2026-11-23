@@ -170,6 +170,16 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		p.agent.lastInput.Store(time.Now().UnixNano())
 		p.send(b)
 		ok(&control.Response{})
+	case control.CmdClosePane:
+		if !a.cfg.Control.AllowInput {
+			reply(ctlErr("closing panes is disabled ([control] allow_input = false)"))
+			return
+		}
+		p.be.Close()
+		ok(&control.Response{})
+	case control.CmdRenameTab:
+		a.renameTab(p, req.Text)
+		ok(&control.Response{})
 	case control.CmdFocusPane:
 		a.focusPane(p)
 		ok(&control.Response{})
@@ -235,12 +245,7 @@ func (a *App) paneInfo(p *pane) control.PaneInfo {
 			info.Command = procArgs(fg)[0]
 		}
 	}
-	info.Cwd = p.cwd()
-	if info.Cwd == "" {
-		if pid := p.be.Pid(); pid > 0 {
-			info.Cwd, _ = os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
-		}
-	}
+	info.Cwd = paneDir(p)
 	p.term.Lock()
 	info.Cols, info.Rows = p.term.Size()
 	p.term.Unlock()
@@ -320,6 +325,9 @@ func (a *App) ctlOpen(req control.Request, target *pane, ok func(*control.Respon
 				flag = "-v"
 			}
 			cmd = "split-window " + flag + " -P -F '#{pane_id}'"
+			if req.Size > 0 && req.Size < 100 {
+				cmd += fmt.Sprintf(" -l %d%%", req.Size)
+			}
 			if b, isTmux := target.be.(*tmuxBackend); isTmux {
 				cmd += " -t %" + strconv.Itoa(b.id)
 			}
@@ -377,6 +385,12 @@ func (a *App) ctlOpen(req control.Request, target *pane, ok func(*control.Respon
 			reply(ctlErr("couldn't start %v", argv))
 			return
 		}
+		if req.Size > 0 && req.Size < 100 {
+			if n := t.root.find(p.id); n != nil && n.parent != nil {
+				n.parent.ratio = 1 - float64(req.Size)/100
+				a.relayout()
+			}
+		}
 		if req.Focus {
 			a.setActive(t, p)
 		}
@@ -413,4 +427,52 @@ func (a *App) workPane() *pane {
 		}
 	}
 	return nil
+}
+
+// paneDir is a pane's working directory: what its shell reported, else
+// its process's directory.
+func paneDir(p *pane) string {
+	if d := p.cwd(); d != "" {
+		return d
+	}
+	if pid := p.be.Pid(); pid > 0 {
+		d, _ := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
+		return d
+	}
+	return ""
+}
+
+// renameTab names the tab holding p (a tmux window name in control mode).
+func (a *App) renameTab(p *pane, name string) {
+	for _, t := range a.tabs {
+		if t.panes[p.id] == nil {
+			continue
+		}
+		if a.tmux != nil && t.tmuxID != "" {
+			a.tmux.command("rename-window -t "+t.tmuxID+" "+tmuxQuote(name), nil)
+		}
+		t.name = name
+		a.forceRedraw = true
+	}
+}
+
+// newAgent opens a tab running `germ agent` (see cmd/germ/agent.go) in the
+// current directory: it asks for a task, makes a git worktree, and starts
+// the agent there.
+func (a *App) newAgent(task string) {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "germ:", err)
+		return
+	}
+	argv := []string{self, "agent"}
+	if task != "" {
+		argv = append(argv, task)
+	}
+	cwd := ""
+	if p := a.workPane(); p != nil {
+		cwd = paneDir(p)
+	}
+	noop := func(*control.Response) {}
+	a.ctlOpen(control.Request{Where: "tab", Command: argv, Focus: true, Cwd: cwd}, nil, noop, noop)
 }

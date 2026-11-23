@@ -65,6 +65,9 @@ row_heights = [2, 3]
 # Processes treated as coding agents (tab badges, agents widget, notifications).
 commands = ["claude", "codex", "aider", "gemini", "opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"]
 notify = true           # desktop notification when an agent needs you
+launch = ["claude", "{task}"]       # what Ctrl+Shift+A / `germ agent` runs
+resume = ["claude", "--continue"]   # "resume" in the post-agent menu
+# worktrees = "~/worktrees/{repo}"  # default: {repo}.worktrees beside the repo
 
 [control]
 enabled = true          # control socket for `germ ctl` / `germ mcp` (docs/agents.md)

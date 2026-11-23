@@ -48,6 +48,7 @@ germ -theme dracula  # override the config for one window
 germ htop            # run a program instead of the shell
 germ -list-themes
 germ widget weather  # run a home-screen widget on its own
+germ agent "fix the flaky test"   # agent on a fresh worktree + branch
 germ ctl list        # script the window: list/read/send/open/wait panes
 germ mcp             # MCP server for coding agents (see docs/agents.md)
 ```
@@ -83,7 +84,9 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+Enter, Ctrl+Shift+D | split right, split down |
 | Ctrl+Shift+H/J/K/L | focus pane left/down/up/right |
 | Ctrl+Shift+W, Ctrl+Shift+Z | close pane, zoom pane |
-| Ctrl+click | open URL |
+| Ctrl+Shift+\` | home tab ↔ last tab |
+| Ctrl+Shift+A | new agent on its own git worktree (see docs/agents.md) |
+| Ctrl+click | open URL, or `file:line` in `$EDITOR` |
 
 Rebind or remove any of these under `[keybindings]`.
 

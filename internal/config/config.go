@@ -91,6 +91,15 @@ type Agents struct {
 	Commands []string `toml:"commands"`
 	// Notify sends desktop notifications when an agent needs you.
 	Notify bool `toml:"notify"`
+	// Launch is the agent `germ agent` (Ctrl+Shift+A) starts; "{task}" is
+	// replaced by the task (and dropped when there's none).
+	Launch []string `toml:"launch"`
+	// Resume restarts the agent in the same worktree, continuing its
+	// conversation (default for claude: claude --continue).
+	Resume []string `toml:"resume"`
+	// Worktrees is where agent worktrees go; "{repo}" is the repository's
+	// name. Default: a sibling of the repository, <repo>.worktrees.
+	Worktrees string `toml:"worktrees"`
 }
 
 // Control configures the control socket used by `germ ctl` and
@@ -172,7 +181,8 @@ func Default() Config {
 			RowHeights: []float64{2, 3}},
 		Control: Control{Enabled: true, AllowInput: true},
 		Agents: Agents{Notify: true, Commands: []string{"claude", "codex", "aider", "gemini",
-			"opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"}},
+			"opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"},
+			Launch: []string{"claude", "{task}"}, Resume: []string{"claude", "--continue"}},
 		Shells: ShellIntegration{Mode: "auto"},
 	}
 }
@@ -296,6 +306,8 @@ const (
 	ActionZoomPane       Action = "toggle_pane_zoom"
 	ActionDetach         Action = "detach"
 	ActionReloadConfig   Action = "reload_config"
+	ActionHome           Action = "toggle_home"
+	ActionNewAgent       Action = "new_agent"
 )
 
 var actions = map[Action]bool{}
@@ -306,7 +318,7 @@ func init() {
 		ActionScrollTop, ActionScrollBottom, ActionPrevPrompt, ActionNextPrompt, ActionCopyLastOutput,
 		ActionNewTab, ActionCloseTab, ActionNextTab, ActionPrevTab, ActionSplitRight, ActionSplitDown,
 		ActionClosePane, ActionFocusLeft, ActionFocusRight, ActionFocusUp, ActionFocusDown,
-		ActionZoomPane, ActionDetach, ActionReloadConfig} {
+		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent} {
 		actions[a] = true
 	}
 }
@@ -429,6 +441,8 @@ func DefaultBindings() map[string]Action {
 		"ctrl+shift+j":           ActionFocusDown,
 		"ctrl+shift+z":           ActionZoomPane,
 		"ctrl+shift+f5":          ActionReloadConfig,
+		"ctrl+shift+grave":       ActionHome,
+		"ctrl+shift+a":           ActionNewAgent,
 	}
 }
 

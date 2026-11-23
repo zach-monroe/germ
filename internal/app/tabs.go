@@ -175,6 +175,7 @@ func (a *App) switchTab(i int) {
 		return
 	}
 	old := a.active()
+	a.prevTab = a.tab()
 	a.cur = i
 	a.focusChanged(old, false)
 	a.focusChanged(a.active(), true)

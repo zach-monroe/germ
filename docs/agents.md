@@ -52,6 +52,50 @@ commands = ["claude", "codex", "aider", "gemini", "opencode", "goose", "amp",
 notify = true   # desktop notifications
 ```
 
+## Parallel agents: Ctrl+Shift+A
+
+Ctrl+Shift+A (or `germ agent [TASK]` in any pane) starts an agent on its
+own git worktree, so several can work on the same repository at once
+without stepping on each other or on you:
+
+1. it asks what the agent should do;
+2. creates a worktree on a new branch, `germ/<task-slug>`, in
+   `<repo>.worktrees/` next to your repository;
+3. names the tab after the task and opens a live **changes** pane beside
+   the agent: files touched with +/- bars, and commits, updated every two
+   seconds;
+4. runs the agent with the task (`claude "<task>"` by default).
+
+When the agent exits you get a menu:
+
+| Key | |
+|---|---|
+| `r` | review the diff (including new files) in your pager |
+| `c` | commit everything, with the task as the message |
+| `m` | merge the branch into the branch you started from (`--no-ff`), then remove the worktree and branch |
+| `a` | resume the agent (`claude --continue`) |
+| `s` | open a shell in the worktree; exit it to come back |
+| `k` | keep the worktree and branch, close the tab |
+| `d` | discard: delete the worktree and branch |
+
+Outside a git repository the agent just runs in place.
+
+```toml
+[agents]
+launch = ["claude", "{task}"]          # or ["codex", "{task}"], ["aider", "--message", "{task}"]
+resume = ["claude", "--continue"]      # used when launch starts with the same program
+# worktrees = "~/worktrees/{repo}"     # default: {repo}.worktrees beside the repo
+```
+
+## Jump to code: Ctrl+click file:line
+
+Hold Ctrl over a file reference in any pane (`internal/app/x.go:45:3`,
+`./src/a.ts:12`, `README.md`) and it underlines if the file exists
+(relative to the pane's directory). Ctrl+click opens it at that line in
+`$VISUAL`/`$EDITOR`: terminal editors (nvim, vim, helix, kakoune, nano,
+...) in a split beside the pane, GUI editors (VS Code, Cursor, Zed,
+Sublime) in their own window.
+
 ## germ as a tool for agents (MCP)
 
 `germ mcp` is an [MCP](https://modelcontextprotocol.io) server that lets an

@@ -50,6 +50,11 @@ func (a *App) doExtended(act config.Action) bool {
 	case config.ActionZoomPane:
 		a.actionZoom()
 		return true
+	case config.ActionHome:
+		return a.toggleHome()
+	case config.ActionNewAgent:
+		a.newAgent("")
+		return true
 	case config.ActionDetach:
 		if a.tmux != nil {
 			a.quitting = true // tmux keeps the session; reattach later

@@ -84,6 +84,7 @@ type App struct {
 	attention   atomic.Bool
 	agentPoll   atomic.Bool // time to re-detect agents
 	ctl         *ctlServer
+	prevTab     *tab // the tab shown before the last switch (for toggle_home)
 	animating   bool // a working agent's spinner is showing
 	clipboard   atomic.Pointer[string]
 
@@ -185,6 +186,9 @@ func Run(opts Options) error {
 		a.baseEnv = []string{"TERM=" + cfg.Shell.Term}
 	}
 
+	if opts.ConfigPath != "" {
+		a.baseEnv = append(a.baseEnv, "GERM_CONFIG="+opts.ConfigPath)
+	}
 	a.startControl()
 	defer a.stopControl()
 	if h := a.buildHome(); h != nil {

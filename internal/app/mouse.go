@@ -1,8 +1,11 @@
 package app
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -271,6 +274,10 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 			openURL(p.linkURL)
 			return
 		}
+		if mods&glfw.ModControl != 0 && p.fileRef != nil {
+			a.openInEditor(p, p.fileRef)
+			return
+		}
 		pt := absPoint(p, col, row)
 		now := time.Now()
 		if now.Sub(a.mouse.lastClick) < multiClickInterval && pt.row == a.mouse.clickRow && pt.col == a.mouse.clickCol {
@@ -423,7 +430,7 @@ func (a *App) updateLinkHover() {
 	p, col, row, inBar := a.hit()
 	for _, q := range a.panes {
 		if q != p && q.link.Active {
-			q.link, q.linkURL = render.Link{}, ""
+			q.link, q.linkURL, q.fileRef = render.Link{}, "", nil
 			a.forceRedraw = true
 		}
 	}
@@ -437,28 +444,40 @@ func (a *App) updateLinkHover() {
 		abs := p.term.AbsRow(row, p.offset)
 		url, link = findURL(p.term, abs, col)
 		p.term.Unlock()
+		if url == "" {
+			dir := paneDir(p)
+			p.term.Lock()
+			ref, l := findFile(p.term, abs, col, dir)
+			p.term.Unlock()
+			if ref != nil {
+				p.fileRef, link = ref, l
+			}
+		}
 	}
 	if link != p.link {
 		p.link = link
 		a.forceRedraw = true
 	}
 	p.linkURL = url
+	if !link.Active || url != "" {
+		p.fileRef = nil
+	}
 }
 
-// findURL finds a URL covering (row, col), searching the whole logical
-// (soft-wrapped) line. The returned highlight covers the part on row.
-// Caller must hold the terminal lock.
-func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
+type cellPos struct {
+	row int64
+	col int
+}
+
+// logicalLine returns the text of the soft-wrapped line containing row and
+// the cell position of each byte. Caller must hold the terminal lock.
+func logicalLine(t *term.Terminal, row int64) (string, []cellPos) {
 	first := row
 	for l := t.LineAt(first - 1); l != nil && l.Wrapped; l = t.LineAt(first - 1) {
 		first--
 	}
-	type pos struct {
-		row int64
-		col int
-	}
 	var text strings.Builder
-	var at []pos // byte offset -> cell
+	var at []cellPos // byte offset -> cell
 	for r := first; ; r++ {
 		l := t.LineAt(r)
 		if l == nil {
@@ -474,7 +493,7 @@ func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
 			}
 			n := utf8.RuneLen(ch)
 			for range n {
-				at = append(at, pos{r, x})
+				at = append(at, cellPos{r, x})
 			}
 			text.WriteRune(ch)
 		}
@@ -482,7 +501,31 @@ func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
 			break
 		}
 	}
-	s := text.String()
+	return text.String(), at
+}
+
+// linkAt returns the highlight for the match [start, end) if it covers
+// (row, col).
+func linkAt(at []cellPos, start, end int, row int64, col int) (render.Link, bool) {
+	p0, p1 := at[start], at[end-1]
+	if !((row > p0.row || (row == p0.row && col >= p0.col)) && (row < p1.row || (row == p1.row && col <= p1.col))) {
+		return render.Link{}, false
+	}
+	link := render.Link{Active: true, Row: row, StartCol: 0, EndCol: 1 << 30}
+	if row == p0.row {
+		link.StartCol = p0.col
+	}
+	if row == p1.row {
+		link.EndCol = p1.col
+	}
+	return link, true
+}
+
+// findURL finds a URL covering (row, col), searching the whole logical
+// (soft-wrapped) line. The returned highlight covers the part on row.
+// Caller must hold the terminal lock.
+func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
+	s, at := logicalLine(t, row)
 	for _, m := range urlRE.FindAllStringIndex(s, -1) {
 		start, end := m[0], m[1]
 		// Trim trailing punctuation that's usually sentence, not URL.
@@ -495,19 +538,67 @@ func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
 		if end <= start {
 			continue
 		}
-		p0, p1 := at[start], at[end-1]
-		if (row > p0.row || (row == p0.row && col >= p0.col)) && (row < p1.row || (row == p1.row && col <= p1.col)) {
-			link := render.Link{Active: true, Row: row, StartCol: 0, EndCol: 1 << 30}
-			if row == p0.row {
-				link.StartCol = p0.col
-			}
-			if row == p1.row {
-				link.EndCol = p1.col
-			}
+		if link, ok := linkAt(at, start, end, row, col); ok {
 			return s[start:end], link
 		}
 	}
 	return "", render.Link{}
+}
+
+// fileRE matches file references like internal/app/x.go:45:3, ./a.ts:12,
+// or README.md, as printed by compilers, test runners, and agents.
+var fileRE = regexp.MustCompile(`(?:~|\.{1,2})?/?(?:[\w@.+\-]+/)*[\w@+\-][\w@.+\-]*(?::(\d+)(?::(\d+))?)?`)
+
+// fileRef is a clickable reference to a line in a file.
+type fileRef struct {
+	path      string
+	line, col int
+}
+
+// findFile finds an existing file reference covering (row, col); relative
+// paths resolve against dir. Caller must hold the terminal lock.
+func findFile(t *term.Terminal, row int64, col int, dir string) (*fileRef, render.Link) {
+	s, at := logicalLine(t, row)
+	for _, m := range fileRE.FindAllStringSubmatchIndex(s, -1) {
+		start, end := m[0], m[1]
+		if end-start < 3 {
+			continue
+		}
+		link, ok := linkAt(at, start, end, row, col)
+		if !ok {
+			continue
+		}
+		pathEnd := end
+		if m[2] >= 0 {
+			pathEnd = m[2] - 1 // before ":line"
+		}
+		path := strings.TrimRight(s[start:pathEnd], ".")
+		if !strings.ContainsAny(path, "/.") {
+			return nil, render.Link{} // a bare word, not a file
+		}
+		switch {
+		case strings.HasPrefix(path, "~/"):
+			home, _ := os.UserHomeDir()
+			path = filepath.Join(home, path[2:])
+		case !filepath.IsAbs(path):
+			if dir == "" {
+				return nil, render.Link{}
+			}
+			path = filepath.Join(dir, path)
+		}
+		if fi, err := os.Stat(path); err != nil || fi.IsDir() {
+			return nil, render.Link{}
+		}
+		ref := &fileRef{path: path}
+		if m[2] >= 0 {
+			ref.line, _ = strconv.Atoi(s[m[2]:m[3]])
+		}
+		if m[4] >= 0 {
+			ref.col, _ = strconv.Atoi(s[m[4]:m[5]])
+		}
+		return ref, link
+	}
+	return nil, render.Link{}
 }
 
 func openURL(url string) {

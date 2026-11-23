@@ -26,6 +26,9 @@ func main() {
 	// `germ widget NAME` runs a built-in home-screen widget (germ starts
 	// these itself in the home tab; running one by hand is handy for
 	// testing).
+	if len(os.Args) >= 2 && os.Args[1] == "agent" {
+		os.Exit(runAgent(os.Args[2:]))
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "ctl" {
 		os.Exit(runCtl(os.Args[2:]))
 	}

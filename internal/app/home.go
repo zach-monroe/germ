@@ -336,3 +336,25 @@ func (a *App) workTabs() int {
 func (a *App) homeFocused() bool {
 	return len(a.tabs) > 0 && a.tabs[0].home && a.cfg.Home.Focus
 }
+
+// toggleHome shows the home tab, or from the home tab returns to the tab
+// you came from.
+func (a *App) toggleHome() bool {
+	if len(a.tabs) == 0 || !a.tabs[0].home {
+		return false
+	}
+	if a.cur != 0 {
+		a.switchTab(0)
+		return true
+	}
+	for i, t := range a.tabs {
+		if t == a.prevTab && i != 0 {
+			a.switchTab(i)
+			return true
+		}
+	}
+	if len(a.tabs) > 1 {
+		a.switchTab(1)
+	}
+	return true
+}

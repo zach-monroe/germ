@@ -27,6 +27,8 @@ const (
 	CmdOpenPane  = "open_pane"
 	CmdPaneState = "pane_state"
 	CmdFocusPane = "focus_pane"
+	CmdRenameTab = "rename_tab" // Text is the new name of Pane's tab
+	CmdClosePane = "close_pane"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or
@@ -43,6 +45,7 @@ type Request struct {
 	Where   string   `json:"where,omitempty"` // "tab" (default), "right", "down"
 	Cwd     string   `json:"cwd,omitempty"`
 	Focus   bool     `json:"focus,omitempty"`
+	Size    int      `json:"size,omitempty"` // split: percent of the target for the new pane
 }
 
 // PaneInfo describes a pane.

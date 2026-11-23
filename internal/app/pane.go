@@ -42,6 +42,7 @@ type pane struct {
 	sel        selection
 	link       render.Link
 	linkURL    string
+	fileRef    *fileRef // file under the pointer while Ctrl is held
 
 	agent paneAgent
 }

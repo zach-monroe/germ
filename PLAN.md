@@ -180,7 +180,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **8. Home screen** ✅ | Widget dashboard tab; executable widget plugins; clock, weather, news, stocks | `germ` opens on a live dashboard; a shell script can be a widget |
 | **9. Agent attention** ✅ | Detect agent panes; working / waiting / done state per tab; OSC 9/777/99 desktop notifications; agents home widget | Running 3 agents in tabs, you can see which one needs you without visiting each |
 | **10. germ as a tool for agents** ✅ | Control socket + `germ ctl` CLI + `germ mcp` MCP server: list/read/send/open panes | Claude Code, connected to `germ mcp`, reads the test-runner pane and starts a build in a new pane |
-| **11. Parallel agents** | Ctrl+Shift+A: task → `git worktree` → tmux window running the agent; live diff-stat side pane; clickable `file:line` → `$EDITOR` | One key spawns an isolated agent; its changes are visible at a glance |
+| **11. Parallel agents** ✅ | Ctrl+Shift+A: task → `git worktree` → tmux window running the agent; live diff-stat side pane; clickable `file:line` → `$EDITOR` | One key spawns an isolated agent; its changes are visible at a glance |
 | **12. Agent input polish** | Shift+Enter newlines, image paste, "send selection to agent pane" | Multi-line prompts and screenshots just work in agent UIs |
 | **13. Coworking** | Relay server + end-to-end-encrypted invite links (`germ share` / `germ join`), install page, read-only guests, presence, follow mode; guests can watch agents and approve prompts | A friend clicks a link and is typing in your session a minute later |
 
@@ -232,6 +232,12 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (after Phase 11)
+- `germ agent [TASK]` / Ctrl+Shift+A: worktree on `germ/<slug>` in `<repo>.worktrees/`, tab renamed via the control socket (`rename_tab`), `git` widget opened as a 35% split (`open_pane` size), agent run in its own foreground process group (so attention detection sees it), then a review menu (diff / commit / merge --no-ff + cleanup / resume / shell / keep / discard).
+- Ctrl+click `path:line[:col]` (existing files, relative to the pane's cwd) opens `$EDITOR` in a split (GUI editors detached).
+- Ctrl+Shift+` toggles the home tab (tmux's own window keys can't reach it).
+- `GERM_CONFIG` is exported so subcommands read the launching window's config.
 
 ## Status (after Phases 8–10)
 - Home tab: widgets are PTY-run programs (live or interval), built-ins via `germ widget NAME` (clock, weather, news, stocks, agents). `docs/widgets.md`.

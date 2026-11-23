@@ -46,6 +46,7 @@ var builtins = map[string]func() Widget{
 	"news":    newNews,
 	"stocks":  newStocks,
 	"agents":  newAgents,
+	"git":     newGit,
 }
 
 // Names lists the built-in widgets.

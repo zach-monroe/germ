@@ -28,6 +28,7 @@ Saving the config rebuilds the home tab right away.
 | `weather` | conditions, art, 5-day forecast ([Open-Meteo](https://open-meteo.com)) | `location = "Denver"` (default: from your IP), `units = "celsius"` |
 | `news` | top story with summary + headlines, rotating pages (RSS/Atom) | `feeds = ["https://hnrss.org/frontpage", ...]` |
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
+| `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `stocks` | price, daily change, intraday sparkline (Yahoo Finance) | `symbols = ["AAPL", "NVDA", "BTC-USD"]` |
 
 None need API keys. Try one outside germ with `germ widget clock`.
