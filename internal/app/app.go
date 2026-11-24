@@ -91,7 +91,8 @@ type App struct {
 	attention     atomic.Bool
 	agentPoll     atomic.Bool // time to re-detect agents
 	ctl           *ctlServer
-	prevTab       *tab // the tab shown before the last switch (for toggle_home)
+	prevTab       *tab         // the tab shown before the last switch (for toggle_home)
+	search        *searchState // scrollback search bar, if open
 	handCursor    *glfw.Cursor
 	resizeCursors map[glfw.StandardCursor]*glfw.Cursor
 	handShown     bool
@@ -395,13 +396,15 @@ func (a *App) sendUser(b []byte) {
 }
 
 func (a *App) view(p *pane, t *tab) render.View {
-	return render.View{
+	v := render.View{
 		Offset:    p.offset,
 		Focused:   a.focused && p == t.active,
 		Selection: p.sel.render(p.term),
 		Link:      p.link,
 		Force:     a.forceRedraw,
 	}
+	a.searchView(p, &v)
+	return v
 }
 
 func (a *App) draw() {

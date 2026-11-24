@@ -348,6 +348,7 @@ const (
 	ActionSendToAgent    Action = "send_to_agent"
 	ActionShare          Action = "share_session"
 	ActionFollow         Action = "toggle_follow"
+	ActionSearch         Action = "search"
 )
 
 var actions = map[Action]bool{}
@@ -358,7 +359,7 @@ func init() {
 		ActionScrollTop, ActionScrollBottom, ActionPrevPrompt, ActionNextPrompt, ActionCopyLastOutput,
 		ActionNewTab, ActionCloseTab, ActionNextTab, ActionPrevTab, ActionSplitRight, ActionSplitDown,
 		ActionClosePane, ActionFocusLeft, ActionFocusRight, ActionFocusUp, ActionFocusDown,
-		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent, ActionShare, ActionFollow} {
+		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent, ActionShare, ActionFollow, ActionSearch} {
 		actions[a] = true
 	}
 }
@@ -485,7 +486,8 @@ func DefaultBindings() map[string]Action {
 		"ctrl+shift+a":           ActionNewAgent,
 		"ctrl+shift+s":           ActionSendToAgent,
 		"ctrl+shift+p":           ActionShare,
-		"ctrl+shift+f":           ActionFollow,
+		"ctrl+shift+g":           ActionFollow,
+		"ctrl+shift+f":           ActionSearch,
 	}
 }
 

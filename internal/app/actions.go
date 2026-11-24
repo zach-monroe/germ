@@ -52,6 +52,8 @@ func (a *App) doExtended(act config.Action) bool {
 		return true
 	case config.ActionSendToAgent:
 		return a.sendToAgent()
+	case config.ActionSearch:
+		return a.openSearch()
 	case config.ActionFollow:
 		return a.toggleFollow()
 	case config.ActionShare:

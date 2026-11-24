@@ -42,6 +42,22 @@ type View struct {
 	Selection Selection
 	Link      Link
 	Force     bool // rebuild even if nothing changed
+
+	// Highlights mark search matches; HighlightGen must change whenever
+	// they do (slices can't be compared cheaply).
+	Highlights   []Highlight
+	HighlightGen int
+	// Overlay, if set, is drawn instead of the bottom row (the search
+	// bar); OverlayGen must change whenever its content does.
+	Overlay    *term.Line
+	OverlayGen int
+}
+
+// Highlight marks cells StartCol..EndCol (inclusive) on absolute row Row.
+type Highlight struct {
+	Row              int64
+	StartCol, EndCol int
+	Current          bool // the match being looked at
 }
 
 // Surface is one terminal's place in the window and its cached instance
@@ -93,7 +109,8 @@ func (s *Surface) Update(t *term.Terminal, v View, ox, oy, gutter int) bool {
 	dirty, all := t.TakeDirty()
 	v.Offset = min(v.Offset, t.ScrollbackLen())
 	pushed := t.Pushed()
-	viewChanged := v.Offset != s.view.Offset || v.Selection != s.view.Selection || v.Link != s.view.Link
+	viewChanged := v.Offset != s.view.Offset || v.Selection != s.view.Selection || v.Link != s.view.Link ||
+		v.HighlightGen != s.view.HighlightGen || v.OverlayGen != s.view.OverlayGen || (v.Overlay == nil) != (s.view.Overlay == nil)
 	moved := ox != s.ox || oy != s.oy || gutter != s.gutter
 	if force || viewChanged || moved || rows != len(s.rows) || cols != s.cols || modes.ReverseVideo != s.reverse ||
 		s.fontGen != r.fontGen || s.atlasGen != r.atlas.gen {
@@ -138,7 +155,11 @@ func (s *Surface) Update(t *term.Terminal, v View, ox, oy, gutter int) bool {
 		for y := 0; y < rows; y++ {
 			if all || dirty[y] {
 				abs := t.AbsRow(y, v.Offset)
-				s.buildRow(y, abs, t.LineAt(abs))
+				if v.Overlay != nil && y == rows-1 {
+					s.buildRow(y, -1<<62, v.Overlay) // not a terminal row: no selection or highlights
+				} else {
+					s.buildRow(y, abs, t.LineAt(abs))
+				}
 				dirty[y] = false
 				changed = true
 			}
@@ -253,6 +274,11 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 	if selHere {
 		end = len(cells) // selection paints empty cells too
 	}
+	for _, h := range s.view.Highlights {
+		if h.Row == abs {
+			end = max(end, min(h.EndCol+1, len(cells)))
+		}
+	}
 	for x := 0; x < end; x++ {
 		c := &cells[x]
 		if c.Attrs&term.AttrWideSpacer != 0 {
@@ -264,6 +290,13 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 		}
 		px := s.ox + x*cw
 		fg, bg, paintBG := s.cellColors(c)
+		if h, ok := s.highlightAt(abs, x); ok {
+			bg, paintBG = s.theme.Palette[3], true
+			if h.Current {
+				bg = s.theme.Palette[1]
+			}
+			fg = s.theme.Background
+		}
 		if selHere && sel.contains(abs, x) {
 			fg, bg, paintBG = s.theme.SelectionFG, s.theme.SelectionBG, true
 		}
@@ -399,4 +432,14 @@ func (s *Surface) cursorShape(rc *rowCache, cur cursorState, py int) {
 	case cur.style == term.CursorBlinkBar || cur.style == term.CursorSteadyBar:
 		add(px, py, 2*th, ch)
 	}
+}
+
+// highlightAt finds a search highlight covering (abs, x).
+func (s *Surface) highlightAt(abs int64, x int) (Highlight, bool) {
+	for _, h := range s.view.Highlights {
+		if h.Row == abs && x >= h.StartCol && x <= h.EndCol {
+			return h, true
+		}
+	}
+	return Highlight{}, false
 }

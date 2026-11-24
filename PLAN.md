@@ -263,7 +263,7 @@ same window; the socket is 0600.
 
 ## Status (after Phase 14)
 - Guests get grouped tmux sessions (`<session>-guest-N-xxx`, tagged `@germ-guest`, removed on leave, swept on start); window targets are session-qualified (`$id:@w`) everywhere since `@w` is ambiguous in a group; watchers may only `select-window -t $own:@w`.
-- Follow mode: guests track `%session-window-changed` for the host's session until they switch tabs; Ctrl+Shift+F resumes. Each germ only reacts to its own session's window changes.
+- Follow mode: guests track `%session-window-changed` for the host's session until they switch tabs; Ctrl+Shift+G resumes. Each germ only reacts to its own session's window changes.
 - Presence carries IDs and typing (send-keys within 3 s); share pane is interactive (copy links, remove by number, rotate links, quit).
 - Reconnect: guests retry for 90 s unless removed/said goodbye (`msgBye` before an intentional stop; reads use their own context so the goodbye gets out); the stream restarts with `%germ-reconnect`, on which the controller drops stale callbacks and re-reads everything (commands are dropped while offline). The host waits for tmux's `%session-changed` before welcoming, or early commands return empty. `germ share` reconnects to the relay with backoff.
 - `germ <command>` skips the home tab. `GERM_DEBUG_TMUX=file` logs the control-mode conversation.

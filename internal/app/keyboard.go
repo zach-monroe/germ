@@ -80,6 +80,17 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	if key == glfw.KeyLeftControl || key == glfw.KeyRightControl {
 		a.updateLinkHover() // Ctrl toggles hyperlink hover
 	}
+	if a.search != nil {
+		if a.search.pane != a.active() || a.search.pane.exited.Load() {
+			a.closeSearch() // focus moved on
+		} else {
+			a.searchKey(key, mods, action)
+			if action != glfw.Release {
+				a.suppressChar = mods&(glfw.ModControl|glfw.ModAlt) != 0 // typed text arrives in onChar
+			}
+			return
+		}
+	}
 	if action != glfw.Release && a.tmuxPrefixKey(key, scancode, mods) {
 		a.suppressChar = a.tmux.prefixPending == "" // the char completes a pending prefix
 		return
@@ -124,6 +135,10 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 // onChar handles printable text (already composed by the OS/IME).
 func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
 	if a.suppressChar {
+		return
+	}
+	if a.search != nil {
+		a.searchType(string(r))
 		return
 	}
 	if a.tmuxPrefixChar(r) {

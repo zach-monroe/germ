@@ -48,7 +48,7 @@ tab bar. Your home tab stays yours. Closing the window leaves the session.
 
 **Following**: you start out following the host: when they switch tabs, so
 do you. Switch tabs yourself to look around on your own (the host's view
-doesn't move); **Ctrl+Shift+F** follows them again. Typing goes to the pane
+doesn't move); **Ctrl+Shift+G** follows them again. Typing goes to the pane
 you're looking at.
 
 **Dropped connection**: if your network blips (or the host's does), germ

@@ -162,7 +162,7 @@ func (a *App) updateGuestStatus() {
 		text = "⇄ " + c.remote.Welcome.Host
 	}
 	if !c.follow {
-		text += " · free (Ctrl+Shift+F follows)"
+		text += " · free (Ctrl+Shift+G follows)"
 	}
 	a.setStatus(text, 0)
 }
