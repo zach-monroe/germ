@@ -12,10 +12,10 @@ built-in tmux and fish integration.
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
 - **Coworking**: Ctrl+Shift+P shares your session as a link (can-type or
-  watch-only), end-to-end encrypted. Guests open it in any browser, or in
-  germ for native tabs and splits. Free, no accounts: served straight from
-  your machine, or through a free Cloudflare tunnel when your router won't
-  allow that. See [docs/coworking.md](docs/coworking.md).
+  watch-only), end-to-end encrypted, and you approve each person who joins.
+  Guests open it in any browser, or in germ for native tabs and splits.
+  Free: served from your machine over Tailscale Funnel if you use
+  Tailscale, else a free Cloudflare tunnel; no router ports opened. See [docs/coworking.md](docs/coworking.md).
 - **Built for coding agents**: tab badges show which agent is working,
   done, or needs you (with desktop notifications), a home-screen widget
   lists every agent, and `germ mcp` lets agents read and drive your other

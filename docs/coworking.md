@@ -62,41 +62,66 @@ or `yay -S germ-bin` / `brew install zach-monroe/germ/germ`.
 Run `germ setup` once so `germ://` links (the **Open in germ** button)
 launch germ. `germ share` and `germ join` also do this automatically.
 
-## How guests reach you (free, no accounts)
+## How guests reach you (free, no accounts needed)
 
-`germ share` serves the session from your own machine. It tries, in order:
+`germ share` serves the session from your own machine and gives it a
+public https address. It never opens a port on your router unless you ask.
 
-1. **Direct**: it asks your router to forward a port to this machine
-   (UPnP) and gives an `http://your-ip:port/...` link. Nothing in between.
-2. **Cloudflare quick tunnel**: if the router won't (UPnP is off, or your
-   ISP shares one public address between customers), it starts Cloudflare's
-   free `cloudflared` (downloaded once into `~/.cache/germ/bin`; no
-   account) and gives an `https://...trycloudflare.com/...` link that works
-   from anywhere.
+1. **Tailscale Funnel**, if you use Tailscale and have Funnel enabled:
+   links like `https://yourmachine.your-tailnet.ts.net/...`. The
+   certificate belongs to your machine, so the connection is encrypted all
+   the way to you: neither Tailscale nor anyone else in between can read
+   or alter what guests load. Guests don't need Tailscale.
+2. **Cloudflare quick tunnel** otherwise: `https://...trycloudflare.com/...`.
+   No account; germ downloads Cloudflare's `cloudflared` once into
+   `~/.cache/germ/bin`. HTTPS ends at Cloudflare, so Cloudflare is the one
+   party that could in principle tamper with the page; your session itself
+   stays end-to-end encrypted either way.
 
-Either way it's free and there's nothing to sign up for. The link works
-while `germ share` runs; stopping it (or your laptop sleeping) ends it.
+The link works while `germ share` runs; stopping it (or your laptop
+sleeping) ends it.
+
+### Setting up Tailscale Funnel (once)
+
+```sh
+sudo systemctl enable --now tailscaled
+sudo tailscale up                       # log in (free personal plan)
+sudo tailscale set --operator=$USER     # let germ run `tailscale funnel` without sudo
+```
+
+Then allow Funnel for your tailnet in the admin console (Access controls,
+the `funnel` node attribute; see https://tailscale.com/kb/1223/funnel).
+`germ share` tells you what's missing if any of this isn't done, and uses
+the Cloudflare tunnel meanwhile.
+
+### Options
 
 ```toml
 [share]
-mode = "auto"              # "direct", "tunnel", or "auto" (direct, else tunnel)
-# port = 7681              # fixed port (default: any free one)
-# public_address = "me.example.com"   # you forward the port yourself; skips UPnP
+mode = "auto"      # auto (Tailscale Funnel if set up, else Cloudflare), tailscale, tunnel
+approve = "all"    # whose joins you approve: all, typing (can-type only), none
 ```
 
-Notes:
-- Many ISP routers ship with UPnP off. Turn it on in the router's settings
-  for direct links, forward a port yourself (set `port` and
-  `public_address`), or just let germ use the tunnel.
-- Direct links are plain `http`, since there's no certificate for a home IP.
-  Everything you type and see is still end-to-end encrypted in the page.
-  But someone on the network path could tamper with the page itself as it
-  loads, which tunnel links (`https`) rule out. Prefer the tunnel on
-  networks you don't trust (`mode = "tunnel"`).
-- Cloudflare offers quick tunnels for testing and development, without an
-  uptime guarantee.
-- germ's built-in relay only serves your one share: nobody can use your
-  machine to relay anything else.
+`mode = "direct"` also exists: a UPnP port forward on your router and a
+plain-http link to your public IP (`port` / `public_address` for a manual
+forward). It's never used automatically, since it exposes your address and
+the page isn't https.
+
+## Letting people in
+
+By default you approve every guest. When someone opens your link, the
+share pane rings the bell (germ marks the tab), sends a desktop
+notification, and asks:
+
+```
+» alex (browser) wants to join (can type). Let them in? [y/N]
+```
+
+Their browser says "Waiting for the host to let you in…". So a link that
+ends up somewhere it shouldn't is useless without your OK. If a guest's
+connection drops and comes back, they get straight back in without being
+asked again. Unanswered requests are turned away after two minutes, and
+the relay limits how often a link can be tried.
 
 ## Joining in a browser
 
@@ -125,8 +150,13 @@ bytes it can't read; no accounts, nothing on disk.
   Messages are sealed with NaCl secretbox (XSalsa20-Poly1305), which the
   browser viewer runs in plain JavaScript (tweetnacl), so it works on
   plain-http direct links too.
-- **The link is the password.** Anyone with a link can join until you stop
-  sharing. Each `germ share` makes new links, and old ones stop working.
+- **The link is the key, and you're the door.** A link carries the key,
+  but by default you approve each person who uses it. Each `germ share`
+  makes new links, and old ones stop working (`r` in the share pane makes
+  new ones mid-session).
+- **Your machine only serves your share.** germ's built-in relay accepts
+  one session, and only `germ share` (holding a secret token) can be its
+  host. Joins are rate-limited.
 - **Watch-only is enforced on your machine**, not trusted to the guest's
   germ. Guests drive tmux by sending it commands, and your `germ share`
   checks every command against an allowlist that only reads the session.

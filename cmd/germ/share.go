@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -47,7 +48,7 @@ func runShare(args []string) int {
 	cfg := loadConfig()
 	fs := flag.NewFlagSet("germ share", flag.ExitOnError)
 	relay := fs.String("relay", cfg.Share.Relay, "relay server URL (default from [share] relay; none: serve from this machine)")
-	mode := fs.String("mode", cfg.Share.Mode, "without a relay: auto (direct, else tunnel), direct, or tunnel")
+	mode := fs.String("mode", cfg.Share.Mode, "without a relay: auto (Tailscale Funnel if set up, else a Cloudflare tunnel), tailscale, tunnel, or direct")
 	session := fs.String("session", "", "tmux session to share (default: the one this pane is in)")
 	fs.Parse(args)
 	var u *url.URL
@@ -99,12 +100,19 @@ func runShare(args []string) int {
 		}
 		defer exp.Close()
 		h.Relay, h.Dial = exp.URL, local
-		via = "directly from this machine (" + exp.URL.Host + ")"
-		if exp.Mode == "tunnel" {
+		switch exp.Mode {
+		case "tailscale":
+			via = "through Tailscale Funnel (" + exp.URL.Host + ")"
+		case "tunnel":
 			via = "through a Cloudflare quick tunnel"
+		default:
+			via = "directly from this machine (" + exp.URL.Host + ", plain http)"
 		}
 	}
 	h.Name = whoami()
+	h.Approval = cfg.Share.Approve
+	requests := make(chan share.JoinRequest, 8)
+	h.OnRequest = func(r share.JoinRequest) { requests <- r }
 	h.TmuxArgs = tmuxArgs
 	ctl, _ := control.Connect()
 	status := func(text string) {
@@ -188,11 +196,46 @@ func runShare(args []string) int {
 			keys <- readKey()
 		}
 	}()
+	var asking []share.JoinRequest // waiting for y/n, oldest first
+	ask := func() {
+		if len(asking) == 0 {
+			return
+		}
+		r := asking[0]
+		mode := "can type"
+		if r.ReadOnly {
+			mode = "watch only"
+		}
+		fmt.Printf("\a\n%s» %s wants to join (%s). Let them in? [y/N]%s ", bold+yel, r.Name, mode, reset)
+		status("◉ sharing · " + r.Name + " wants to join")
+		go notify(r.Name + " wants to join your germ session")
+	}
 	for {
 		select {
 		case err := <-done:
 			return finishShare(ctl, err)
+		case r := <-requests:
+			asking = append(asking, r)
+			if len(asking) == 1 {
+				ask()
+			}
 		case k := <-keys:
+			if len(asking) > 0 && (k == 'y' || k == 'n' || k == 'Y' || k == 'N' || k == '\r') {
+				r := asking[0]
+				asking = asking[1:]
+				allow := k == 'y' || k == 'Y'
+				if allow {
+					fmt.Println("yes")
+				} else {
+					fmt.Println("no")
+				}
+				if !h.Decide(r.ID, allow) {
+					fmt.Printf("%s(they'd already gone)%s\n", dim, reset)
+				}
+				status(presence(h.Participants()))
+				ask()
+				continue
+			}
 			switch {
 			case k == 'q' || k == 3 || k == 4:
 				stop()
@@ -318,7 +361,13 @@ func prepareJoin(link string) (*share.Guest, error) {
 	}
 	ensureURLHandler(true)
 	ctx := context.Background()
-	return share.Join(ctx, l, whoami())
+	return share.Join(ctx, l, whoami(), func() {
+		msg := "waiting for the host to let you in…"
+		fmt.Fprintln(os.Stderr, "germ:", msg)
+		if p, err := exec.LookPath("notify-send"); err == nil { // launched from a browser: no terminal
+			exec.Command(p, "--app-name=germ", "germ", msg).Run()
+		}
+	})
 }
 
 // ensureURLHandler registers germ for germ:// links (so "Open in germ"
@@ -385,6 +434,8 @@ func serveLocally(ctx context.Context, h *share.Host, sc config.Share, mode stri
 	}
 	rl := share.NewRelay()
 	rl.OnlyRoom = h.Room
+	rl.HostToken = randomToken()
+	h.HostToken = rl.HostToken
 	rl.Log.SetOutput(io.Discard)
 	srv := &http.Server{Handler: rl.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
@@ -396,4 +447,17 @@ func serveLocally(ctx context.Context, h *share.Host, sc config.Share, mode stri
 		return nil, nil, err
 	}
 	return exp, &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", port)}, nil
+}
+
+func randomToken() string {
+	b := make([]byte, 24)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// notify shows a desktop notification, if notify-send is installed.
+func notify(msg string) {
+	if p, err := exec.LookPath("notify-send"); err == nil {
+		exec.Command(p, "--app-name=germ", "germ", msg).Run()
+	}
 }

@@ -78,9 +78,9 @@ enabled = true          # control socket for `germ ctl` / `germ mcp` (docs/agent
 allow_input = true      # let clients type into panes and open new ones
 
 [share]
-mode = "auto"            # how guests reach you: auto (direct via UPnP, else a free Cloudflare tunnel), direct, tunnel
-# port = 7681            # fixed port for direct links (default: any free one)
-# public_address = "me.example.com"     # you forward the port yourself; skips UPnP
+mode = "auto"            # how guests reach you: auto (Tailscale Funnel if set up, else a free Cloudflare tunnel), tailscale, tunnel
+approve = "all"          # approve each guest: all, typing (only can-type guests), none
+# mode = "direct" serves a plain-http link to your public IP via a router port forward (never automatic)
 # relay = "https://relay.example.com"  # use your own relay server instead (docs/coworking.md)
 
 # Key bindings: "chord" = "action". Use "none" to remove a default.

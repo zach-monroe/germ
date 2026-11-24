@@ -2,13 +2,13 @@ package share
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -49,15 +49,37 @@ type Relay struct {
 	rooms map[string]*room
 	Log   *log.Logger
 	// OnlyRoom, if set, makes this a private relay for one share (germ
-	// share's built-in relay): other rooms are refused, and only this
-	// machine may connect as the host.
+	// share's built-in relay): other rooms are refused.
 	OnlyRoom string
+	// HostToken, if set, must accompany the host's connection. Through a
+	// tunnel every request comes from localhost, so the address proves
+	// nothing; the token does.
+	HostToken string
 }
 
 type room struct {
 	host   *websocket.Conn
 	guests map[uint32]*websocket.Conn
 	next   uint32
+	joins  []time.Time // recent guest connections, for allowJoin
+}
+
+// allowJoin rate-limits guest connections to a room: a leaked link can't
+// be used to flood the host with join requests. Caller holds rl.mu.
+func (rm *room) allowJoin(now time.Time) bool {
+	const window, limit = time.Minute, 20
+	keep := rm.joins[:0]
+	for _, t := range rm.joins {
+		if now.Sub(t) < window {
+			keep = append(keep, t)
+		}
+	}
+	rm.joins = keep
+	if len(rm.joins) >= limit {
+		return false
+	}
+	rm.joins = append(rm.joins, now)
+	return true
 }
 
 // NewRelay makes a relay.
@@ -120,8 +142,12 @@ func (rl *Relay) serveHost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad room", http.StatusBadRequest)
 		return
 	}
-	if rl.OnlyRoom != "" && (name != rl.OnlyRoom || !isLoopback(r) || r.Header.Get("Cf-Connecting-Ip") != "") {
+	if rl.OnlyRoom != "" && name != rl.OnlyRoom {
 		http.Error(w, "not here", http.StatusForbidden)
+		return
+	}
+	if rl.HostToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get(hostTokenHeader)), []byte(rl.HostToken)) != 1 {
+		http.Error(w, "not the host", http.StatusForbidden)
 		return
 	}
 	rl.mu.Lock()
@@ -209,9 +235,14 @@ func (rl *Relay) serveGuest(w http.ResponseWriter, r *http.Request) {
 	rl.mu.Lock()
 	rm := rl.rooms[name]
 	ok := rm != nil && rm.host != nil && len(rm.guests) < maxGuests
+	limited := ok && !rm.allowJoin(time.Now())
 	rl.mu.Unlock()
 	if !ok {
 		http.Error(w, "no such session (it may have ended)", http.StatusNotFound)
+		return
+	}
+	if limited {
+		http.Error(w, "too many attempts to join; wait a minute", http.StatusTooManyRequests)
 		return
 	}
 	c, err := accept(w, r)
@@ -327,16 +358,4 @@ func (rl *Relay) dropAll() {
 	for _, c := range conns {
 		c.CloseNow()
 	}
-}
-
-// isLoopback reports whether the request came from this machine. (A
-// tunnel's requests also arrive from localhost, which serveHost rules out
-// by its forwarding header.)
-func isLoopback(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return false
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

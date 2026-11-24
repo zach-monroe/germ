@@ -31,11 +31,13 @@ type Guest struct {
 	// ReconnectFor is how long to keep trying after a drop.
 	ReconnectFor time.Duration
 
-	link Link
-	name string
-	box  *box
-	pr   *io.PipeReader
-	pw   *io.PipeWriter
+	link      Link
+	name      string
+	client    string // stays the same across reconnects (Hello.Client)
+	onWaiting func()
+	box       *box
+	pr        *io.PipeReader
+	pw        *io.PipeWriter
 
 	writeMu sync.Mutex
 	mu      sync.Mutex
@@ -49,9 +51,11 @@ type Guest struct {
 // ReconnectMarker is the line Read yields when the stream restarts.
 const ReconnectMarker = "%germ-reconnect"
 
-// Join connects to a shared session.
-func Join(ctx context.Context, link Link, name string) (*Guest, error) {
-	g := &Guest{link: link, name: name, box: newBox(link.Key), ReconnectFor: 90 * time.Second}
+// Join connects to a shared session. If the host has to approve the join,
+// onWaiting (may be nil) is called while waiting.
+func Join(ctx context.Context, link Link, name string, onWaiting func()) (*Guest, error) {
+	g := &Guest{link: link, name: name, box: newBox(link.Key), ReconnectFor: 90 * time.Second,
+		client: randomID(16), onWaiting: onWaiting}
 	g.pr, g.pw = io.Pipe()
 	c, w, err := g.handshake(ctx)
 	if err != nil {
@@ -70,6 +74,13 @@ func (g *Guest) handshake(ctx context.Context) (*websocket.Conn, Welcome, error)
 	dctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	c, resp, err := websocket.Dial(dctx, g.link.websocketURL("guest"), nil)
+	if err == nil {
+		// Waiting for the host's approval can take a while; a host that
+		// doesn't answer at all shouldn't.
+		var rcancel context.CancelFunc
+		dctx, rcancel = context.WithTimeout(ctx, 3*time.Minute)
+		defer rcancel()
+	}
 	if err != nil {
 		if resp != nil && resp.StatusCode == 404 {
 			return nil, w, fmt.Errorf("that session isn't running (it may have ended)")
@@ -77,7 +88,16 @@ func (g *Guest) handshake(ctx context.Context) (*websocket.Conn, Welcome, error)
 		return nil, w, fmt.Errorf("connecting to relay %s: %w", g.link.Relay.Host, err)
 	}
 	c.SetReadLimit(maxMessage + 16)
-	hello, _ := json.Marshal(Hello{Name: g.name, Version: protocolVersion})
+	hello, _ := json.Marshal(Hello{Name: g.name, Version: protocolVersion, Client: g.client})
+	answered := make(chan struct{})
+	timer := time.AfterFunc(20*time.Second, func() {
+		select {
+		case <-answered:
+		default:
+			c.CloseNow() // no welcome and no "please wait"
+		}
+	})
+	defer timer.Stop()
 	if err := c.Write(dctx, websocket.MessageBinary, g.box.seal(append([]byte{msgHello}, hello...))); err != nil {
 		c.CloseNow()
 		return nil, w, err
@@ -86,8 +106,13 @@ func (g *Guest) handshake(ctx context.Context) (*websocket.Conn, Welcome, error)
 		_, data, err := c.Read(dctx)
 		if err != nil {
 			c.CloseNow()
-			if errors.Is(err, context.DeadlineExceeded) {
+			select {
+			case <-answered:
+			default:
 				return nil, w, fmt.Errorf("the host didn't answer (wrong or old link?)")
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, w, fmt.Errorf("the host didn't let you in in time")
 			}
 			return nil, w, fmt.Errorf("joining: %s", closeReason(err))
 		}
@@ -96,6 +121,15 @@ func (g *Guest) handshake(ctx context.Context) (*websocket.Conn, Welcome, error)
 			continue
 		}
 		switch msg[0] {
+		case msgWaiting:
+			select {
+			case <-answered:
+			default:
+				close(answered)
+				if g.onWaiting != nil {
+					g.onWaiting()
+				}
+			}
 		case msgWelcome:
 			if err := json.Unmarshal(msg[1:], &w); err != nil {
 				c.CloseNow()

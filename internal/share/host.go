@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -35,6 +36,16 @@ type Host struct {
 	OnChange func([]Participant)
 	// Log receives notable events.
 	Log func(format string, args ...any)
+	// Approval says who must be let in by the host: "all" (default),
+	// "typing" (only can-type guests), or "none".
+	Approval string
+	// OnRequest is called (in the background) when a guest waits for
+	// approval; answer with Decide. Without it, nobody needing approval
+	// gets in.
+	OnRequest func(JoinRequest)
+	// HostToken, if set, is sent to the relay to prove this is the host
+	// (germ share's built-in relay requires it).
+	HostToken string
 
 	Room     string
 	rwKey    Key
@@ -44,6 +55,7 @@ type Host struct {
 	writeMu  sync.Mutex
 	mu       sync.Mutex
 	guests   map[uint32]*hostGuest
+	approved map[string]bool // client ID + link kind, let in before
 	closeErr error
 }
 
@@ -60,7 +72,10 @@ type hostGuest struct {
 	sessionID string // its ID, e.g. "$4"
 	typed     time.Time
 	typing    bool
-	web       bool // browser guest: a tmux attach in a pty
+	web       bool   // browser guest: a tmux attach in a pty
+	client    string // guest\'s random ID (Hello.Client)
+	waiting   bool   // waiting for the host\'s approval
+	hello     Hello
 	pty       *pty.Session
 	// Blocked commands are logged at most every few seconds.
 	lastBlockLog time.Time
@@ -78,7 +93,7 @@ func NewHost(relay *url.URL, session string) (*Host, error) {
 		return nil, err
 	}
 	return &Host{Relay: relay, Session: session, Room: randomID(12), rwKey: rw, roKey: ro,
-		rw: newBox(rw), ro: newBox(ro), guests: map[uint32]*hostGuest{},
+		rw: newBox(rw), ro: newBox(ro), guests: map[uint32]*hostGuest{}, approved: map[string]bool{},
 		Log: func(string, ...any) {}}, nil
 }
 
@@ -96,7 +111,11 @@ func (h *Host) Run(ctx context.Context) error {
 	if h.Dial != nil {
 		link.Relay = h.Dial
 	}
-	c, _, err := websocket.Dial(ctx, link.websocketURL("host"), nil)
+	var opts *websocket.DialOptions
+	if h.HostToken != "" {
+		opts = &websocket.DialOptions{HTTPHeader: http.Header{hostTokenHeader: {h.HostToken}}}
+	}
+	c, _, err := websocket.Dial(ctx, link.websocketURL("host"), opts)
 	if err != nil {
 		return fmt.Errorf("connecting to relay %s: %w", h.Relay.Host, err)
 	}
@@ -245,6 +264,86 @@ func (h *Host) hello(g *hostGuest, msg []byte) {
 		h.kick(g.id)
 		return
 	}
+	h.mu.Lock()
+	g.client, g.hello = hello.Client, hello
+	key := approvalKey(g)
+	ask := h.needsApproval(g) && !(key != "" && h.approved[key])
+	waiting := 0
+	for _, o := range h.guests {
+		if o.waiting {
+			waiting++
+		}
+	}
+	if ask && waiting < 5 {
+		g.waiting = true
+	}
+	h.mu.Unlock()
+	if ask {
+		if !g.waiting || h.OnRequest == nil {
+			h.sendMsg(g, msgBye, []byte("the host isn't taking more guests right now"))
+			h.kick(g.id)
+			return
+		}
+		h.sendMsg(g, msgWaiting, nil)
+		go h.OnRequest(JoinRequest{ID: g.id, Name: name, ReadOnly: g.readOnly, Web: hello.Kind == "web"})
+		go func() { // don't keep people waiting forever
+			time.Sleep(2 * time.Minute)
+			if h.Decide(g.id, false) {
+				h.Log("%s waited too long and was turned away", name)
+			}
+		}()
+		return
+	}
+	h.admit(g, hello, name)
+}
+
+// needsApproval says whether the host must let this guest in. Caller
+// holds h.mu.
+func (h *Host) needsApproval(g *hostGuest) bool {
+	switch h.Approval {
+	case "none":
+		return false
+	case "typing":
+		return !g.readOnly
+	}
+	return true
+}
+
+func approvalKey(g *hostGuest) string {
+	if g.client == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/%v", g.client, g.readOnly)
+}
+
+// Decide answers a JoinRequest. It reports false if the guest is no longer
+// waiting (they left, or it was already decided).
+func (h *Host) Decide(id uint32, allow bool) bool {
+	h.mu.Lock()
+	g := h.guests[id]
+	if g == nil || !g.waiting {
+		h.mu.Unlock()
+		return false
+	}
+	g.waiting = false
+	if allow {
+		if k := approvalKey(g); k != "" {
+			h.approved[k] = true // reconnects get straight back in
+		}
+	}
+	hello := g.hello
+	h.mu.Unlock()
+	if !allow {
+		h.sendMsg(g, msgBye, []byte("the host didn't let you in"))
+		h.kick(id)
+		return true
+	}
+	h.admit(g, hello, sanitizeName(hello.Name))
+	return true
+}
+
+// admit starts a guest's view of the session.
+func (h *Host) admit(g *hostGuest, hello Hello, name string) {
 	welcome := func() {
 		w, _ := json.Marshal(Welcome{Host: h.Name, Session: h.Session, ReadOnly: g.readOnly})
 		h.sendMsg(g, msgWelcome, w)
@@ -633,3 +732,6 @@ func (h *Host) webInput(g *hostGuest, data []byte) {
 	h.noteTyping(g)
 	g.pty.Write(data)
 }
+
+// hostTokenHeader carries Host.HostToken to the relay.
+const hostTokenHeader = "X-Germ-Host-Token"

@@ -39,6 +39,7 @@ enabled = false
 notify = false
 [share]
 relay = "http://127.0.0.1:$PORT"
+approve = "none"
 CFG
 printf '[home]\nenabled = false\n[agents]\nnotify = false\n' > "$TMP/guest.toml"
 

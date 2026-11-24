@@ -107,13 +107,14 @@ func TestShareEndToEnd(t *testing.T) {
 	h, _ := NewHost(u, "shared")
 	h.TmuxArgs = []string{"-L", sock}
 	h.Name = "host@test"
+	h.Approval = "none"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go h.Run(ctx)
 	rw, ro := h.Links()
 	time.Sleep(200 * time.Millisecond)
 
-	g, err := Join(ctx, rw, "alice")
+	g, err := Join(ctx, rw, "alice", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestShareEndToEnd(t *testing.T) {
 	g.Write([]byte("send-keys -t shared -l hello-from-guest\n"))
 	expect("hello-from-guest") // echoed by cat via %output
 
-	r, err := Join(ctx, ro, "bob")
+	r, err := Join(ctx, ro, "bob", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +192,7 @@ func TestShareV2(t *testing.T) {
 	u, _ := url.Parse(srv.URL)
 	h, _ := NewHost(u, "s")
 	h.TmuxArgs = []string{"-L", sock}
+	h.Approval = "none"
 	h.Log = func(f string, a ...any) { t.Logf(f, a...) }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -203,12 +205,12 @@ func TestShareV2(t *testing.T) {
 	rw, ro := h.Links()
 	time.Sleep(200 * time.Millisecond)
 
-	alice, err := Join(ctx, rw, "alice")
+	alice, err := Join(ctx, rw, "alice", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer alice.Close()
-	bob, err := Join(ctx, ro, "bob")
+	bob, err := Join(ctx, ro, "bob", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,6 +322,7 @@ console.log(Buffer.concat([nonce, box]).toString("base64"));`
 func TestPrivateRelay(t *testing.T) {
 	rl := NewRelay()
 	rl.OnlyRoom = "myroom12345"
+	rl.HostToken = "tok"
 	srv := httptest.NewServer(rl.Handler())
 	defer srv.Close()
 	get := func(path string, hdr map[string]string) int {
@@ -337,8 +340,11 @@ func TestPrivateRelay(t *testing.T) {
 	if c := get("/ws/host/otherroom123", nil); c != 403 {
 		t.Errorf("other room hosted: %d", c)
 	}
-	if c := get("/ws/host/myroom12345", map[string]string{"Cf-Connecting-Ip": "1.2.3.4"}); c != 403 {
-		t.Errorf("host through the tunnel allowed: %d", c)
+	if c := get("/ws/host/myroom12345", nil); c != 403 {
+		t.Errorf("host without the token allowed: %d", c)
+	}
+	if c := get("/ws/host/myroom12345", map[string]string{hostTokenHeader: "nope"}); c != 403 {
+		t.Errorf("host with a wrong token allowed: %d", c)
 	}
 	if c := get("/ws/guest/otherroom123", nil); c != 404 {
 		t.Errorf("other room joinable: %d", c)
@@ -352,4 +358,91 @@ func TestPrivateRelay(t *testing.T) {
 	if c := get("/web/viewer.html", nil); c != 404 {
 		t.Errorf("raw template served: %d", c)
 	}
+}
+
+// TestApproval: guests wait for the host; denied ones are turned away;
+// approved ones get back in without asking after a reconnect. The relay
+// only accepts the host with its token.
+func TestApproval(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("no tmux")
+	}
+	sock := "germ-share-test-" + randomID(4)
+	if err := exec.Command("tmux", "-L", sock, "new-session", "-d", "-s", "s", "cat").Run(); err != nil {
+		t.Skip("can't start tmux:", err)
+	}
+	defer exec.Command("tmux", "-L", sock, "kill-server").Run()
+
+	relay := NewRelay()
+	relay.Log.SetOutput(new(strings.Builder))
+	relay.HostToken = "secret-token"
+	srv := httptest.NewServer(relay.Handler())
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+
+	// Without the token, nobody can be the host.
+	impostor, _ := NewHost(u, "s")
+	if err := impostor.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Errorf("host without token: %v", err)
+	}
+
+	h, _ := NewHost(u, "s")
+	h.TmuxArgs = []string{"-L", sock}
+	h.HostToken = "secret-token"
+	asked := make(chan JoinRequest, 4)
+	h.OnRequest = func(r JoinRequest) { asked <- r }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		for ctx.Err() == nil {
+			h.Run(ctx)
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	rw, ro := h.Links()
+	time.Sleep(200 * time.Millisecond)
+
+	// alice is let in.
+	waited := make(chan bool, 1)
+	go func() {
+		r := <-asked
+		if r.Name != "alice" || r.ReadOnly {
+			t.Errorf("request %+v", r)
+		}
+		h.Decide(r.ID, true)
+	}()
+	alice, err := Join(ctx, rw, "alice", func() { waited <- true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer alice.Close()
+	select {
+	case <-waited:
+	default:
+		t.Error("alice wasn't told to wait")
+	}
+	go io.Copy(io.Discard, alice)
+
+	// bob is turned away.
+	go func() { h.Decide((<-asked).ID, false) }()
+	if _, err := Join(ctx, ro, "bob", nil); err == nil || !strings.Contains(err.Error(), "didn't let you in") {
+		t.Errorf("bob: %v", err)
+	}
+
+	// alice reconnects after a drop without being asked again.
+	relay.dropAll()
+	time.Sleep(3 * time.Second)
+	select {
+	case r := <-asked:
+		t.Errorf("asked again after reconnect: %+v", r)
+	default:
+	}
+	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		for _, p := range h.Participants() {
+			if p.Name == "alice" {
+				return
+			}
+		}
+	}
+	t.Error("alice didn't get back in")
 }

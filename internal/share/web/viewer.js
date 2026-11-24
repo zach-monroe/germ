@@ -55,6 +55,15 @@
   window.addEventListener("resize", function () { fit.fit(); });
 
   var ws = null, readOnly = true, joined = false, ended = false, name = "", retryUntil = 0;
+  // A random ID for this tab, kept across reconnects (and reloads), so a
+  // guest the host let in isn't asked about again after a blip.
+  var client = "";
+  try { client = sessionStorage.getItem("germ-client") || ""; } catch (e) {}
+  if (!client) {
+    var r = nacl.randomBytes(16);
+    client = Array.prototype.map.call(r, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+    try { sessionStorage.setItem("germ-client", client); } catch (e) {}
+  }
 
   function send(type, bytes) {
     if (!ws || ws.readyState !== 1) return;
@@ -78,7 +87,7 @@
     ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     ws.onopen = function () {
-      sendJSON(0x48, { name: name, version: 2, kind: "web", cols: term.cols, rows: term.rows }); // 'H'
+      sendJSON(0x48, { name: name, version: 2, kind: "web", client: client, cols: term.cols, rows: term.rows }); // 'H'
     };
     ws.onmessage = function (ev) {
       var data = new Uint8Array(ev.data);
@@ -98,6 +107,10 @@
           term.focus();
           break;
         }
+        case 0x51: // 'Q' waiting for approval
+          setMode("waiting", "wait");
+          term.write("\x1b[2mWaiting for the host to let you in…\x1b[0m\r\n");
+          break;
         case 0x44: term.write(body); break; // 'D'
         case 0x50: { // 'P' presence
           var ps = JSON.parse(dec.decode(body));

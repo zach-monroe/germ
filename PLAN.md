@@ -236,6 +236,12 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
+## Status (after sharing security pass)
+- Exposure order: Tailscale Funnel (`tailscale funnel --https=443|8443|10000` in the foreground; needs Running backend + `funnel` node attribute; clear errors for operator/enablement) → Cloudflare quick tunnel. Direct/UPnP only with `mode = "direct"`.
+- Join approval (`[share] approve`, default all): host sends `Q` (waiting), `OnRequest` → share pane y/N with bell + notify-send; 2-minute timeout; max 5 waiting. Approved `client` IDs (random per guest, kept across reconnects) get back in without asking.
+- Built-in relay: host must present `X-Germ-Host-Token` (tunnels make every request look local); 20 guest connections/minute per room.
+- Verified: approval flow in Firefox through the Cloudflare tunnel; `TestApproval` (wait, deny, token, reconnect without re-asking).
+
 ## Status (after zero-setup sharing)
 - `germ share` without `[share] relay` runs a private relay in-process (one room; host only from loopback and not via the tunnel) and exposes it: UPnP port mapping on the router (public, non-CGNAT address required) else a Cloudflare quick tunnel (`cloudflared` downloaded once to ~/.cache/germ/bin).
 - Browser viewer at the invite link: xterm.js + addon-fit + tweetnacl vendored in `internal/share/web` (THIRD_PARTY_LICENSES.txt). Browser guests get a plain `tmux attach` in a pty (watchers: `-r -f ignore-size`, input dropped on the host); native germ guests keep control mode.

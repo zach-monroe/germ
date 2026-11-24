@@ -126,10 +126,14 @@ type Share struct {
 	// deploy/relay). Empty (the default): germ share serves the session
 	// from this machine, reachable directly or through a free tunnel.
 	Relay string `toml:"relay"`
-	// Mode, without a relay: "auto" (default: a direct connection if the
-	// router allows it, else a Cloudflare quick tunnel), "direct", or
-	// "tunnel".
+	// Mode, without a relay: "auto" (default: Tailscale Funnel if it's set
+	// up, else a Cloudflare quick tunnel), "tailscale", "tunnel", or
+	// "direct" (a UPnP port forward and a plain-http link to your public
+	// IP; only when chosen explicitly).
 	Mode string `toml:"mode"`
+	// Approve says whose joins you approve: "all" (default), "typing"
+	// (only can-type guests), or "none".
+	Approve string `toml:"approve"`
 	// Port for direct connections (0: any free port).
 	Port int `toml:"port"`
 	// PublicAddress is a host name or IP that already forwards Port to
@@ -280,6 +284,9 @@ func Parse(data []byte) (Config, []string, error) {
 	}
 	if cfg.Theme == "" {
 		cfg.Theme = d.Theme
+	}
+	if cfg.Share.Approve == "" {
+		cfg.Share.Approve = "all"
 	}
 	if cfg.Shells.Mode == "" {
 		cfg.Shells.Mode = d.Shells.Mode

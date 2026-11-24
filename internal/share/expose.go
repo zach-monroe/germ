@@ -22,9 +22,16 @@ import (
 	"github.com/huin/goupnp/dcps/internetgateway2"
 )
 
-// Exposing germ share's built-in relay to the internet, for free and
-// without accounts: directly, by asking the router to forward a port
-// (UPnP), or else through a Cloudflare quick tunnel.
+// Exposing germ share's built-in relay to the internet, for free. In order
+// of preference:
+//
+//   - Tailscale Funnel (when Tailscale is set up): https with a certificate
+//     issued to this machine, so nothing in between can read or alter what
+//     guests load;
+//   - a Cloudflare quick tunnel (no account): https, terminated at
+//     Cloudflare;
+//   - direct (only when asked for: mode "direct"): a UPnP port forward on
+//     the router and a plain-http link to this machine's public address.
 
 // Exposure is a public address for a local port.
 type Exposure struct {
@@ -42,7 +49,9 @@ func (e *Exposure) Close() {
 
 // ExposeOptions configures Expose.
 type ExposeOptions struct {
-	Mode string // "auto" (direct, else tunnel), "direct", or "tunnel"
+	// Mode is "auto" (Tailscale Funnel if set up, else a Cloudflare
+	// tunnel), "tailscale", "tunnel", or "direct".
+	Mode string
 	// PublicAddress, for direct mode, is a host name or IP that already
 	// forwards to this machine (a manual port forward); skips UPnP.
 	PublicAddress string
@@ -54,23 +63,23 @@ func Expose(ctx context.Context, localPort int, o ExposeOptions) (*Exposure, err
 	if o.Log == nil {
 		o.Log = func(string, ...any) {}
 	}
-	var directErr error
-	if o.Mode != "tunnel" {
-		e, err := exposeDirect(ctx, localPort, o)
-		if err == nil {
-			return e, nil
-		}
-		directErr = err
-		if o.Mode == "direct" {
-			return nil, err
-		}
-		o.Log("direct connection isn't possible (%v); using a Cloudflare quick tunnel", err)
+	switch o.Mode {
+	case "direct":
+		return exposeDirect(ctx, localPort, o)
+	case "tunnel", "cloudflare":
+		return exposeTunnel(ctx, localPort, o)
+	case "tailscale", "funnel":
+		return exposeTailscale(ctx, localPort, o)
 	}
-	e, err := exposeTunnel(ctx, localPort, o)
-	if err != nil && directErr != nil {
-		return nil, fmt.Errorf("couldn't open a direct connection (%v) or a tunnel (%w)", directErr, err)
+	e, err := exposeTailscale(ctx, localPort, o)
+	if err == nil {
+		return e, nil
 	}
-	return e, err
+	if !errors.Is(err, errNoTailscale) {
+		o.Log("Tailscale Funnel isn't available: %v", err)
+	}
+	o.Log("using a Cloudflare quick tunnel")
+	return exposeTunnel(ctx, localPort, o)
 }
 
 // ---- direct (UPnP) ------------------------------------------------------------

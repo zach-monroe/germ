@@ -1,7 +1,7 @@
 # Maintainer: Zach Monroe <zmonroe1995@gmail.com>
 # Builds germ from source. For the prebuilt binary, see germ-bin.
 pkgname=germ
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Fast GPU terminal with built-in tmux, coding-agent tools, and session sharing"
 arch=('x86_64' 'aarch64')

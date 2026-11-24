@@ -13,6 +13,7 @@ const (
 	msgPresence byte = 'P' // host -> guest: JSON []Participant
 	msgBye      byte = 'B' // host -> guest: reason text
 	msgResize   byte = 'R' // web guest -> host: JSON Size
+	msgWaiting  byte = 'Q' // host -> guest: waiting for the host to approve the join
 )
 
 // Size is a web guest's terminal size.
@@ -28,7 +29,18 @@ type Hello struct {
 	// Kind is "web" for the browser viewer, which gets a plain terminal
 	// stream (tmux attach) instead of tmux control mode.
 	Kind string `json:"kind,omitempty"`
+	// Client is a random ID the guest keeps across reconnects, so a guest
+	// the host let in isn't asked about again after a network blip.
+	Client string `json:"client,omitempty"`
 	Size
+}
+
+// JoinRequest is a guest waiting for the host's approval.
+type JoinRequest struct {
+	ID       uint32
+	Name     string
+	ReadOnly bool
+	Web      bool
 }
 
 // Welcome tells a guest what it joined.
