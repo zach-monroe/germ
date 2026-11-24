@@ -236,6 +236,13 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
+## Status (after the polish pass)
+- Scrollback search (Ctrl+Shift+F): bar on the pane's bottom row (render.View.Overlay), highlights (View.Highlights), smart case, matches across soft wraps, Enter/Shift+Enter or Up/Down, Esc. Guest follow moved to Ctrl+Shift+G.
+- CI on every push/PR (`ci.yml`): gofmt, vet, race tests, builds; Xvfb e2e suites (non-blocking for now; green so far).
+- Built-in widgets run in-process (`widgets.RunInProcess`, per-widget Options); custom widgets still run as programs.
+- Rendering: anti-aliased rounded corners; cursor blink when requested (solid while active); selection autoscroll past pane edges (unclamped pointer row); color emoji via go-text bitmap glyphs into a second RGBA atlas and a fourth draw pass (pictographs + Emoji_Presentation chars prefer color).
+- Startup: fc-match answers cached in ~/.cache/germ/fontmatch.json (invalidated when fontconfig caches are newer); style lookups in parallel. Warm font load ~7 ms (was ~95 ms of fc-match).
+
 ## Status (after sharing security pass)
 - Exposure order: Tailscale Funnel (`tailscale funnel --https=443|8443|10000` in the foreground; needs Running backend + `funnel` node attribute; clear errors for operator/enablement) → Cloudflare quick tunnel. Direct/UPnP only with `mode = "direct"`.
 - Join approval (`[share] approve`, default all): host sends `Q` (waiting), `OnRequest` → share pane y/N with bell + notify-send; 2-minute timeout; max 5 waiting. Approved `client` IDs (random per guest, kept across reconnects) get back in without asking.

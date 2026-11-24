@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/golang/freetype/truetype"
 	xfont "golang.org/x/image/font"
@@ -92,8 +93,26 @@ func Load(family string, sizePt, dpi float64) (*Set, error) {
 		fallback: map[rune]*face{},
 	}
 	styles := [4]string{"regular", "bold", "italic", "bold:italic"}
+	// Look the four styles up in parallel (each fc-match is ~20 ms when
+	// not cached).
+	type found struct {
+		path string
+		idx  int
+		err  error
+	}
+	var res [4]found
+	var wg sync.WaitGroup
 	for i, st := range styles {
-		path, idx, err := match(family + ":" + st)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p, idx, err := match(family + ":" + st)
+			res[i] = found{p, idx, err}
+		}()
+	}
+	wg.Wait()
+	for i := range styles {
+		path, idx, err := res[i].path, res[i].idx, res[i].err
 		if err != nil {
 			if i == 0 {
 				return nil, err
@@ -231,6 +250,18 @@ func (s *Set) open(path string, idx int) (*face, error) {
 
 // match asks fontconfig for the best file for a pattern.
 func match(pattern string) (path string, index int, err error) {
+	if m, ok := matchCache.get(pattern); ok {
+		return m.Path, m.Index, nil
+	}
+	path, index, err = fcMatch(pattern)
+	if err == nil {
+		matchCache.put(pattern, cachedMatch{path, index})
+	}
+	return path, index, err
+}
+
+// fcMatch asks fontconfig (the fc-match tool).
+func fcMatch(pattern string) (path string, index int, err error) {
 	out, err := exec.Command("fc-match", "-f", "%{file}\n%{index}", pattern).Output()
 	if err != nil {
 		return "", 0, fmt.Errorf("font: fc-match %q: %w", pattern, err)
