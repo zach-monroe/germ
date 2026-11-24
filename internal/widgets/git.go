@@ -34,8 +34,8 @@ type fileChange struct {
 	untracked bool
 }
 
-func newGit() Widget {
-	dir := Option("dir", "")
+func newGit(o Options) Widget {
+	dir := o.Get("dir", "")
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
@@ -43,7 +43,7 @@ func newGit() Widget {
 		home, _ := os.UserHomeDir()
 		dir = filepath.Join(home, dir[2:])
 	}
-	return &gitWidget{dir: dir, base: Option("base", "HEAD")}
+	return &gitWidget{dir: dir, base: o.Get("base", "HEAD")}
 }
 
 func (g *gitWidget) Every() time.Duration { return 2 * time.Second }

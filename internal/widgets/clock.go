@@ -12,10 +12,10 @@ type clock struct {
 	seconds bool
 }
 
-func newClock() Widget {
+func newClock(o Options) Widget {
 	return &clock{
-		h24:     Option("format", "24h") != "12h",
-		seconds: Option("seconds", "true") != "false",
+		h24:     o.Get("format", "24h") != "12h",
+		seconds: o.Get("seconds", "true") != "false",
 	}
 }
 

@@ -27,9 +27,9 @@ type quote struct {
 	currency    string
 }
 
-func newStocks() Widget {
+func newStocks(o Options) Widget {
 	var syms []string
-	for _, s := range strings.Split(Option("symbols", "SPY,QQQ,AAPL,NVDA,MSFT,BTC-USD"), ",") {
+	for _, s := range strings.Split(o.Get("symbols", "SPY,QQQ,AAPL,NVDA,MSFT,BTC-USD"), ",") {
 		if s = strings.ToUpper(strings.TrimSpace(s)); s != "" {
 			syms = append(syms, s)
 		}

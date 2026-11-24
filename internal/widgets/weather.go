@@ -14,12 +14,13 @@ import (
 // (no API key). Options: location (city name; default: from your IP
 // address), units ("fahrenheit" or "celsius"; default by country).
 type weather struct {
-	mu    sync.Mutex
-	place string
-	lat   float64
-	lon   float64
-	units string
-	data  *forecast
+	mu       sync.Mutex
+	place    string
+	lat      float64
+	lon      float64
+	units    string
+	location string // option: a place name; empty = from the IP address
+	data     *forecast
 }
 
 type forecast struct {
@@ -39,7 +40,9 @@ type forecast struct {
 	} `json:"daily"`
 }
 
-func newWeather() Widget { return &weather{units: Option("units", "")} }
+func newWeather(o Options) Widget {
+	return &weather{units: o.Get("units", ""), location: o.Get("location", "")}
+}
 
 func (w *weather) Every() time.Duration { return 15 * time.Minute }
 func (w *weather) Tick() time.Duration  { return 0 }
@@ -80,7 +83,7 @@ func (w *weather) Update(ctx context.Context) error {
 
 func (w *weather) locate(ctx context.Context) error {
 	country := ""
-	if name := Option("location", ""); name != "" {
+	if name := w.location; name != "" {
 		body, err := get(ctx, "https://geocoding-api.open-meteo.com/v1/search?count=1&name="+url.QueryEscape(name))
 		if err != nil {
 			return err

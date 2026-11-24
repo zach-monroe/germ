@@ -45,7 +45,7 @@ func TestDrawFrames(t *testing.T) {
 	// Every built-in must draw without data, and fit boxes of usable size
 	// (draw clips anything taller; tiny boxes just mustn't panic).
 	for _, name := range Names() {
-		w := builtins[name]()
+		w := builtins[name](Options{})
 		for _, sz := range [][2]int{{80, 20}, {20, 4}, {5, 2}} {
 			lines := w.Draw(sz[0], sz[1], nil)
 			if sz[1] >= 4 && len(lines) > sz[1] {

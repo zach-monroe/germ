@@ -31,7 +31,8 @@ Saving the config rebuilds the home tab right away.
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `stocks` | price, daily change, intraday sparkline (Yahoo Finance) | `symbols = ["AAPL", "NVDA", "BTC-USD"]` |
 
-None need API keys. Try one outside germ with `germ widget clock`.
+None need API keys. Built-ins run inside germ (no process each); try one
+on its own with `germ widget clock`.
 
 **Click to open**: news headlines open the article, stock rows their quote
 page, and the weather a detailed forecast map, in your browser (`$BROWSER`,

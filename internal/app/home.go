@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -134,6 +135,10 @@ type widgetBackend struct {
 	cols, rows int
 	stopped    bool
 	poke       chan struct{} // rerun now (interval widgets, on resize)
+
+	// Built-in widgets run in germ as goroutines (no process each).
+	inproc bool
+	cancel context.CancelFunc
 }
 
 func (b *widgetBackend) Write([]byte) {}
@@ -154,6 +159,9 @@ func (b *widgetBackend) Resize(cols, rows int) {
 }
 
 func (b *widgetBackend) Close() {
+	if b.cancel != nil {
+		b.cancel()
+	}
 	b.mu.Lock()
 	b.stopped = true
 	if b.sess != nil {
@@ -180,6 +188,17 @@ func (a *App) newWidgetPane(name string) *pane {
 	b := &widgetBackend{a: a, p: p, cols: 1, rows: 1, poke: make(chan struct{}, 1)}
 	p.be = b
 	w, err := a.cfg.Widget(name)
+	if err == nil && len(w.Command) == 0 && !userWidgetExists(w.Name) && widgets.IsBuiltin(w.Name) {
+		opts := widgets.Options{}
+		for _, kv := range w.Env {
+			k, v, _ := strings.Cut(kv, "=")
+			opts[strings.ToLower(strings.TrimPrefix(k, "GERM_WIDGET_"))] = v
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		b.inproc, b.cancel = true, cancel
+		go b.runInProcess(ctx, w.Name, opts)
+		return p
+	}
 	if err == nil {
 		b.argv, err = a.homeCommand(w)
 		b.env = append(append([]string(nil), a.baseEnv...), w.Env...)
@@ -357,4 +376,35 @@ func (a *App) toggleHome() bool {
 		a.switchTab(1)
 	}
 	return true
+}
+
+// userWidgetExists reports whether ~/.config/germ/widgets/NAME is an
+// executable (it takes precedence over a built-in of the same name).
+func userWidgetExists(name string) bool {
+	st, err := os.Stat(filepath.Join(config.Dir(), "widgets", name))
+	return err == nil && !st.IsDir() && st.Mode()&0o111 != 0
+}
+
+// runInProcess runs a built-in widget on a goroutine, drawing straight
+// into the pane's terminal.
+func (b *widgetBackend) runInProcess(ctx context.Context, name string, opts widgets.Options) {
+	// Wait for the first layout so the widget draws at its real size.
+	select {
+	case <-b.poke:
+	case <-time.After(2 * time.Second):
+	case <-ctx.Done():
+		return
+	}
+	size := func() (int, int) {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return max(b.cols, 1), max(b.rows, 1)
+	}
+	out := writerFunc(func(p []byte) {
+		b.p.term.Write(p)
+		b.a.wake()
+	})
+	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke); err != nil {
+		b.show([]byte("\x1b[31m" + err.Error() + "\x1b[0m"))
+	}
 }

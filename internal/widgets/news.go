@@ -28,9 +28,9 @@ type story struct {
 
 const defaultFeeds = "https://hnrss.org/frontpage,https://feeds.bbci.co.uk/news/world/rss.xml"
 
-func newNews() Widget {
+func newNews(o Options) Widget {
 	var feeds []string
-	for _, f := range strings.Split(Option("feeds", defaultFeeds), ",") {
+	for _, f := range strings.Split(o.Get("feeds", defaultFeeds), ",") {
 		if f = strings.TrimSpace(f); f != "" {
 			feeds = append(feeds, f)
 		}

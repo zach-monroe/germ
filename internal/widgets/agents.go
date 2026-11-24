@@ -26,7 +26,7 @@ type agentRow struct {
 	window  int
 }
 
-func newAgents() Widget { return &agents{} }
+func newAgents(Options) Widget { return &agents{} }
 
 func (a *agents) Every() time.Duration { return time.Second }
 func (a *agents) Tick() time.Duration  { return 0 }

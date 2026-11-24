@@ -40,7 +40,7 @@ type Widget interface {
 	Tick() time.Duration
 }
 
-var builtins = map[string]func() Widget{
+var builtins = map[string]func(Options) Widget{
 	"clock":   newClock,
 	"weather": newWeather,
 	"news":    newNews,
@@ -62,42 +62,81 @@ func Names() []string {
 // IsBuiltin reports whether name is a built-in widget.
 func IsBuiltin(name string) bool { _, ok := builtins[name]; return ok }
 
-// Run runs a built-in widget on stdout until killed.
+// Run runs a built-in widget on stdout until killed (`germ widget NAME`):
+// options come from GERM_WIDGET_* variables and resizes from SIGWINCH.
 func Run(name string) error {
+	resize := make(chan struct{}, 1)
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	go func() {
+		for range winch {
+			select {
+			case resize <- struct{}{}:
+			default:
+			}
+		}
+	}()
+	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize)
+}
+
+// RunInProcess runs a built-in widget, drawing frames to out, until ctx
+// ends. size reports the widget's box; a value on resize redraws. germ
+// runs its home-screen widgets this way, without a process each.
+func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
+	size func() (cols, rows int), resize <-chan struct{}) error {
 	mk, ok := builtins[name]
 	if !ok {
 		return fmt.Errorf("unknown widget %q (built-in: %s)", name, strings.Join(Names(), ", "))
 	}
-	w := mk()
-	out := os.Stdout
+	w := mk(opts)
 	io.WriteString(out, "\x1b[?25l\x1b[?7l") // no cursor, no autowrap
 
-	winch := make(chan os.Signal, 1)
-	signal.Notify(winch, syscall.SIGWINCH)
 	updated := make(chan error, 1)
 	go func() {
 		for {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			err := w.Update(ctx)
+			uctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := w.Update(uctx)
 			cancel()
-			updated <- err
+			select {
+			case updated <- err:
+			case <-ctx.Done():
+				return
+			}
 			if w.Every() <= 0 {
 				return
 			}
-			time.Sleep(w.Every())
+			select {
+			case <-time.After(w.Every()):
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
-	tick := make(chan time.Time, 1)
+	var tick <-chan time.Time
 	if d := w.Tick(); d > 0 {
+		// Align ticks to the period so a clock flips on the second.
+		first := time.NewTimer(time.Until(time.Now().Truncate(d).Add(d)))
+		defer first.Stop()
+		ch := make(chan time.Time, 1)
+		tick = ch
 		go func() {
-			// Align ticks to the period so a clock flips on the second.
-			time.Sleep(time.Until(time.Now().Truncate(d).Add(d)))
+			select {
+			case <-first.C:
+			case <-ctx.Done():
+				return
+			}
 			t := time.NewTicker(d)
-			for now := range t.C {
+			defer t.Stop()
+			for {
 				select {
-				case tick <- now:
-				default:
+				case now := <-t.C:
+					select {
+					case ch <- now:
+					default:
+					}
+				case <-ctx.Done():
+					return
 				}
 			}
 		}()
@@ -107,19 +146,45 @@ func Run(name string) error {
 		cols, rows := size()
 		draw(out, w.Draw(cols, rows, lastErr), rows)
 		select {
-		case <-winch:
+		case <-resize:
 		case <-tick:
 		case lastErr = <-updated:
+		case <-ctx.Done():
+			return nil
 		}
 	}
 }
 
-func size() (int, int) {
+func ttySize() (int, int) {
 	ws, err := unix.IoctlGetWinsize(1, unix.TIOCGWINSZ)
 	if err != nil || ws.Col == 0 {
 		return 40, 10
 	}
 	return int(ws.Col), int(ws.Row)
+}
+
+// Options are a widget's settings ([widgets.NAME] keys).
+type Options map[string]string
+
+// Get returns an option, or def if it's unset.
+func (o Options) Get(key, def string) string {
+	if v := o[strings.ToLower(key)]; v != "" {
+		return v
+	}
+	return def
+}
+
+// envOptions reads GERM_WIDGET_<KEY> variables (how separate widget
+// processes get their options).
+func envOptions() Options {
+	o := Options{}
+	for _, kv := range os.Environ() {
+		k, v, _ := strings.Cut(kv, "=")
+		if rest, ok := strings.CutPrefix(k, "GERM_WIDGET_"); ok {
+			o[strings.ToLower(rest)] = v
+		}
+	}
+	return o
 }
 
 // draw writes a frame in one synchronized update.
@@ -150,14 +215,6 @@ func draw(out io.Writer, lines []string, rows int) {
 }
 
 // ---- helpers shared by the built-ins ------------------------------------------
-
-// Option reads a widget option from the environment.
-func Option(key, def string) string {
-	if v := os.Getenv("GERM_WIDGET_" + strings.ToUpper(key)); v != "" {
-		return v
-	}
-	return def
-}
 
 // SGR color helpers using the theme's ANSI palette.
 const (
