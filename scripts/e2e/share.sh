@@ -96,7 +96,7 @@ kill $RELAY; wait $RELAY 2>/dev/null || true; sleep 1
 "$TMP/germ-relay" -addr 127.0.0.1:$PORT 2>>"$TMP/relay.log" & RELAY=$!
 for _ in $(seq 40); do grep -q "host connected" <(tail -3 "$TMP/relay.log") && break; sleep 0.5; done
 sleep 7
-xdotool windowfocus --sync "$GW"; xdotool key ctrl+shift+f; sleep 0.5
+xdotool windowfocus --sync "$GW"; xdotool key ctrl+shift+g; sleep 0.5
 xdotool type --delay 15 'echo after-reconnect'; xdotool key Return; sleep 1.5
 if tmux -L $SOCK capture-pane -p -t %0 | grep -qx 'after-reconnect'; then echo "ok   host and guest reconnected after the relay restarted"
 else echo "FAIL reconnect"; tail -5 "$TMP/relay.log"; fail=1; fi
