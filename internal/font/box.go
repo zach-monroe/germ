@@ -1,6 +1,9 @@
 package font
 
-import "image"
+import (
+	"image"
+	"math"
+)
 
 // Box-drawing (U+2500–U+257F) and block elements (U+2580–U+259F) are drawn
 // procedurally at exactly the cell size, so lines join seamlessly across
@@ -53,8 +56,6 @@ var boxTable = map[rune]arms{
 	0x2564: {0, 1, 3, 3}, 0x2565: {0, 3, 1, 1}, 0x2566: {0, 3, 3, 3},
 	0x2567: {1, 0, 3, 3}, 0x2568: {3, 0, 1, 1}, 0x2569: {3, 0, 3, 3},
 	0x256A: {1, 1, 3, 3}, 0x256B: {3, 3, 1, 1}, 0x256C: {3, 3, 3, 3},
-	// Rounded corners (drawn square for now).
-	0x256D: {0, 1, 0, 1}, 0x256E: {0, 1, 1, 0}, 0x256F: {1, 0, 1, 0}, 0x2570: {1, 0, 0, 1},
 	// Half lines.
 	0x2574: {0, 0, 1, 0}, 0x2575: {1, 0, 0, 0}, 0x2576: {0, 0, 0, 1}, 0x2577: {0, 1, 0, 0},
 	0x2578: {0, 0, 2, 0}, 0x2579: {2, 0, 0, 0}, 0x257A: {0, 0, 0, 2}, 0x257B: {0, 2, 0, 0},
@@ -67,6 +68,9 @@ func (s *Set) builtinGlyph(r rune) (Glyph, bool) {
 	w, h := s.metrics.CellW, s.metrics.CellH
 	if r >= 0x2580 && r <= 0x259F {
 		return blockGlyph(r, w, h)
+	}
+	if r >= 0x256D && r <= 0x2570 {
+		return roundedCorner(r, w, h, max(1, s.metrics.Thickness)), true
 	}
 	a, ok := boxTable[r]
 	if !ok {
@@ -182,4 +186,46 @@ func blockGlyph(r rune, w, h int) (Glyph, bool) {
 		}
 	}
 	return Glyph{Mask: m, Bounds: m.Rect}, true
+}
+
+// roundedCorner draws ╭ ╮ ╯ ╰ as a quarter circle joining the two arms,
+// anti-aliased, so rounded boxes (as drawn by many TUIs) look rounded.
+// Arms are centred like the straight lines, so they join seamlessly.
+func roundedCorner(r rune, w, h, t int) Glyph {
+	m := image.NewAlpha(image.Rect(0, 0, w, h))
+	cx, cy := float64(w/2)+float64(t%2)/2, float64(h/2)+float64(t%2)/2 // stroke centre lines
+	// Which way the arms go: right/left and down/up.
+	right := r == 0x256D || r == 0x2570
+	down := r == 0x256D || r == 0x256E
+	rad := math.Min(float64(w)/2, float64(h)/2)
+	// The arc's centre sits rad away from the corner point, toward the arms.
+	ox, oy := cx-rad, cy-rad
+	if right {
+		ox = cx + rad
+	}
+	if down {
+		oy = cy + rad
+	}
+	half := float64(t) / 2
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			px, py := float64(x)+0.5, float64(y)+0.5
+			var d float64 // distance from the stroke's centre line
+			inX := (right && px >= ox) || (!right && px <= ox)
+			inY := (down && py >= oy) || (!down && py <= oy)
+			switch {
+			case inX && !inY: // horizontal arm beyond the arc
+				d = math.Abs(py - cy)
+			case inY && !inX: // vertical arm beyond the arc
+				d = math.Abs(px - cx)
+			case !inX && !inY: // the arc's quadrant
+				d = math.Abs(math.Hypot(px-ox, py-oy) - rad)
+			default:
+				continue
+			}
+			a := math.Max(0, math.Min(1, half+0.5-d))
+			m.Pix[y*m.Stride+x] = uint8(a * 255)
+		}
+	}
+	return Glyph{Mask: m, Bounds: image.Rect(0, 0, w, h)}
 }

@@ -260,8 +260,8 @@ func Run(opts Options) error {
 			if time.Now().After(shotAt) {
 				return a.screenshot(opts.Screenshot)
 			}
-		} else if a.animating {
-			glfw.WaitEventsTimeout(0.1) // spinner frames
+		} else if wait := a.timerWait(); wait > 0 {
+			glfw.WaitEventsTimeout(wait.Seconds()) // spinners, cursor blink, selection autoscroll
 		} else {
 			glfw.WaitEvents() // blocks: zero CPU while idle
 		}
@@ -404,6 +404,7 @@ func (a *App) view(p *pane, t *tab) render.View {
 		Force:     a.forceRedraw,
 	}
 	a.searchView(p, &v)
+	v.CursorOff = v.Focused && a.blinkOff(p)
 	return v
 }
 

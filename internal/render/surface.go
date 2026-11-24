@@ -51,6 +51,8 @@ type View struct {
 	// bar); OverlayGen must change whenever its content does.
 	Overlay    *term.Line
 	OverlayGen int
+	// CursorOff hides the cursor for this frame (the off phase of a blink).
+	CursorOff bool
 }
 
 // Highlight marks cells StartCol..EndCol (inclusive) on absolute row Row.
@@ -137,7 +139,7 @@ func (s *Surface) Update(t *term.Terminal, v View, ox, oy, gutter int) bool {
 
 	c := t.Cursor()
 	cy := c.Y + v.Offset // the cursor moves down as the view scrolls back
-	cur := cursorState{x: c.X, y: cy, visible: modes.CursorVisible && cy < rows, style: t.CursorStyle(), focused: focused}
+	cur := cursorState{x: c.X, y: cy, visible: modes.CursorVisible && cy < rows && !v.CursorOff, style: t.CursorStyle(), focused: focused}
 	changed := all
 	if cur != s.cursor {
 		// Rebuild the rows the cursor left and entered.
