@@ -4,3 +4,4 @@
 *.prof
 packaging/homebrew/germ.rb
 packaging/aur/germ-bin/PKGBUILD
+packaging/aur/germ-bin/.SRCINFO
