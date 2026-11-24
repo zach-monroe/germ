@@ -247,7 +247,7 @@ var emptyLine term.Line
 func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 	r := s.r
 	rc := &s.rows[y]
-	rc.bg, rc.deco, rc.glyphs = rc.bg[:0], rc.deco[:0], rc.glyphs[:0]
+	rc.bg, rc.deco, rc.glyphs, rc.colors = rc.bg[:0], rc.deco[:0], rc.glyphs[:0], rc.colors[:0]
 	if line == nil {
 		line = &emptyLine
 	}
@@ -318,7 +318,11 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 
 		if c.Rune > ' ' && c.Attrs&term.AttrHidden == 0 {
 			if e := r.atlas.get(c.Rune, styleOf(c.Attrs)); e.ok {
-				rc.glyphs = append(rc.glyphs, glyphInst{
+				dst := &rc.glyphs
+				if e.color {
+					dst = &rc.colors
+				}
+				*dst = append(*dst, glyphInst{
 					X: float32(px + e.bounds.Min.X), Y: float32(py + e.bounds.Min.Y),
 					W: float32(e.bounds.Dx()), H: float32(e.bounds.Dy()),
 					U: float32(e.uv.Min.X), V: float32(e.uv.Min.Y),

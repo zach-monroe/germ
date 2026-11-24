@@ -38,6 +38,7 @@ type glyphInst struct {
 type rowCache struct {
 	bg, deco []rectInst
 	glyphs   []glyphInst
+	colors   []glyphInst // color glyphs (emoji), from the color atlas
 }
 
 type cursorState struct {
@@ -61,12 +62,17 @@ type Renderer struct {
 	uRectViewport       int32
 	uGlyphViewport      int32
 	uAtlasSize          int32
+	colorProg           uint32
+	colorBuf            instanceBuffer
+	uColorViewport      int32
+	uColorAtlasSize     int32
 
 	width, height int // framebuffer size
 	fontGen       int // bumped by SetFonts/SetPad so surfaces rebuild
 
 	bg, deco []rectInst
 	glyphs   []glyphInst
+	colors   []glyphInst
 }
 
 type instanceBuffer struct {
@@ -89,6 +95,14 @@ func New(fonts *font.Set, pad int) (*Renderer, error) {
 	r.uAtlasSize = uniform(r.glyphProg, "uAtlasSize")
 	gl.UseProgram(r.glyphProg)
 	gl.Uniform1i(uniform(r.glyphProg, "uAtlas"), 0)
+	if r.colorProg, err = compileProgram(glyphVert, colorFrag); err != nil {
+		return nil, err
+	}
+	r.uColorViewport = uniform(r.colorProg, "uViewport")
+	r.uColorAtlasSize = uniform(r.colorProg, "uAtlasSize")
+	gl.UseProgram(r.colorProg)
+	gl.Uniform1i(uniform(r.colorProg, "uAtlas"), 0)
+	r.colorBuf = newGlyphBuffer()
 
 	r.bgBuf = newRectBuffer()
 	r.decoBuf = newRectBuffer()
@@ -139,6 +153,7 @@ func newGlyphBuffer() instanceBuffer {
 // should recompute layouts afterwards since the cell size changes.
 func (r *Renderer) SetFonts(fonts *font.Set) {
 	gl.DeleteTextures(1, &r.atlas.tex)
+	gl.DeleteTextures(1, &r.atlas.color.tex)
 	r.fonts, r.m = fonts, fonts.Metrics()
 	r.atlas = newAtlas(fonts)
 	r.fontGen++
@@ -179,12 +194,13 @@ type Rect struct {
 // Frame draws a complete frame: the background, every surface's cached
 // instances, and extra rectangles on top. The caller swaps buffers.
 func (r *Renderer) Frame(bg theme.RGB, surfaces []*Surface, rects []Rect) {
-	r.bg, r.deco, r.glyphs = r.bg[:0], r.deco[:0], r.glyphs[:0]
+	r.bg, r.deco, r.glyphs, r.colors = r.bg[:0], r.deco[:0], r.glyphs[:0], r.colors[:0]
 	for _, s := range surfaces {
 		for i := range s.rows {
 			r.bg = append(r.bg, s.rows[i].bg...)
 			r.deco = append(r.deco, s.rows[i].deco...)
 			r.glyphs = append(r.glyphs, s.rows[i].glyphs...)
+			r.colors = append(r.colors, s.rows[i].colors...)
 		}
 	}
 	for _, rc := range rects {
@@ -205,6 +221,15 @@ func (r *Renderer) Frame(bg theme.RGB, surfaces []*Surface, rects []Rect) {
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, r.atlas.tex)
 	drawInstances(&r.glyphBuf, r.glyphs)
+
+	if len(r.colors) > 0 {
+		c := r.atlas.color
+		gl.UseProgram(r.colorProg)
+		gl.Uniform2f(r.uColorViewport, vw, vh)
+		gl.Uniform2f(r.uColorAtlasSize, float32(c.size), float32(c.size))
+		gl.BindTexture(gl.TEXTURE_2D, c.tex)
+		drawInstances(&r.colorBuf, r.colors)
+	}
 
 	gl.UseProgram(r.rectProg)
 	drawInstances(&r.decoBuf, r.deco)

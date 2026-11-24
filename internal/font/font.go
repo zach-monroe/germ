@@ -43,6 +43,8 @@ type Metrics struct {
 // Glyph is a rasterized glyph.
 type Glyph struct {
 	Mask *image.Alpha
+	// Color, instead of Mask, is a full-color glyph (emoji), drawn as is.
+	Color *image.NRGBA
 	// Bounds is where Mask goes relative to the cell's top-left corner.
 	Bounds image.Rectangle
 }
@@ -77,12 +79,14 @@ type Set struct {
 	metrics  Metrics
 	byFile   map[string]*face // loaded fallback faces
 	fallback map[rune]*face   // nil entry = no font has it
+	emoji    *emojiFont       // color emoji, loaded on first use
 }
 
 // Load finds family via fontconfig and opens it at size points for the
 // given DPI (96 * content scale).
 func Load(family string, sizePt, dpi float64) (*Set, error) {
 	s := &Set{
+		emoji:    &emojiFont{},
 		sizePx:   sizePt * dpi / 72,
 		byFile:   map[string]*face{},
 		fallback: map[rune]*face{},
@@ -137,16 +141,23 @@ func (s *Set) Glyph(r rune, st Style) (Glyph, bool) {
 			return g, true
 		}
 	}
+	if isEmoji(r) {
+		if g, ok := s.colorGlyph(r); ok {
+			return g, true
+		}
+	}
 	f := s.faces[st]
 	if !f.has(r) {
 		if f = s.fallbackFor(r); f == nil {
-			return Glyph{}, false
+			return s.colorGlyph(r) // a symbol only the emoji font has
 		}
 	}
 	dot := fixed.P(0, s.metrics.Baseline)
 	dr, mask, mp, _, ok := f.rasterizer(r).Glyph(dot, r)
 	if !ok || dr.Empty() {
-		return Glyph{}, false
+		// A font can map a character it has no outline for (a color
+		// font's bitmap-only glyph, as fontconfig sees it): try color.
+		return s.colorGlyph(r)
 	}
 	am, isAlpha := mask.(*image.Alpha)
 	if !isAlpha || mp != (image.Point{}) {

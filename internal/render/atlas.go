@@ -21,6 +21,8 @@ type glyphKey struct {
 
 type atlasEntry struct {
 	ok     bool            // false: nothing to draw (blank or missing glyph)
+	color  bool            // in the color atlas (an emoji), not the mask atlas
+	wipe   int             // color atlas wipes when placed (stale after a wipe)
 	uv     image.Rectangle // location in the atlas
 	bounds image.Rectangle // placement relative to the cell's top-left
 }
@@ -32,31 +34,53 @@ type atlas struct {
 	fonts   *font.Set
 	tex     uint32
 	size    int
+	bpp     int // bytes per pixel: 1 (glyph masks, R8) or 4 (color, RGBA8)
 	pix     []byte
-	x, y, h int // shelf packer cursor and current shelf height
+	color   *atlas // the color atlas color glyphs go to (on the mask atlas)
+	wipes   int    // times this atlas was wiped
+	x, y, h int    // shelf packer cursor and current shelf height
 	glyphs  map[glyphKey]atlasEntry
 	gen     int // bumped when the atlas is wiped; cached UVs become invalid
 }
 
 func newAtlas(fonts *font.Set) *atlas {
-	a := &atlas{fonts: fonts, glyphs: make(map[glyphKey]atlasEntry, 256)}
-	gl.GenTextures(1, &a.tex)
-	a.resize(atlasInitial)
+	a := newAtlasBpp(fonts, 1, atlasInitial)
+	a.color = newAtlasBpp(fonts, 4, 512)
 	return a
 }
 
+func newAtlasBpp(fonts *font.Set, bpp, size int) *atlas {
+	a := &atlas{fonts: fonts, bpp: bpp, glyphs: make(map[glyphKey]atlasEntry, 256)}
+	gl.GenTextures(1, &a.tex)
+	a.resize(size)
+	return a
+}
+
+func (a *atlas) formats() (internal int32, format uint32) {
+	if a.bpp == 4 {
+		return gl.RGBA8, gl.RGBA
+	}
+	return gl.R8, gl.RED
+}
+
 func (a *atlas) resize(size int) {
-	pix := make([]byte, size*size)
+	b := a.bpp
+	pix := make([]byte, size*size*b)
 	for y := 0; y < a.size; y++ {
-		copy(pix[y*size:], a.pix[y*a.size:(y+1)*a.size])
+		copy(pix[y*size*b:], a.pix[y*a.size*b:(y+1)*a.size*b])
 	}
 	a.pix, a.size = pix, size
 
+	internal, format := a.formats()
+	filter := int32(gl.NEAREST) // glyph masks are drawn 1:1
+	if b == 4 {
+		filter = gl.LINEAR // emoji images too, but smooth any rounding
+	}
 	gl.BindTexture(gl.TEXTURE_2D, a.tex)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, int32(size), int32(size), 0, gl.RED, gl.UNSIGNED_BYTE, gl.Ptr(a.pix))
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, internal, int32(size), int32(size), 0, format, gl.UNSIGNED_BYTE, gl.Ptr(a.pix))
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 }
@@ -64,7 +88,7 @@ func (a *atlas) resize(size int) {
 // get returns the atlas entry for r, rasterizing it if needed.
 func (a *atlas) get(r rune, st font.Style) atlasEntry {
 	k := glyphKey{r, st}
-	if e, ok := a.glyphs[k]; ok {
+	if e, ok := a.glyphs[k]; ok && (!e.color || e.wipe == a.color.wipes) {
 		return e
 	}
 	e := a.add(r, st)
@@ -77,7 +101,21 @@ func (a *atlas) add(r rune, st font.Style) atlasEntry {
 	if !ok {
 		return atlasEntry{}
 	}
-	w, h := g.Bounds.Dx(), g.Bounds.Dy()
+	if g.Color != nil {
+		if a.color == nil {
+			return atlasEntry{}
+		}
+		e := a.color.place(g.Bounds, g.Color.Pix, g.Color.Stride, &a.gen)
+		e.color, e.wipe = e.ok, a.color.wipes
+		return e
+	}
+	return a.place(g.Bounds, g.Mask.Pix, g.Mask.Stride, &a.gen)
+}
+
+// place packs a w×h image (pix with stride bytes per row, in this atlas's
+// format) and uploads it. gen is bumped if the atlas had to be wiped.
+func (a *atlas) place(bounds image.Rectangle, pixels []byte, stride int, gen *int) atlasEntry {
+	w, h := bounds.Dx(), bounds.Dy()
 	if w+atlasPad > a.size || h+atlasPad > a.size {
 		return atlasEntry{} // absurdly large glyph
 	}
@@ -92,24 +130,27 @@ func (a *atlas) add(r rune, st font.Style) atlasEntry {
 			clear(a.glyphs)
 			clear(a.pix)
 			a.x, a.y, a.h = 0, 0, 0
-			a.gen++
+			a.wipes++
+			*gen++
 			a.resize(a.size)
 			break
 		}
 		a.resize(a.size * 2)
 	}
 
+	b := a.bpp
 	uv := image.Rect(a.x, a.y, a.x+w, a.y+h)
 	for row := 0; row < h; row++ {
-		copy(a.pix[(a.y+row)*a.size+a.x:], g.Mask.Pix[row*g.Mask.Stride:row*g.Mask.Stride+w])
+		copy(a.pix[((a.y+row)*a.size+a.x)*b:], pixels[row*stride:row*stride+w*b])
 	}
+	_, format := a.formats()
 	gl.BindTexture(gl.TEXTURE_2D, a.tex)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, int32(g.Mask.Stride))
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(a.x), int32(a.y), int32(w), int32(h), gl.RED, gl.UNSIGNED_BYTE, gl.Ptr(g.Mask.Pix))
+	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, int32(stride/b))
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, int32(a.x), int32(a.y), int32(w), int32(h), format, gl.UNSIGNED_BYTE, gl.Ptr(pixels))
 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
 
 	a.x += w + atlasPad
 	a.h = max(a.h, h+atlasPad)
-	return atlasEntry{ok: true, uv: uv, bounds: g.Bounds}
+	return atlasEntry{ok: true, uv: uv, bounds: bounds}
 }

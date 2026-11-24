@@ -52,6 +52,17 @@ void main() {
 	fragColor = vec4(vColor.rgb, vColor.a * texture(uAtlas, vUV).r);
 }`
 
+// colorFrag draws full-color glyphs (emoji) as they are.
+const colorFrag = `#version 330 core
+in vec2 vUV;
+in vec4 vColor;
+uniform sampler2D uAtlas;
+out vec4 fragColor;
+void main() {
+	vec4 c = texture(uAtlas, vUV);
+	fragColor = vec4(c.rgb, c.a * vColor.a);
+}`
+
 func compileProgram(vertSrc, fragSrc string) (uint32, error) {
 	vs, err := compileShader(vertSrc, gl.VERTEX_SHADER)
 	if err != nil {

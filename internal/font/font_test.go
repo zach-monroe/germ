@@ -112,3 +112,22 @@ func TestNerdFontIcons(t *testing.T) {
 		}
 	}
 }
+
+func TestColorEmoji(t *testing.T) {
+	if out, _ := exec.Command("fc-list", ":color=true").Output(); len(out) == 0 {
+		t.Skip("no color emoji font installed")
+	}
+	s := load(t)
+	g, ok := s.Glyph(0x1F600, Regular) // 😀
+	if !ok || g.Color == nil {
+		t.Fatalf("😀: ok=%v color=%v", ok, g.Color != nil)
+	}
+	m := s.Metrics()
+	if g.Bounds.Dx() > 2*m.CellW || g.Bounds.Dy() > m.CellH || g.Bounds.Min.X < 0 {
+		t.Errorf("emoji bounds %v exceed two %dx%d cells", g.Bounds, m.CellW, m.CellH)
+	}
+	// A text symbol stays a text glyph when the font has it.
+	if g, ok := s.Glyph('A', Regular); !ok || g.Color != nil {
+		t.Error("'A' came back in color")
+	}
+}
