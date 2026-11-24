@@ -57,7 +57,7 @@ seconds.
 
 Guests without germ can install it with one command (shown on the invite
 page): `curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh`,
-or `yay -S germ-bin` / `brew install zach-monroe/germ/germ`.
+or `brew install zach-monroe/germ/germ`.
 
 Run `germ setup` once so `germ://` links (the **Open in germ** button)
 launch germ. `germ share` and `germ join` also do this automatically.

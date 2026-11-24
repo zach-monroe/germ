@@ -47,7 +47,6 @@ app-launcher entry, and registers `germ://` invite links. Or use a package
 manager:
 
 ```sh
-yay -S germ-bin                       # Arch (AUR), prebuilt
 brew install zach-monroe/germ/germ    # Homebrew on Linux
 ```
 

@@ -123,11 +123,13 @@ func TestShareEndToEnd(t *testing.T) {
 		t.Errorf("welcome %+v", g.Welcome)
 	}
 	lines := bufio.NewScanner(g)
+	var seen strings.Builder // pane output so far: tmux may split it across %output lines
 	expect := func(want string) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) && lines.Scan() {
-			if strings.Contains(lines.Text(), want) {
+			seen.WriteString(outputText(lines.Text()))
+			if strings.Contains(seen.String(), want) {
 				return
 			}
 		}
@@ -232,6 +234,7 @@ func TestShareV2(t *testing.T) {
 		}
 		close(aliceOut)
 	}()
+	var seen strings.Builder
 	expect := func(want string) {
 		t.Helper()
 		deadline := time.After(8 * time.Second)
@@ -241,7 +244,9 @@ func TestShareV2(t *testing.T) {
 				if !ok {
 					t.Fatalf("stream ended before %q", want)
 				}
-				if strings.Contains(l, want) {
+				seen.WriteString(outputText(l))
+				if strings.Contains(seen.String(), want) {
+					seen.Reset()
 					return
 				}
 			case <-deadline:
@@ -445,4 +450,31 @@ func TestApproval(t *testing.T) {
 		}
 	}
 	t.Error("alice didn't get back in")
+}
+
+// outputText is what a control-mode line contributes to the text tests
+// search: a %output line's data, or the line itself (e.g. markers).
+func outputText(line string) string {
+	if rest, ok := strings.CutPrefix(line, "%output "); ok {
+		if _, data, ok := strings.Cut(rest, " "); ok {
+			return string(unescapeTmux(data))
+		}
+	}
+	return "\n" + line + "\n"
+}
+
+// unescapeTmux undoes tmux's octal escaping in %output data.
+func unescapeTmux(s string) []byte {
+	var out []byte
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+4 <= len(s) {
+			if v, err := strconv.ParseUint(s[i+1:i+4], 8, 8); err == nil {
+				out = append(out, byte(v))
+				i += 3
+				continue
+			}
+		}
+		out = append(out, s[i])
+	}
+	return out
 }
