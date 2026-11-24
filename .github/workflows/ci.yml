@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxxf86vm-dev tmux git fontconfig fonts-dejavu-core zsh nodejs
+      - name: gofmt
+        run: |
+          out=$(gofmt -l cmd internal)
+          if [ -n "$out" ]; then echo "needs gofmt:"; echo "$out"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: test (race)
+        run: go test -race ./...
+      - name: build
+        run: |
+          go build -o germ ./cmd/germ
+          CGO_ENABLED=0 go build -o germ-relay ./cmd/germ-relay
+
+  e2e:
+    # Drives real germ windows on a virtual display. Timing-sensitive on
+    # shared runners, so it reports without blocking for now.
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libgl1-mesa-dri libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxxf86vm-dev tmux git fontconfig fonts-dejavu-core xvfb xdotool imagemagick python3
+      - name: Build
+        run: go build -o germ ./cmd/germ
+      - name: e2e
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 &
+          sleep 2
+          export DISPLAY_E2E=:99
+          scripts/e2e/xtest.sh /tmp/keys.log '' -- "key ctrl+a" "type hello" && grep -q "x01" /tmp/keys.log
+          scripts/e2e/tmux.sh
+          scripts/e2e/share.sh
