@@ -545,6 +545,17 @@ func linkAt(at []cellPos, start, end int, row int64, col int) (render.Link, bool
 // Caller must hold the terminal lock.
 func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
 	s, at := logicalLine(t, row)
+	for _, m := range urlMatches(s) {
+		if link, ok := linkAt(at, m[0], m[1], row, col); ok {
+			return s[m[0]:m[1]], link
+		}
+	}
+	return "", render.Link{}
+}
+
+// urlMatches finds URLs in s, as byte ranges [start, end).
+func urlMatches(s string) [][2]int {
+	var out [][2]int
 	for _, m := range urlRE.FindAllStringIndex(s, -1) {
 		start, end := m[0], m[1]
 		// Trim trailing punctuation that's usually sentence, not URL.
@@ -554,14 +565,11 @@ func findURL(t *term.Terminal, row int64, col int) (string, render.Link) {
 			}
 			end--
 		}
-		if end <= start {
-			continue
-		}
-		if link, ok := linkAt(at, start, end, row, col); ok {
-			return s[start:end], link
+		if end > start {
+			out = append(out, [2]int{start, end})
 		}
 	}
-	return "", render.Link{}
+	return out
 }
 
 // fileRE matches file references like internal/app/x.go:45:3, ./a.ts:12,
@@ -579,45 +587,53 @@ type fileRef struct {
 func findFile(t *term.Terminal, row int64, col int, dir string) (*fileRef, render.Link) {
 	s, at := logicalLine(t, row)
 	for _, m := range fileRE.FindAllStringSubmatchIndex(s, -1) {
-		start, end := m[0], m[1]
-		if end-start < 3 {
+		if m[1]-m[0] < 3 {
 			continue
 		}
-		link, ok := linkAt(at, start, end, row, col)
+		link, ok := linkAt(at, m[0], m[1], row, col)
 		if !ok {
 			continue
 		}
-		pathEnd := end
-		if m[2] >= 0 {
-			pathEnd = m[2] - 1 // before ":line"
+		if ref := resolveFile(s, m, dir); ref != nil {
+			return ref, link
 		}
-		path := strings.TrimRight(s[start:pathEnd], ".")
-		if !strings.ContainsAny(path, "/.") {
-			return nil, render.Link{} // a bare word, not a file
-		}
-		switch {
-		case strings.HasPrefix(path, "~/"):
-			home, _ := os.UserHomeDir()
-			path = filepath.Join(home, path[2:])
-		case !filepath.IsAbs(path):
-			if dir == "" {
-				return nil, render.Link{}
-			}
-			path = filepath.Join(dir, path)
-		}
-		if fi, err := os.Stat(path); err != nil || fi.IsDir() {
-			return nil, render.Link{}
-		}
-		ref := &fileRef{path: path}
-		if m[2] >= 0 {
-			ref.line, _ = strconv.Atoi(s[m[2]:m[3]])
-		}
-		if m[4] >= 0 {
-			ref.col, _ = strconv.Atoi(s[m[4]:m[5]])
-		}
-		return ref, link
+		return nil, render.Link{}
 	}
 	return nil, render.Link{}
+}
+
+// resolveFile turns a fileRE match in s into a reference to an existing
+// file (relative paths resolve against dir), or nil.
+func resolveFile(s string, m []int, dir string) *fileRef {
+	pathEnd := m[1]
+	if m[2] >= 0 {
+		pathEnd = m[2] - 1 // before ":line"
+	}
+	path := strings.TrimRight(s[m[0]:pathEnd], ".")
+	if !strings.ContainsAny(path, "/.") {
+		return nil // a bare word, not a file
+	}
+	switch {
+	case strings.HasPrefix(path, "~/"):
+		home, _ := os.UserHomeDir()
+		path = filepath.Join(home, path[2:])
+	case !filepath.IsAbs(path):
+		if dir == "" {
+			return nil
+		}
+		path = filepath.Join(dir, path)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.IsDir() {
+		return nil
+	}
+	ref := &fileRef{path: path}
+	if m[2] >= 0 {
+		ref.line, _ = strconv.Atoi(s[m[2]:m[3]])
+	}
+	if m[4] >= 0 {
+		ref.col, _ = strconv.Atoi(s[m[4]:m[5]])
+	}
+	return ref
 }
 
 // openURL opens a link with $BROWSER if set, else xdg-open. germ-pane:

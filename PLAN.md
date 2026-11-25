@@ -242,6 +242,7 @@ same window; the socket is 0600.
 ## Status (Phase 17, in progress)
 - Agent self-reporting: `agent_event` control command; `germ ctl agent-event` (claude: hook JSON on stdin; codex: notify JSON arg; or a plain state). Never prints to stdout, always exits 0, 2 s cap, only reports to the window owning its pane (requires GERM_SOCKET). ~9 ms per call.
 - `paneAgent.hook` overrides screen/output heuristics while the reporting foreground pgid lives; reported "working" lapses after 15 s without events or output (no Stop on Esc); OSC/bell notes ignored for hook-reporting agents (no duplicates); "finished" notifications (`[agents] notify_done`).
+- Hints mode (Ctrl+Shift+E, `hints` action): URLs, OSC 8 links, existing `file:line` refs, git hashes, IPs and host:port; labels drawn via `render.Highlight.Label`; newest output gets home-row keys; lowercase opens (host:port as http), uppercase copies. `urlMatches` / `resolveFile` shared with Ctrl+click.
 - `germ setup agents [-remove] [-n]`: Claude Code hooks (10 events) merged into settings.json preserving key order and the user's hooks, backup `.germ-bak`; Codex top-level `notify` (left alone if set to another program). e2e: scripts/e2e/agents.sh.
 
 ## Status (after the polish pass)

@@ -122,6 +122,7 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
 | Ctrl+Shift+P | share this session (invite links) |
 | Ctrl+Shift+F | search the pane's scrollback (Enter older, Shift+Enter newer, Esc) |
+| Ctrl+Shift+E | hints: label every URL, `file:line`, git hash and address on screen; a letter opens it, Shift+letter copies |
 | Ctrl+Shift+G | as a guest: follow the host's tab again |
 | Ctrl+click | open URL or hyperlink (`$BROWSER`, else xdg-open), or `file:line` in `$EDITOR` |
 | drag a separator | resize panes |

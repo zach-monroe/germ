@@ -80,6 +80,17 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	if key == glfw.KeyLeftControl || key == glfw.KeyRightControl {
 		a.updateLinkHover() // Ctrl toggles hyperlink hover
 	}
+	if a.hints != nil {
+		if a.hints.pane != a.active() || a.hints.pane.exited.Load() {
+			a.closeHints()
+		} else {
+			a.hintsKey(key, action)
+			if action != glfw.Release {
+				a.suppressChar = mods&(glfw.ModControl|glfw.ModAlt) != 0
+			}
+			return
+		}
+	}
 	if a.search != nil {
 		if a.search.pane != a.active() || a.search.pane.exited.Load() {
 			a.closeSearch() // focus moved on
@@ -135,6 +146,10 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 // onChar handles printable text (already composed by the OS/IME).
 func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
 	if a.suppressChar {
+		return
+	}
+	if a.hints != nil {
+		a.hintsType(r)
 		return
 	}
 	if a.search != nil {

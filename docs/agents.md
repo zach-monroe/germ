@@ -139,6 +139,21 @@ Hold Ctrl over a file reference in any pane (`internal/app/x.go:45:3`,
 ...) in a split beside the pane, GUI editors (VS Code, Cursor, Zed,
 Sublime) in their own window.
 
+## Hints: Ctrl+Shift+E
+
+Agents print paths, links, commit hashes and dev-server addresses all day.
+Press **Ctrl+Shift+E** and each one on screen gets a letter (the newest
+output gets the easiest keys):
+
+| Type | Letter opens | Shift+letter |
+|---|---|---|
+| URL, OSC 8 link | in the browser (`$BROWSER`, else xdg-open) | copies |
+| `path/to/file.go:42` (existing files) | in `$EDITOR` at the line, like Ctrl+click | copies |
+| `localhost:5173`, `127.0.0.1:8080` | `http://…` in the browser | copies |
+| git hash, bare IP address | copies | copies |
+
+More than 26 on screen get two-letter labels. Esc or Backspace cancels.
+
 ## Typing to agents
 
 - **Shift+Enter inserts a newline** in agent panes. Most terminals send

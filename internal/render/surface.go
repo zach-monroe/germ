@@ -60,6 +60,8 @@ type Highlight struct {
 	Row              int64
 	StartCol, EndCol int
 	Current          bool // the match being looked at
+	// Label, if set, is drawn over the first cells (keyboard hints).
+	Label string
 }
 
 // Surface is one terminal's place in the window and its cached instance
@@ -298,6 +300,12 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 				bg = s.theme.Palette[1]
 			}
 			fg = s.theme.Background
+			if i := x - h.StartCol; i < len(h.Label) {
+				lc := *c // draw the label letter instead of the text
+				lc.Rune, lc.Attrs, lc.Mark = rune(h.Label[i]), lc.Attrs&^(term.AttrWide|term.AttrItalic)|term.AttrBold, 0
+				c, w = &lc, 1
+				bg = s.theme.Palette[1]
+			}
 		}
 		if selHere && sel.contains(abs, x) {
 			fg, bg, paintBG = s.theme.SelectionFG, s.theme.SelectionBG, true

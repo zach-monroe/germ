@@ -53,7 +53,10 @@ func (a *App) doExtended(act config.Action) bool {
 	case config.ActionSendToAgent:
 		return a.sendToAgent()
 	case config.ActionSearch:
+		a.closeHints()
 		return a.openSearch()
+	case config.ActionHints:
+		return a.openHints()
 	case config.ActionFollow:
 		return a.toggleFollow()
 	case config.ActionShare:
