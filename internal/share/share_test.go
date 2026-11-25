@@ -95,8 +95,10 @@ func TestShareEndToEnd(t *testing.T) {
 	if err := tmux("new-session", "-d", "-s", "shared", "-x", "80", "-y", "24", "cat"); err != nil {
 		t.Skip("can't start tmux:", err)
 	}
-	defer tmux("kill-server")
-	defer os.Remove("/tmp/tmux-" + itoa(os.Getuid()) + "/" + sock)
+	defer func() {
+		tmux("kill-server") // before removing its socket, or it can't be reached
+		os.Remove("/tmp/tmux-" + itoa(os.Getuid()) + "/" + sock)
+	}()
 
 	relay := NewRelay()
 	relay.Log.SetOutput(new(strings.Builder))
@@ -185,7 +187,10 @@ func TestShareV2(t *testing.T) {
 	if _, err := tmux("new-session", "-d", "-s", "s", "-x", "80", "-y", "24", "cat"); err != nil {
 		t.Skip("can't start tmux:", err)
 	}
-	defer tmux("kill-server")
+	defer func() {
+		tmux("kill-server")
+		os.Remove("/tmp/tmux-" + itoa(os.Getuid()) + "/" + sock)
+	}()
 
 	relay := NewRelay()
 	relay.Log.SetOutput(new(strings.Builder))
@@ -376,7 +381,10 @@ func TestApproval(t *testing.T) {
 	if err := exec.Command("tmux", "-L", sock, "new-session", "-d", "-s", "s", "cat").Run(); err != nil {
 		t.Skip("can't start tmux:", err)
 	}
-	defer exec.Command("tmux", "-L", sock, "kill-server").Run()
+	defer func() {
+		exec.Command("tmux", "-L", sock, "kill-server").Run()
+		os.Remove("/tmp/tmux-" + itoa(os.Getuid()) + "/" + sock)
+	}()
 
 	relay := NewRelay()
 	relay.Log.SetOutput(new(strings.Builder))

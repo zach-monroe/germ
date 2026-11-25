@@ -45,6 +45,9 @@ type Options struct {
 	// ExplicitCommand is set when Command came from the command line
 	// (germ htop) rather than being the default shell.
 	ExplicitCommand bool
+	// TmuxCommand, if set, runs in the first pane of a new tmux session
+	// (germ -tmux -shell PROGRAM) instead of tmux's default shell.
+	TmuxCommand []string
 	// UseTmux attaches to tmux in control mode instead of running Command.
 	// TmuxSession names the session; empty picks a free germ-N session.
 	UseTmux bool

@@ -242,6 +242,9 @@ same window; the socket is 0600.
 ## Status (Phase 18, in progress)
 - `germ review` / Ctrl+Shift+R (`review_agents`): lists `germ/*` worktrees of the repo (from any of its worktrees), task/base/from from `branch.<b>.germ-*` git config (written by `germ agent`; merge-base fallback), commits, numstat, untracked, dirty; agent pane matched by cwd with live state and message. Enter diff in git's pager, f feedback (send_text), o focus, c commit, m merge (commit + close panes + merge --no-ff + remove), d discard. Polls stdin (no reader goroutine) so the pager/prompt get keys. `mergeBranch` / `removeWorktreeAt` shared with the post-exit menu.
 
+- Throughput (scripts/bench/throughput.sh, Xvfb/llvmpipe, 4 cores, 100x30): plain germ 2.4 s / 1.2 s / 2.1 s for 40 MB log / 20 MB SGR / 20 MB UTF-8 vs kitty 3.0 / 1.5 / 3.8 and ghostty 7.6 / 7.1 / 3.6. tmux mode 5.6 / 6.0 / 15.9 vs kitty+tmux 5.8 / 6.7 / 20.3: the tmux server pegs a core, so it's the ceiling there. RSS after 40 MB: germ 237 MB, kitty 245 MB. No optimization needed; latency not measured yet.
+- Fixed: `-shell` ignored in tmux mode (now the first pane's command of a new session); share tests leaked a tmux server per run (socket removed before kill-server; 73 orphans).
+
 ## Status (Phase 17)
 - Agent self-reporting: `agent_event` control command; `germ ctl agent-event` (claude: hook JSON on stdin; codex: notify JSON arg; or a plain state). Never prints to stdout, always exits 0, 2 s cap, only reports to the window owning its pane (requires GERM_SOCKET). ~9 ms per call.
 - `paneAgent.hook` overrides screen/output heuristics while the reporting foreground pgid lives; reported "working" lapses after 15 s without events or output (no Stop on Esc); OSC/bell notes ignored for hook-reporting agents (no duplicates); "finished" notifications (`[agents] notify_done`).

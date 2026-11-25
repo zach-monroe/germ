@@ -113,6 +113,9 @@ func (a *App) startTmux(session string) error {
 		session = pickSession(listSessions(path, sock))
 	}
 	args := append(sock, "-C", "new-session", "-A", "-s", session)
+	if len(a.opts.TmuxCommand) > 0 { // only used when the session is new
+		args = append(args, shellJoin(a.opts.TmuxCommand))
+	}
 	cmd := exec.Command(path, args...)
 	cmd.Env = append(os.Environ(), a.baseEnv...)
 	cmd.Env = append(cmd.Env, "TERM_PROGRAM=germ", "COLORTERM=truecolor")
