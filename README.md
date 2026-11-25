@@ -84,6 +84,7 @@ germ -no-tmux        # a plain shell, no tmux
 germ -theme dracula  # override the config for one window
 germ htop            # run a program instead of the shell
 germ -list-themes
+germ theme import ~/Downloads/Ocean.itermcolors  # or base16 YAML, Alacritty TOML
 germ widget weather  # run a home-screen widget on its own
 germ agent "fix the flaky test"   # agent on a fresh worktree + branch
 germ share          # share this tmux session (or Ctrl+Shift+P)

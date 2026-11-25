@@ -38,6 +38,9 @@ func main() {
 	if len(os.Args) >= 3 && os.Args[1] == "ctl" && os.Args[2] == "agent-event" {
 		os.Exit(runAgentEvent(os.Args[3:]))
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "theme" {
+		os.Exit(runTheme(os.Args[2:]))
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "doctor" {
 		os.Exit(runDoctor(os.Args[2:]))
 	}
