@@ -22,10 +22,19 @@ for _ in $(seq 60); do WID=$(xdotool search --pid $GPID 2>/dev/null | head -1); 
 sleep 2
 xdotool windowfocus --sync "$WID"
 k() { xdotool "$@"; sleep 0.8; }
+# Wait until the window has N panes and the newest is active (a split can
+# take a moment on a slow machine; typing before it lands goes elsewhere).
+panes() {
+	for _ in $(seq 50); do
+		[ "$(tmux -L germ-e2e list-panes -t e2e:0 2>/dev/null | wc -l)" = "$1" ] && break
+		sleep 0.1
+	done
+	sleep 0.5 # and for germ to focus it
+}
 k type --delay 10 'echo left'; k key Return
-k key ctrl+shift+Return
+k key ctrl+shift+Return; panes 2
 k type --delay 10 'echo right'; k key Return
-k key ctrl+shift+d
+k key ctrl+shift+d; panes 3
 k type --delay 10 'echo bottom'; k key Return
 k key ctrl+shift+h
 k type --delay 10 'echo again'; k key Return
