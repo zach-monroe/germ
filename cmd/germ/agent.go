@@ -22,6 +22,11 @@ import (
 // `germ agent [TASK]` runs a coding agent on its own git worktree and
 // branch, with a live diff beside it, then offers to review, merge, keep,
 // or discard the work. germ's Ctrl+Shift+A opens a tab running it.
+//
+// `germ agent -for NAME [TASK]` does the same for a person in a shared
+// session: a shell instead of an agent, and once the worktree is ready the
+// tab is given to them (they own it and have its helm). The host merges
+// their branch with germ review.
 
 const (
 	bold  = "\x1b[1m"
@@ -45,6 +50,8 @@ type agentRun struct {
 	ctl      *control.Client
 	self     string // our pane
 	diffPane string
+	person   string // -for: who the tab is for
+	slugFor  string // -for: the branch name
 }
 
 func runAgent(args []string) int {
@@ -53,7 +60,16 @@ func runAgent(args []string) int {
 		path = config.Path()
 	}
 	cfg, _, _ := config.Load(path)
-	r := &agentRun{cfg: cfg.Agents, task: strings.TrimSpace(strings.Join(args, " "))}
+	r := &agentRun{cfg: cfg.Agents}
+	if len(args) >= 2 && args[0] == "-for" {
+		r.person, args = strings.TrimSpace(args[1]), args[2:]
+		sh := os.Getenv("SHELL")
+		if sh == "" {
+			sh = "/bin/sh"
+		}
+		r.cfg.Launch = []string{sh}
+	}
+	r.task = strings.TrimSpace(strings.Join(args, " "))
 	if len(r.cfg.Launch) == 0 {
 		r.cfg.Launch = []string{"claude", "{task}"}
 	}
@@ -71,6 +87,9 @@ func runAgent(args []string) int {
 }
 
 func (r *agentRun) run() error {
+	if r.person != "" {
+		return r.runFor()
+	}
 	fmt.Printf("%s◆ new agent%s  %s(%s)%s\n\n", bold+blue, reset, dim, strings.Join(r.cfg.Launch, " "), reset)
 	repo, err := gitOut("", "rev-parse", "--show-toplevel")
 	if err != nil {
@@ -110,6 +129,58 @@ func (r *agentRun) run() error {
 		}
 		argv = next
 	}
+}
+
+// runFor makes a branch and tab for a person in a shared session.
+func (r *agentRun) runFor() error {
+	fmt.Printf("%s◆ a tab for %s%s on its own branch\n\n", bold+blue, r.person, reset)
+	repo, err := gitOut("", "rev-parse", "--show-toplevel")
+	if err != nil {
+		cwd, _ := os.Getwd()
+		return fmt.Errorf("%s isn't in a git repository: open this from a pane in your project", cwd)
+	}
+	r.repo = repo
+	if r.task == "" {
+		fmt.Printf("%sWhat will %s work on?%s %s(a few words: it names the branch)%s\n%s›%s ", bold, r.person, reset, dim, reset, cyan, reset)
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && line == "" {
+			return err
+		}
+		r.task = strings.TrimSpace(line)
+	}
+	slugTask := r.task
+	if slugTask == "" {
+		slugTask = r.person
+	}
+	r.slugFor = slug(r.person + " " + slugTask)
+	if err := r.makeWorktree(); err != nil {
+		return err
+	}
+	gitOut(r.repo, "config", "branch."+r.branch+".germ-for", r.person)
+	r.showDiff()
+	name := r.person
+	if r.task != "" {
+		name += ": " + r.task
+	}
+	if rs := []rune(name); len(rs) > 24 {
+		name = string(rs[:23]) + "…"
+	}
+	if r.ctl != nil && r.self != "" {
+		r.ctl.Call(control.Request{Cmd: control.CmdRenameTab, Pane: r.self, Text: "◆ " + name})
+		if _, err := r.ctl.Call(control.Request{Cmd: control.CmdShareGive, Pane: r.self, Text: r.person}); err != nil {
+			fmt.Printf("%scouldn't give the tab to %s: %v%s\n", yel, r.person, err, reset)
+		} else {
+			fmt.Printf("%s✓%s this tab is %s's now: they type here, and others ask them for the helm.\n", green, reset, r.person)
+		}
+	}
+	fmt.Printf("%sWhen they're done, review and merge the branch with germ review (Ctrl+Shift+R).%s\n\n", dim, reset)
+	err = r.runCommand(r.cfg.Launch)
+	r.closeDiff()
+	stat, _ := gitOut(r.dir, "diff", "--shortstat", r.base)
+	fmt.Printf("\n%s◆ %s's shell exited%s  %s%s%s kept %s%s%s\n", bold+blue, r.person, reset, cyan, r.branch, reset, dim, strings.TrimSpace(stat), reset)
+	fmt.Printf("%sReview, merge or discard it with germ review (Ctrl+Shift+R). Press Enter to close.%s", dim, reset)
+	bufio.NewReader(os.Stdin).ReadString('\n')
+	return err
 }
 
 // expandLaunch substitutes the task into the launch command.
@@ -163,6 +234,9 @@ func (r *agentRun) makeWorktree() error {
 		}
 	}
 	name := slug(r.task)
+	if r.slugFor != "" {
+		name = r.slugFor
+	}
 	for i := 1; ; i++ {
 		cand := name
 		if i > 1 {

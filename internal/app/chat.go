@@ -428,14 +428,11 @@ func (a *App) chatCommand(line string) {
 	arg = strings.TrimSpace(arg)
 	win := a.chatWindow()
 	person := func() (uint32, bool) {
-		want := strings.ToLower(strings.TrimPrefix(arg, "@"))
-		for _, p := range c.people {
-			if !p.Host && (strings.ToLower(p.Name) == want || strings.ToLower(shortName(p.Name)) == want) {
-				return p.ID, true
-			}
+		id, ok := a.personNamed(arg)
+		if !ok {
+			a.chatToast("nobody here called "+arg, 4*time.Second)
 		}
-		a.chatToast("nobody here called "+arg, 4*time.Second)
-		return 0, false
+		return id, ok
 	}
 	hostOnly := func() bool {
 		if !c.host {
@@ -453,6 +450,15 @@ func (a *App) chatCommand(line string) {
 			if id, ok := person(); ok {
 				a.chatAct(share.Action{Op: share.OpGive, Window: win, Person: id})
 			}
+		}
+	case "branch":
+		if hostOnly() {
+			who, task, _ := strings.Cut(arg, " ")
+			if _, ok := a.personNamed(who); !ok {
+				a.chatToast("usage: /branch NAME [what they'll work on]", 5*time.Second)
+				return
+			}
+			a.branchFor(shortName(who), strings.TrimSpace(task))
 		}
 	case "takeback", "untake":
 		if hostOnly() && win != "" {
@@ -475,10 +481,57 @@ func (a *App) chatCommand(line string) {
 	default:
 		help := "/helm (take or ask for it)  /yes /no  //text sends /text"
 		if c.host {
-			help = "/give NAME  /takeback  /mute NAME  /unmute NAME  /save  " + help
+			help = "/give NAME  /branch NAME [task]  /takeback  /mute NAME  /unmute NAME  /save  " + help
 		}
 		a.chatToast(help, 10*time.Second)
 	}
+}
+
+// chatGive gives p's tab to the person called name.
+func (a *App) chatGive(p *pane, name string) error {
+	c := a.chat
+	if !c.active() || !c.host {
+		return fmt.Errorf("this window isn't sharing a session")
+	}
+	t := a.tabOf(p)
+	if t == nil || t.tmuxID == "" {
+		return fmt.Errorf("that pane isn't in a tmux tab")
+	}
+	id, ok := a.personNamed(name)
+	if !ok {
+		return fmt.Errorf("nobody called %s is in the session", name)
+	}
+	a.chatAct(share.Action{Op: share.OpGive, Window: t.tmuxID, Person: id})
+	return nil
+}
+
+// personNamed finds a guest by name or short name.
+func (a *App) personNamed(name string) (uint32, bool) {
+	want := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), "@"))
+	for _, p := range a.chat.people {
+		if !p.Host && (strings.ToLower(p.Name) == want || strings.ToLower(shortName(p.Name)) == want) {
+			return p.ID, true
+		}
+	}
+	return 0, false
+}
+
+// branchFor opens a tab on a new branch for a guest (germ agent -for).
+func (a *App) branchFor(name, task string) {
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	argv := []string{self, "agent", "-for", name}
+	if task != "" {
+		argv = append(argv, task)
+	}
+	cwd := ""
+	if p := a.workPane(); p != nil {
+		cwd = paneDir(p)
+	}
+	noop := func(*control.Response) {}
+	a.ctlOpen(control.Request{Where: "tab", Command: argv, Focus: true, Cwd: cwd}, nil, noop, noop)
 }
 
 // chatDecision is the oldest request we can answer: a join (host) or the
@@ -658,6 +711,9 @@ func (a *App) chatPaletteItems() []paletteItem {
 		if p.Host {
 			continue
 		}
+		name := shortName(p.Name)
+		items = append(items, paletteItem{label: "New tab for " + name + " on its own branch",
+			run: func(a *App) { a.branchFor(name, "") }})
 		id, op, verb := p.ID, share.OpMute, "Mute "
 		if p.Muted {
 			op, verb = share.OpUnmute, "Unmute "

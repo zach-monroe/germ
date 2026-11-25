@@ -16,6 +16,9 @@
   takes it back at once. Enforced on the host's machine.
 - **Give a guest a tab** (`/give alice`, or the palette): it's theirs to
   type in, and others ask them for it.
+- **A branch for a guest** (`/branch alice TASK`, or "New tab for alice on
+  its own branch"): a git worktree and a tab of their own, which you then
+  review and merge with `germ review`.
 - Browser guests get a tab strip (look at any tab, or follow the host).
 - `germ share`'s guests can no longer use the host's tmux key bindings or
   command prompt.

@@ -120,6 +120,21 @@ typein "$BW" bobs-tab
 check "bob types in his tab" sh -c "tmux -L $SOCK capture-pane -p -t %0 | grep -qx bobs-tab"
 [ -n "$SHOTS" ] && { xdotool windowraise "$BW"; sleep 0.3; import -window root "$SHOTS/bob.png"; }
 
+# A tab on its own branch for alice: /branch makes a worktree in the
+# host's repo and gives her the tab.
+git init -q -b main "$TMP/repo" && git -C "$TMP/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+tmux -L $SOCK send-keys -t %0 "cd $TMP/repo" Enter; sleep 0.5
+xdotool windowfocus --sync "$HW"; xdotool key ctrl+shift+m; sleep 0.3
+xdotool type --delay 15 '/branch alice fix the readme'; xdotool key Return; sleep 0.3; xdotool key Escape; sleep 3
+check "/branch made alice's branch" sh -c "git -C '$TMP/repo' branch --list 'germ/alice-*' | grep -q fix-the-readme"
+check "the branch tab is alice's" sh -c "$CTL read $SHARE -n 60 | grep -q 'gave tab 1 (.*) to alice'"
+BRANCHWIN=$(tmux -L $SOCK list-windows -t germ -F '#{window_id}' | tail -1)
+typein "$AW" alices-branch
+check "alice types on her branch" sh -c "tmux -L $SOCK capture-pane -p -t '$BRANCHWIN' | grep -qx alices-branch"
+check "the branch is marked as alice's for germ review" sh -c "git -C '$TMP/repo' config branch.germ/alice-fix-the-readme.germ-for | grep -qx alice"
+[ -n "$SHOTS" ] && { xdotool windowraise "$AW"; sleep 0.3; import -window root "$SHOTS/alice-branch.png"; }
+tmux -L $SOCK select-window -t germ:0; sleep 1
+
 # Guests follow the host's window, and can look around on their own.
 guest_session() { tmux -L $SOCK list-sessions -F '#{session_name}' | grep -- "-guest-" | head -1; }
 tmux -L $SOCK new-window -d -t germ

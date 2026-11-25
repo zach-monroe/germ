@@ -68,8 +68,11 @@ func (a *App) startRemote(g *share.Guest) {
 	c := a.newTmuxController(g, g, g.Welcome.Session, func() { g.Close() })
 	c.remote = g
 	c.follow = true
-	g.OnPresence = func([]share.Participant) {
-		a.mainThread(a.updateGuestStatus)
+	g.OnPresence = func(ps []share.Participant) {
+		a.mainThread(func() {
+			a.chatPeople(ps)
+			a.updateGuestStatus()
+		})
 	}
 	g.OnDisconnect = func() {
 		c.offline.Store(true)

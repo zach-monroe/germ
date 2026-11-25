@@ -91,6 +91,21 @@ while you work in yours.
 A tab a guest opens while they have the helm starts out with them at its
 helm.
 
+### A branch of their own
+
+For real work, give them a branch too, the way `germ agent` gives one to
+a coding agent:
+
+- **Ctrl+Shift+Space** → **New tab for alice on its own branch**, or
+  `/branch alice fix the login page` in the chat, from a pane in your
+  project.
+- germ makes a git worktree on a new branch (`germ/alice-fix-the-login-page`),
+  opens a tab there with a shell and a live diff beside it, and gives the
+  tab to alice. Her changes stay on her branch; your checkout is untouched.
+- When she's done, **germ review** (Ctrl+Shift+R) lists her branch as
+  `alice: fix the login page`, with its commits and diff: merge it, or
+  discard it. Merging stays with you.
+
 ## Join
 
 Open the link in a browser: the session appears right there (see

@@ -829,6 +829,14 @@ func (h *Host) Act(a Action) {
 		h.Decide(a.Request, a.Allow)
 		return
 	}
+	if a.Op == OpGive {
+		h.mu.Lock()
+		known := h.tabs[a.Window] != nil
+		h.mu.Unlock()
+		if !known {
+			h.refreshTabs() // a tab opened just now
+		}
+	}
 	e := &effects{}
 	h.mu.Lock()
 	h.act(e, 0, a)

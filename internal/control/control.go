@@ -46,6 +46,9 @@ const (
 	// CmdShareWait waits (up to about 8 s) for the host to do something in
 	// the window (chat, the helm); the response's Actions say what.
 	CmdShareWait = "share_wait"
+	// CmdShareGive gives Pane's tab to the person named Text, in the
+	// session this window is sharing (germ agent -for).
+	CmdShareGive = "share_give"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or

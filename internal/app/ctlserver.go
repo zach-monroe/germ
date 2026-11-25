@@ -176,6 +176,12 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		return
 	}
 	switch req.Cmd {
+	case control.CmdShareGive:
+		if err := a.chatGive(p, req.Text); err != nil {
+			reply(ctlErr("%v", err))
+			return
+		}
+		ok(&control.Response{})
 	case control.CmdAgentEvent:
 		if err := a.onAgentEvent(p, req.Agent, req.Event, req.Text); err != nil {
 			reply(ctlErr("%v", err))

@@ -23,6 +23,7 @@ import (
 
 type reviewItem struct {
 	dir, branch, task string
+	person            string // a guest's branch (germ agent -for)
 	base, from        string // start commit, branch it came from
 	ahead             int
 	commits           []string // "abc1234 subject", newest first
@@ -96,6 +97,7 @@ func loadReview(repo string, panes []control.PaneInfo) []reviewItem {
 		it := &items[i]
 		cfg := func(k string) string { v, _ := gitOut(repo, "config", "branch."+it.branch+"."+k); return v }
 		it.task, it.base, it.from = cfg("germ-task"), cfg("germ-base"), cfg("germ-from")
+		it.person = cfg("germ-for")
 		if it.from == "" {
 			it.from, _ = gitOut(repo, "rev-parse", "--abbrev-ref", "HEAD")
 		}
@@ -344,6 +346,9 @@ func (rv *reviewer) draw() {
 			change += fmt.Sprintf(" %s%d new%s", yel, len(it.untracked), reset)
 		}
 		name := it.task
+		if it.person != "" {
+			name = it.person + ": " + name
+		}
 		if r := []rune(name); len(r) > 40 {
 			name = string(r[:39]) + "…"
 		}
@@ -426,6 +431,10 @@ func (rv *reviewer) showDiff(it reviewItem) {
 }
 
 func (rv *reviewer) feedback(it reviewItem) {
+	if it.person != "" {
+		rv.status = yel + "This is " + it.person + "'s branch: tell them in the chat (Ctrl+Shift+M)." + reset
+		return
+	}
 	if it.agent == nil {
 		rv.status = yel + "No agent is running in this worktree (o opens it, or start one there)." + reset
 		return
