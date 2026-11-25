@@ -243,6 +243,12 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 	if action == glfw.Press && btn == input.ButtonLeft && a.startSepDrag(a.mouse.gx, a.mouse.gy) {
 		return
 	}
+	if action == glfw.Press && a.palette != nil && a.menuClick() {
+		return
+	}
+	if action == glfw.Press && btn == input.ButtonRight && a.mouse.capture == nil && a.rightClick(mods) {
+		return
+	}
 	if row, ok := a.chatHit(a.mouse.gx, a.mouse.gy); ok && a.mouse.capture == nil {
 		if action == glfw.Press && btn == input.ButtonLeft {
 			a.chatClick(row)
@@ -257,10 +263,14 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 		defer func() { a.mouse.capture = nil }()
 	}
 	if inBar {
-		if action == glfw.Press && btn == input.ButtonLeft {
+		if action == glfw.Press && (btn == input.ButtonLeft || btn == input.ButtonMiddle) {
 			for _, s := range a.tabSpans {
 				if col >= s.start && col < s.end {
 					a.switchTab(s.index)
+					// Middle-click, or the ×, closes it.
+					if btn == input.ButtonMiddle || (s.close >= 0 && col >= s.close && col < s.close+2) {
+						a.actionCloseTab()
+					}
 				}
 			}
 		}

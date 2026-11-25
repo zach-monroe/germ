@@ -55,6 +55,18 @@
 - germ:// links: hosting or joining from a temporary build (go run, a
   test) no longer takes them over from the installed germ.
 
+### Right-click menus, and closing tabs
+- **Right-click a pane**: copy, paste, open or copy a link, split, zoom,
+  **restart pane** (kills what runs in it, starts a new shell), close
+  pane, new tab; while sharing, hand the helm or take it back.
+  (Shift+right-click when the program uses the mouse.)
+- **Right-click a tab**: rename, move left/right, restart every pane,
+  close; while sharing, give it to a guest or take it back.
+- **Right-click a person in the share panel**: hand them the helm, give
+  them the tab, a branch of their own, mute, remove. Elsewhere in the
+  panel: answer a question, copy or renew the link, save, stop sharing.
+- The current tab has a **×**; **middle-click** any tab closes it.
+
 ### Tabs
 - Tabs are in tmux's order, the numbers they show, and a new tab goes
   last. Before, after closing the first tab a new one took its number

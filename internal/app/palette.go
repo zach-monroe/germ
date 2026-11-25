@@ -38,6 +38,12 @@ type paletteState struct {
 	gen       int
 	previewed bool        // a theme preview is showing
 	status    *statusText // the tab bar status before it
+	// A menu (right-click) has a title; a prompt asks for text instead of
+	// listing items, and Enter hands it the text.
+	title  string
+	prompt func(a *App, text string)
+	first  int // the item on the first drawn row (for clicks)
+	shown  int // items drawn
 }
 
 const paletteRows = 12
@@ -353,6 +359,12 @@ func (a *App) paletteKey(key glfw.Key, mods glfw.ModifierKey, action glfw.Action
 	case key == glfw.KeyEscape:
 		a.closePalette()
 	case key == glfw.KeyEnter || key == glfw.KeyKPEnter:
+		if ps.prompt != nil {
+			fn, text := ps.prompt, string(ps.query)
+			a.closePalette()
+			fn(a, text)
+			return
+		}
 		if len(ps.filtered) == 0 {
 			return
 		}
@@ -432,10 +444,19 @@ func (a *App) paletteView(p *pane, v *render.View) {
 	}
 	n := min(len(ps.filtered), paletteRows, max(0, rows-2))
 	hint := fmt.Sprintf("%d · ↑↓ Enter · Esc", len(ps.filtered))
-	if ps.previewed {
+	switch {
+	case ps.previewed:
 		hint = "previewing · Enter keeps it · Esc goes back"
+	case ps.prompt != nil:
+		n, hint = 0, "Enter · Esc"
+	case ps.title != "":
+		hint = "click, or ↑↓ Enter · Esc"
 	}
-	lines := []*term.Line{line(bg, []seg{{" ❯ ", accent, term.AttrBold}, {string(ps.query), fg, 0}, {"▏", accent, 0}},
+	lead := " ❯ "
+	if ps.title != "" {
+		lead = " " + ps.title + " ❯ "
+	}
+	lines := []*term.Line{line(bg, []seg{{lead, accent, term.AttrBold}, {string(ps.query), fg, 0}, {"▏", accent, 0}},
 		hint, dim)}
 	// Keep the selection in view.
 	first := 0
@@ -450,7 +471,8 @@ func (a *App) paletteView(p *pane, v *render.View) {
 		}
 		lines = append(lines, line(back, []seg{{mark, accent, 0}, {it.label, fg, 0}}, it.keys, keyFG))
 	}
-	if len(ps.filtered) == 0 {
+	ps.first, ps.shown = first, n
+	if len(ps.filtered) == 0 && ps.prompt == nil {
 		lines = append(lines, line(bg, []seg{{"   no matching command", dim, 0}}, "", dim))
 	}
 	v.TopOverlay = lines

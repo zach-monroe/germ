@@ -81,7 +81,7 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 		a.updateLinkHover() // Ctrl toggles hyperlink hover
 	}
 	if a.palette != nil {
-		if a.palette.pane != a.active() || a.palette.pane.exited.Load() {
+		if a.tabOf(a.palette.pane) != a.tab() || a.palette.pane.exited.Load() {
 			a.closePalette()
 		} else {
 			a.paletteKey(key, mods, action)

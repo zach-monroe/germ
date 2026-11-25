@@ -68,7 +68,7 @@ func Render(v View, cols, rows int) (string, []string) {
 	top := 1 // rows above the rule
 	if len(v.Head) > 0 {
 		for i, h := range v.Head {
-			row(i, h, "")
+			row(i, h, stripStyle(h))
 		}
 		top = len(v.Head)
 	} else {

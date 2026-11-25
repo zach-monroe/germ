@@ -55,6 +55,10 @@ winof() { for _ in $(seq 50); do w=$(xdotool search --pid "$1" 2>/dev/null | hea
 
 "$GERM" -config "$TMP/host.toml" 2>"$TMP/host.err" & HOST=$!
 HW=$(winof $HOST); sleep 2
+# The grid's cell size, for clicks (before the panel takes columns).
+eval $(xdotool getwindowgeometry --shell "$HW")
+SIZE=$(env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl list | awk 'NR==2{print $(NF-1)}')
+GCOLS=${SIZE%x*}; GROWS=$((${SIZE#*x} + 1)); CW=$((WIDTH/GCOLS)); CH=$((HEIGHT/GROWS))
 xdotool windowfocus --sync "$HW"
 xdotool key ctrl+shift+p; sleep 2
 CTL="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl"
@@ -127,6 +131,16 @@ $GHELM give alice 0 >/dev/null; sleep 1
 check "germ helm give" sh -c "$GHELM status | grep -q '^0 .*: alice'"
 $GHELM take all >/dev/null; sleep 1
 check "germ helm take all" sh -c "$GHELM status | grep -q '^0 .*: you'"
+# Right-click alice's name in the panel: her menu; the first item hands her
+# the helm of the tab you're on.
+HERE=$($CTL chat | grep -n '^here:' | head -1)
+HROW=${HERE%%:*}; HTEXT=${HERE#*:}; PRE=${HTEXT%%alice*}
+PANEL0=$((GCOLS - (GCOLS/2 < 52 ? GCOLS/2 : 52) + 1)) # the panel's first column (it takes min(52, half) columns)
+xdotool mousemove --window "$HW" $(( (PANEL0 + ${#PRE} + 1) * CW + CW/2 )) $(( HROW * CH + CH/2 )); xdotool click 3; sleep 0.5
+[ -n "$SHOTS" ] && import -window root "$SHOTS/host-person-menu.png"
+xdotool mousemove --window "$HW" $(( 10 * CW )) $(( 2 * CH + CH/2 )); xdotool click 1; sleep 1
+check "right-click alice in the panel: hand her the helm" sh -c "$GHELM status | grep -q '^0 .*: alice'"
+$GHELM take all >/dev/null; sleep 1
 
 # Chat both ways.
 xdotool windowfocus --sync "$AW"; xdotool key ctrl+shift+m; sleep 0.5

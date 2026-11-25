@@ -378,7 +378,9 @@ func (a *App) removePane(p *pane) {
 
 // ---- tab bar -------------------------------------------------------------------
 
-type tabSpan struct{ start, end, index int }
+// tabSpan is where tab index is in the bar; close is the column of its ×
+// (-1: none).
+type tabSpan struct{ start, end, index, close int }
 
 // tabBarLine builds the tab bar as a terminal line, plus the column span
 // of each tab for mouse clicks.
@@ -429,7 +431,13 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 			title += " " + tag
 		}
 		label := []rune(head + title + " ")
-		if len(label) > maxW {
+		closeX := !t.home && i == a.cur // the current tab gets a ×
+		if closeX {
+			if len(label) > maxW-2 {
+				label = append(label[:maxW-4], '…', ' ')
+			}
+			label = append(label, '×', ' ')
+		} else if len(label) > maxW {
 			label = append(label[:maxW-2], '…', ' ')
 		}
 		badgeAt := -1
@@ -455,7 +463,11 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 			}
 			x++
 		}
-		spans = append(spans, tabSpan{start, x, i})
+		closeAt := -1
+		if closeX && start+len(label)-2 < cols {
+			closeAt = start + len(label) - 2
+		}
+		spans = append(spans, tabSpan{start, x, i, closeAt})
 		if x < cols {
 			x++ // gap
 		}

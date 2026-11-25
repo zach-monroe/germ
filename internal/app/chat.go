@@ -720,22 +720,32 @@ func (a *App) chatDecide(allow bool) {
 	if _, act, ok := a.chatDecision(); ok {
 		act.Allow = allow
 		a.chatAct(act)
-		// Don't ask again while germ share catches up.
-		c := a.chat
-		if act.Op == share.OpJoin && len(c.joins) > 0 {
-			c.joins = c.joins[1:]
-		} else {
-			for i, r := range c.state.Requests {
-				if r.ID == act.Request {
-					c.state.Requests = append(c.state.Requests[:i:i], c.state.Requests[i+1:]...)
-					break
-				}
-			}
-		}
-		c.dirty, a.forceRedraw = true, true
+		a.chatDecided(act)
 	} else {
 		a.chatToast("nothing to answer", 3*time.Second)
 	}
+}
+
+// chatDecided forgets a question we answered, so it isn't asked again
+// while germ share catches up.
+func (a *App) chatDecided(act share.Action) {
+	c := a.chat
+	if act.Op == share.OpJoin {
+		for i, j := range c.joins {
+			if j.ID == act.Request {
+				c.joins = append(c.joins[:i:i], c.joins[i+1:]...)
+				break
+			}
+		}
+	} else {
+		for i, r := range c.state.Requests {
+			if r.ID == act.Request {
+				c.state.Requests = append(c.state.Requests[:i:i], c.state.Requests[i+1:]...)
+				break
+			}
+		}
+	}
+	c.dirty, a.forceRedraw = true, true
 }
 
 // chatWindow is the tmux window of the tab being looked at.
