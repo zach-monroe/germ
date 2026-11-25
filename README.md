@@ -31,6 +31,9 @@ built-in tmux and fish integration.
   prompts, copy the last command's output, failed-command marks, new
   tabs/splits in the current directory, notifications for long commands.
   Works with Oh My Zsh, powerlevel10k, starship, and in tmux panes.
+- **Fonts**: any fontconfig font, color emoji, optional programming
+  ligatures (`[font] ligatures = true`), and synthesized italic/bold for
+  fonts without them.
 - **Customizable colors**: 9 bundled themes, your own theme files, per-color
   overrides, and live reload when you save the config.
 - Tabs and splits without tmux too, selection (word/line), clipboard and

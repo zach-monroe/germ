@@ -182,6 +182,7 @@ func Run(opts Options) error {
 	if err != nil {
 		return err
 	}
+	rnd.SetLigatures(cfg.Font.Ligatures)
 
 	// Size the window for the configured grid. Window coordinates may
 	// differ from framebuffer pixels on scaled displays.
@@ -536,6 +537,7 @@ func (a *App) reloadConfig() {
 			problems = append(problems, err.Error())
 		}
 	}
+	a.render.SetLigatures(cfg.Font.Ligatures)
 	if cfg.Window.Padding != old.Window.Padding {
 		a.render.SetPad(scaledPad(cfg, a.scale))
 		refit = true

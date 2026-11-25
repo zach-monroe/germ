@@ -69,6 +69,7 @@ type Renderer struct {
 
 	width, height int // framebuffer size
 	fontGen       int // bumped by SetFonts/SetPad so surfaces rebuild
+	ligatures     bool
 
 	bg, deco []rectInst
 	glyphs   []glyphInst
@@ -157,6 +158,14 @@ func (r *Renderer) SetFonts(fonts *font.Set) {
 	r.fonts, r.m = fonts, fonts.Metrics()
 	r.atlas = newAtlas(fonts)
 	r.fontGen++
+}
+
+// SetLigatures turns programming-font ligatures on or off.
+func (r *Renderer) SetLigatures(on bool) {
+	if on != r.ligatures {
+		r.ligatures = on
+		r.fontGen++
+	}
 }
 
 // CellSize returns the cell size in pixels.

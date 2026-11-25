@@ -15,8 +15,9 @@ const (
 )
 
 type glyphKey struct {
-	r  rune
-	st font.Style
+	r   rune
+	st  font.Style
+	gid uint16 // a glyph by ID (ligature part); r is 0
 }
 
 type atlasEntry struct {
@@ -87,11 +88,25 @@ func (a *atlas) resize(size int) {
 
 // get returns the atlas entry for r, rasterizing it if needed.
 func (a *atlas) get(r rune, st font.Style) atlasEntry {
-	k := glyphKey{r, st}
+	k := glyphKey{r: r, st: st}
 	if e, ok := a.glyphs[k]; ok && (!e.color || e.wipe == a.color.wipes) {
 		return e
 	}
 	e := a.add(r, st)
+	a.glyphs[k] = e
+	return e
+}
+
+// getGlyph returns the entry for a glyph by ID (ligatures).
+func (a *atlas) getGlyph(id uint16, st font.Style) atlasEntry {
+	k := glyphKey{st: st, gid: id}
+	if e, ok := a.glyphs[k]; ok {
+		return e
+	}
+	var e atlasEntry
+	if g, ok := a.fonts.GlyphByID(id, st); ok {
+		e = a.place(g.Bounds, g.Mask.Pix, g.Mask.Stride, &a.gen)
+	}
 	a.glyphs[k] = e
 	return e
 }

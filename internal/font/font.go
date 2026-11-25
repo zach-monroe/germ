@@ -58,6 +58,10 @@ type face struct {
 	// it can map the rune: its cmap support is narrower than x/image's.
 	tt     *truetype.Font
 	hinted xfont.Face
+
+	path string // for the shaper (see ligatures.go), parsed when first needed
+	idx  int
+	shp  *shaper
 }
 
 // rasterizer picks the face to draw r with.
@@ -81,6 +85,7 @@ type Set struct {
 	byFile   map[string]*face // loaded fallback faces
 	fallback map[rune]*face   // nil entry = no font has it
 	emoji    *emojiFont       // color emoji, loaded on first use
+	ligs     map[ligKey][]uint16
 }
 
 // Load finds family via fontconfig and opens it at size points for the
@@ -91,6 +96,7 @@ func Load(family string, sizePt, dpi float64) (*Set, error) {
 		sizePx:   sizePt * dpi / 72,
 		byFile:   map[string]*face{},
 		fallback: map[rune]*face{},
+		ligs:     map[ligKey][]uint16{},
 	}
 	styles := [4]string{"regular", "bold", "italic", "bold:italic"}
 	// Look the four styles up in parallel (each fc-match is ~20 ms when
@@ -329,7 +335,7 @@ func (s *Set) open(path string, idx int) (*face, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &face{sf: sf, face: xf}
+	f := &face{sf: sf, face: xf, path: path, idx: idx}
 	if tf, err := truetype.Parse(data); err == nil {
 		f.tt = tf
 		f.hinted = truetype.NewFace(tf, &truetype.Options{Size: s.sizePx, DPI: 72, Hinting: xfont.HintingFull})

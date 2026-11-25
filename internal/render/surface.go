@@ -3,6 +3,7 @@ package render
 import (
 	"time"
 
+	"github.com/zach-monroe/germ/internal/font"
 	"github.com/zach-monroe/germ/internal/term"
 	"github.com/zach-monroe/germ/internal/theme"
 )
@@ -283,6 +284,7 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 			end = max(end, min(h.EndCol+1, len(cells)))
 		}
 	}
+	ligs := s.ligatures(cells[:end])
 	for x := 0; x < end; x++ {
 		c := &cells[x]
 		if c.Attrs&term.AttrWideSpacer != 0 {
@@ -325,7 +327,13 @@ func (s *Surface) buildRow(y int, abs int64, line *term.Line) {
 		}
 
 		if c.Rune > ' ' && c.Attrs&term.AttrHidden == 0 {
-			if e := r.atlas.get(c.Rune, styleOf(c.Attrs)); e.ok {
+			e := atlasEntry{}
+			if ligs != nil && ligs[x] != 0 && c == &cells[x] {
+				e = r.atlas.getGlyph(ligs[x], styleOf(c.Attrs))
+			} else {
+				e = r.atlas.get(c.Rune, styleOf(c.Attrs))
+			}
+			if e.ok {
 				dst := &rc.glyphs
 				if e.color {
 					dst = &rc.colors
@@ -446,6 +454,48 @@ func (s *Surface) cursorShape(rc *rowCache, cur cursorState, py int) {
 	case cur.style == term.CursorBlinkBar || cur.style == term.CursorSteadyBar:
 		add(px, py, 2*th, ch)
 	}
+}
+
+// ligatures finds runs of punctuation in one style (wide characters and
+// combining marks break runs) and asks the font for ligature glyphs:
+// ligs[x] is the glyph to draw in cell x instead of its character (0: its
+// own). nil when ligatures are off or there are none.
+func (s *Surface) ligatures(cells []term.Cell) []uint16 {
+	if !s.r.ligatures {
+		return nil
+	}
+	var ligs []uint16
+	var run []rune
+	start := 0
+	flush := func(end int) {
+		if len(run) >= 2 {
+			st := styleOf(cells[start].Attrs)
+			if ids := s.r.fonts.Ligatures(run, st); ids != nil {
+				if ligs == nil {
+					ligs = make([]uint16, len(cells))
+				}
+				copy(ligs[start:end], ids)
+			}
+		}
+		run = run[:0]
+	}
+	for x := range cells {
+		c := &cells[x]
+		ok := font.IsLigatureRune(c.Rune) && c.Attrs&(term.AttrWide|term.AttrWideSpacer) == 0 && c.Mark == 0
+		if ok && len(run) > 0 && styleOf(c.Attrs) != styleOf(cells[start].Attrs) {
+			flush(x)
+		}
+		if !ok {
+			flush(x)
+			continue
+		}
+		if len(run) == 0 {
+			start = x
+		}
+		run = append(run, c.Rune)
+	}
+	flush(len(cells))
+	return ligs
 }
 
 // highlightAt finds a search highlight covering (abs, x).

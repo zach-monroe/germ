@@ -39,6 +39,9 @@ type Config struct {
 type Font struct {
 	Family string  `toml:"family"`
 	Size   float64 `toml:"size"`
+	// Ligatures draws programming ligatures (-> != => ...) when the font
+	// has them (JetBrains Mono, Fira Code, Cascadia Code, ...).
+	Ligatures bool `toml:"ligatures"`
 }
 
 type Window struct {

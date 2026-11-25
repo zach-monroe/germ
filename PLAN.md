@@ -246,6 +246,7 @@ same window; the socket is 0600.
 - Synthetic italic (0.2 shear around the baseline, sub-pixel) and bold (n-px horizontal dilation) when fontconfig returns the upright/regular face for a style; checked by face identity.
 - Content-scale callback reloads fonts and padding at the new DPI (no-op on X11, where the scale is global).
 - `germ theme import FILE` (base16/base24 YAML incl. tinted `palette:` layout, iTerm2 .itermcolors plist, Alacritty TOML; validated by theme.Parse) and `germ theme list`.
+- Ligatures (`[font] ligatures`, off by default): runs of ASCII punctuation in one style are shaped with go-text HarfBuzz; when the font substitutes glyphs one-for-one (calt-style coding ligatures), cells draw those glyph IDs (sfnt outline + x/image/vector, `atlas.getGlyph`). Fewer-glyph shapings are ignored, so the grid never changes. Cached per (text, style); no throughput cost measured.
 - `germ doctor`: config, theme, font (fc-match family vs requested), emoji font, tmux ≥ 3.2, shell integration, notify-send, xdg-open, germ:// handler, git, Claude/Codex hooks, relay reachability / Funnel / cloudflared, last crash.
 
 ## Status (Phase 18)

@@ -8,6 +8,7 @@ theme = "tokyonight"
 [font]
 family = "monospace"   # any fontconfig name, e.g. "JetBrainsMono Nerd Font"
 size = 11.0            # points
+ligatures = false      # -> != => as arrows and symbols, if the font has them (JetBrains Mono, Fira Code, ...)
 
 [window]
 padding = 4            # pixels (scaled for HiDPI)
