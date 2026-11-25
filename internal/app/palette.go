@@ -63,6 +63,41 @@ func (a *App) paletteItems() []paletteItem {
 		keys[act] = append(keys[act], chordLabel(ch))
 	}
 	var items []paletteItem
+	// Running agents first, most urgent first: jump to one.
+	now := time.Now()
+	type agentItem struct {
+		it   paletteItem
+		rank int
+	}
+	var agents []agentItem
+	for _, p := range a.panes {
+		if p.agent.name == "" {
+			continue
+		}
+		st := p.state(now)
+		label := "Go to agent: " + p.agent.name
+		switch st {
+		case stateWaiting:
+			label += " · needs you"
+		case stateWorking:
+			label += " · working"
+		case stateDone:
+			label += " · done"
+		}
+		if t := a.tabOf(p); t != nil {
+			label += " · " + t.title()
+		}
+		if p.agent.message != "" {
+			label += " · " + truncateRunes(p.agent.message, 40)
+		}
+		p := p
+		agents = append(agents, agentItem{paletteItem{label: label, run: func(a *App) { a.focusPane(p) }}, rank(st)})
+	}
+	sort.SliceStable(agents, func(i, j int) bool { return agents[i].rank > agents[j].rank })
+	for _, ag := range agents {
+		items = append(items, ag.it)
+	}
+	var actionItems []paletteItem
 	for act, label := range actionLabels {
 		k := keys[act]
 		sort.Strings(k)
@@ -70,9 +105,10 @@ func (a *App) paletteItems() []paletteItem {
 			k = k[:2]
 		}
 		act := act
-		items = append(items, paletteItem{label: label, keys: strings.Join(k, "  "), run: func(a *App) { a.do(act) }})
+		actionItems = append(actionItems, paletteItem{label: label, keys: strings.Join(k, "  "), run: func(a *App) { a.do(act) }})
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].label < items[j].label })
+	sort.Slice(actionItems, func(i, j int) bool { return actionItems[i].label < actionItems[j].label })
+	items = append(items, actionItems...)
 
 	self, _ := os.Executable()
 	inTab := func(args ...string) func(a *App) {
@@ -314,4 +350,21 @@ func (a *App) paletteView(p *pane, v *render.View) {
 	}
 	v.TopOverlay = lines
 	v.TopOverlayGen = ps.gen
+}
+
+func truncateRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}
+
+// tabOf finds the tab holding p.
+func (a *App) tabOf(p *pane) *tab {
+	for _, t := range a.tabs {
+		if t.panes[p.id] != nil {
+			return t
+		}
+	}
+	return nil
 }
