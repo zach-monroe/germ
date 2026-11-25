@@ -186,6 +186,58 @@ func Bundled() []string {
 	return names
 }
 
+// Installed lists the themes in dirs (your own and imported ones), sorted,
+// without duplicates.
+func Installed(dirs ...string) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, d := range dirs {
+		files, _ := filepath.Glob(filepath.Join(d, "*.toml"))
+		for _, f := range files {
+			n := strings.TrimSuffix(filepath.Base(f), ".toml")
+			if !seen[n] {
+				seen[n] = true
+				names = append(names, n)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Template renders t as a theme file with a comment on every color, for
+// editing by hand.
+func Template(name string, t *Theme) []byte {
+	list := func(from int) string {
+		var cs []string
+		for i := from; i < from+8; i++ {
+			cs = append(cs, `"`+t.Palette[i].Hex()+`"`)
+		}
+		return "[" + strings.Join(cs, ", ") + "]"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `# germ theme %q. Colors are "#rrggbb".
+# Save this file and germ windows using it recolor right away.
+# Use it with: theme = %q in the config (or germ theme use %s).
+
+name = %q
+
+foreground = %q            # text
+background = %q
+cursor = %q
+cursor_text = %q           # text under a block cursor
+selection_foreground = %q
+selection_background = %q
+
+# The 16 terminal colors programs pick from:
+#          black      red        green      yellow     blue       magenta    cyan       white
+normal = %s
+bright = %s
+`, name, name, name, name, t.Foreground.Hex(), t.Background.Hex(), t.Cursor.Hex(), t.CursorText.Hex(),
+		t.SelectionFG.Hex(), t.SelectionBG.Hex(), list(0), list(8))
+	return []byte(b.String())
+}
+
 func expandHome(p string) string {
 	if strings.HasPrefix(p, "~/") {
 		if h, err := os.UserHomeDir(); err == nil {

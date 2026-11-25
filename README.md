@@ -37,8 +37,10 @@ built-in tmux and fish integration.
 - **Fonts**: any fontconfig font, color emoji, optional programming
   ligatures (`[font] ligatures = true`), and synthesized italic/bold for
   fonts without them.
-- **Customizable colors**: 9 bundled themes, your own theme files, per-color
-  overrides, and live reload when you save the config.
+- **Themes**: 9 bundled, previewed live from the palette (Ctrl+Shift+Space,
+  "theme"; Enter keeps one), `germ theme new` to make your own with live
+  reload as you edit, and `germ theme import` for iTerm2, base16 and
+  Alacritty schemes. See [docs/themes.md](docs/themes.md).
 - Tabs and splits without tmux too, selection (word/line), clipboard and
   X11 primary selection, scrollback, Ctrl+click URLs and OSC 8 hyperlinks,
   drag separators to resize panes, combining characters, zoom, true color,
@@ -89,7 +91,8 @@ germ -session work   # attach to (or create) tmux session "work"
 germ -no-tmux        # a plain shell, no tmux
 germ -theme dracula  # override the config for one window
 germ htop            # run a program instead of the shell
-germ -list-themes
+germ theme list     # every theme; germ theme use NAME picks one
+germ theme new mine  # your own, from the current theme (edit it, it reloads live)
 germ theme import ~/Downloads/Ocean.itermcolors  # or base16 YAML, Alacritty TOML
 germ widget weather  # run a home-screen widget on its own
 germ agent "fix the flaky test"   # agent on a fresh worktree + branch
@@ -152,5 +155,6 @@ Rebind or remove any of these under `[keybindings]`.
 - [docs/widgets.md](docs/widgets.md) — the home screen and writing widgets
 - [docs/agents.md](docs/agents.md) — agent attention, `germ mcp`, `germ ctl`
 - [docs/coworking.md](docs/coworking.md) — sharing sessions, the relay, security
+- [docs/themes.md](docs/themes.md) — picking, making and importing themes
 - [PLAN.md](PLAN.md) — design, architecture, and project status
 - `scripts/e2e/` — end-to-end tests on a virtual X server

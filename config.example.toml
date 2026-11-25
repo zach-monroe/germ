@@ -1,8 +1,9 @@
 # germ configuration — copy to ~/.config/germ/config.toml
 # Changes are applied live when you save (theme, colors, font, padding, keybindings).
 
-# A bundled theme (run `germ -list-themes`), a theme in ~/.config/germ/themes/<name>.toml,
-# or a path to a theme file.
+# A bundled theme, one of yours in ~/.config/germ/themes/<name>.toml, or a path
+# to a theme file. Ctrl+Shift+Space, "theme" previews them all; `germ theme new`
+# makes your own (docs/themes.md).
 theme = "tokyonight"
 
 [font]

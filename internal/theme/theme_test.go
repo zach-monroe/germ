@@ -76,3 +76,20 @@ bright = ["#333333","#ff0000","#00ff00","#ffff00","#0000ff","#ff00ff","#00ffff",
 		t.Error("expected unknown-key error")
 	}
 }
+
+func TestTemplateRoundTrip(t *testing.T) {
+	for _, name := range Bundled() {
+		orig, err := Load(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		back, err := Parse(Template("x", orig))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		back.Name = orig.Name
+		if *back != *orig {
+			t.Errorf("%s: template changed the colors", name)
+		}
+	}
+}

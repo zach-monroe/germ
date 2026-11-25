@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -43,7 +44,7 @@ func Watch(onChange func()) (stop func(), err error) {
 				if !relevant(ev.Name) {
 					continue
 				}
-				if ev.Op&fsnotify.Create != 0 && ev.Name == Dir() {
+				if ev.Op&fsnotify.Create != 0 && (ev.Name == Dir() || slices.Contains(ThemeDirs(), ev.Name)) {
 					for _, d := range dirs {
 						_ = w.Add(d)
 					}

@@ -7,7 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -245,6 +247,70 @@ func Path() string { return filepath.Join(Dir(), "config.toml") }
 
 // ThemeDirs returns directories searched for user themes.
 func ThemeDirs() []string { return []string{filepath.Join(Dir(), "themes")} }
+
+var themeLine = regexp.MustCompile(`^\s*theme\s*=`)
+
+// SetTheme sets `theme = "name"` in the config file at path, changing only
+// that line (comments and everything else stay), or adding it before the
+// first section. It returns the theme that was set before ("" if none).
+func SetTheme(path, name string) (old string, err error) {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real // a dotfiles symlink stays a symlink
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	line := "theme = " + strconv.Quote(name)
+	var lines []string
+	if len(data) > 0 {
+		lines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	}
+	done := false
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "[") {
+			break // top-level keys only
+		}
+		if themeLine.MatchString(l) {
+			var cur struct{ Theme string }
+			if _, err := toml.Decode(t, &cur); err == nil {
+				old = cur.Theme
+			}
+			rest := ""
+			if j := strings.Index(l, "#"); j > 0 && strings.Count(l[:j], `"`)%2 == 0 {
+				rest = "  " + strings.TrimSpace(l[j:]) // keep a trailing comment
+			}
+			lines[i] = line + rest
+			done = true
+			break
+		}
+	}
+	if !done {
+		at := 0
+		for at < len(lines) {
+			t := strings.TrimSpace(lines[at])
+			if t != "" && !strings.HasPrefix(t, "#") {
+				break
+			}
+			at++
+		}
+		// Before the first key or section, after the opening comments.
+		lines = append(lines[:at], append([]string{line}, lines[at:]...)...)
+	}
+	out := strings.Join(lines, "\n")
+	if !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return old, err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(out), 0o644); err != nil {
+		return old, err
+	}
+	return old, os.Rename(tmp, path)
+}
 
 // Load reads the config file at path, layered over the defaults. A
 // missing file is not an error. Warnings (e.g. unknown keys) are returned

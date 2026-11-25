@@ -24,15 +24,20 @@ type paletteItem struct {
 	label string
 	keys  string
 	run   func(a *App)
+	// preview, if set, runs when the item is selected (themes recolor the
+	// window); leaving the palette without running it undoes it.
+	preview func(a *App)
 }
 
 type paletteState struct {
-	pane     *pane
-	items    []paletteItem
-	query    []rune
-	filtered []int
-	sel      int
-	gen      int
+	pane      *pane
+	items     []paletteItem
+	query     []rune
+	filtered  []int
+	sel       int
+	gen       int
+	previewed bool        // a theme preview is showing
+	status    *statusText // the tab bar status before it
 }
 
 const paletteRows = 12
@@ -133,10 +138,7 @@ func (a *App) paletteItems() []paletteItem {
 		paletteItem{label: "Check setup (germ doctor)", run: inTab("doctor")},
 		paletteItem{label: "Set up agents to report their state (germ setup agents)", run: inTab("setup", "agents")},
 	)
-	for _, name := range theme.Bundled() {
-		name := name
-		items = append(items, paletteItem{label: "Theme: " + name + " (this window)", run: func(a *App) { a.previewTheme(name) }})
-	}
+	items = append(items, a.themeItems()...)
 	return items
 }
 
@@ -159,17 +161,106 @@ func chordLabel(c config.Chord) string {
 }
 
 // previewTheme recolors this window (until the config is reloaded).
-func (a *App) previewTheme(name string) {
+// themeItems are every theme, bundled and your own: selecting one
+// previews it, Enter keeps it (in the config), Esc goes back.
+func (a *App) themeItems() []paletteItem {
+	mine := theme.Installed(config.ThemeDirs()...)
+	isMine := map[string]bool{}
+	for _, n := range mine {
+		isMine[n] = true
+	}
+	names := append([]string(nil), mine...)
+	for _, n := range theme.Bundled() {
+		if !isMine[n] {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	var items []paletteItem
+	for _, name := range names {
+		name := name
+		label := "Theme: " + name
+		if isMine[name] {
+			label += " (yours)"
+		}
+		if name == a.cfg.Theme {
+			label += " · current"
+		}
+		items = append(items, paletteItem{label: label,
+			preview: func(a *App) { a.previewTheme(name) },
+			run:     func(a *App) { a.keepTheme(name) }})
+	}
+	return items
+}
+
+// previewTheme recolors the window with a theme, for now.
+func (a *App) previewTheme(name string) bool {
 	th, err := theme.Load(name, config.ThemeDirs()...)
 	if err != nil {
 		a.setStatus(err.Error(), 5*time.Second)
-		return
+		return false
 	}
 	for _, p := range a.panes {
 		p.term.SetTheme(th)
 	}
 	a.forceRedraw = true
-	a.setStatus(fmt.Sprintf("theme %s for this window · to keep it: theme = %q in the config", name, name), 8*time.Second)
+	a.setStatus("theme "+name+" · Enter keeps it, Esc goes back", 0)
+	return true
+}
+
+// restoreTheme undoes a preview, and puts back the status it covered.
+func (a *App) restoreTheme(status *statusText) {
+	if th, err := a.cfg.ResolveTheme(); err == nil {
+		for _, p := range a.panes {
+			p.term.SetTheme(th)
+		}
+	}
+	a.status.Store(status)
+	a.forceRedraw = true
+}
+
+// keepTheme makes a theme this window's and the config's (every window
+// using the config follows when it's saved).
+func (a *App) keepTheme(name string) {
+	if !a.previewTheme(name) {
+		return
+	}
+	path := a.opts.ConfigPath
+	if path == "" {
+		path = config.Path()
+	}
+	old, err := config.SetTheme(path, name)
+	if err != nil {
+		a.setStatus("couldn't save the theme: "+err.Error(), 8*time.Second)
+		return
+	}
+	msg := fmt.Sprintf("theme %s saved to the config", name)
+	if old != "" && old != name {
+		msg += " (was " + old + ")"
+	}
+	a.setStatus(msg, 6*time.Second)
+}
+
+// palettePreview previews the selected item, or undoes the last preview.
+func (a *App) palettePreview() {
+	ps := a.palette
+	if ps == nil {
+		return
+	}
+	if len(ps.filtered) > 0 {
+		if it := ps.items[ps.filtered[ps.sel]]; it.preview != nil {
+			if !ps.previewed {
+				ps.status = a.status.Load()
+			}
+			it.preview(a)
+			ps.previewed = true
+			return
+		}
+	}
+	if ps.previewed {
+		ps.previewed = false
+		a.restoreTheme(ps.status)
+	}
 }
 
 func (a *App) openPalette() bool {
@@ -187,6 +278,9 @@ func (a *App) openPalette() bool {
 
 func (a *App) closePalette() {
 	if a.palette != nil {
+		if a.palette.previewed {
+			a.restoreTheme(a.palette.status)
+		}
 		a.palette = nil
 		a.forceRedraw = true
 	}
@@ -238,6 +332,7 @@ func (a *App) filterPalette() {
 	ps.sel = 0
 	ps.gen++
 	a.forceRedraw = true
+	a.palettePreview()
 }
 
 func (a *App) paletteKey(key glfw.Key, mods glfw.ModifierKey, action glfw.Action) {
@@ -251,6 +346,7 @@ func (a *App) paletteKey(key glfw.Key, mods glfw.ModifierKey, action glfw.Action
 			ps.sel = (ps.sel + d + n) % n
 			ps.gen++
 			a.forceRedraw = true
+			a.palettePreview()
 		}
 	}
 	switch {
@@ -261,6 +357,9 @@ func (a *App) paletteKey(key glfw.Key, mods glfw.ModifierKey, action glfw.Action
 			return
 		}
 		it := ps.items[ps.filtered[ps.sel]]
+		if it.preview != nil {
+			ps.previewed = false // kept, not undone
+		}
 		a.closePalette()
 		it.run(a)
 	case key == glfw.KeyUp || ctrl && (key == glfw.KeyP || key == glfw.KeyK):
@@ -332,8 +431,12 @@ func (a *App) paletteView(p *pane, v *render.View) {
 		attrs term.Attr
 	}
 	n := min(len(ps.filtered), paletteRows, max(0, rows-2))
+	hint := fmt.Sprintf("%d · ↑↓ Enter · Esc", len(ps.filtered))
+	if ps.previewed {
+		hint = "previewing · Enter keeps it · Esc goes back"
+	}
 	lines := []*term.Line{line(bg, []seg{{" ❯ ", accent, term.AttrBold}, {string(ps.query), fg, 0}, {"▏", accent, 0}},
-		fmt.Sprintf("%d · ↑↓ Enter · Esc", len(ps.filtered)), dim)}
+		hint, dim)}
 	// Keep the selection in view.
 	first := 0
 	if ps.sel >= n {

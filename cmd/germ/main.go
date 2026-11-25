@@ -15,7 +15,6 @@ import (
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/mcp"
 	"github.com/zach-monroe/germ/internal/share"
-	"github.com/zach-monroe/germ/internal/theme"
 	"github.com/zach-monroe/germ/internal/widgets"
 )
 
@@ -96,15 +95,15 @@ func main() {
 	tmuxFlag := flag.Bool("tmux", false, "attach to tmux in control mode even if disabled in the config")
 	noTmux := flag.Bool("no-tmux", false, "run a plain shell instead of tmux")
 	session := flag.String("session", "", "tmux session to attach to or create (default from config, else a free germ-N session)")
-	listThemes := flag.Bool("list-themes", false, "list bundled themes and exit")
+	listThemesFlag := flag.Bool("list-themes", false, "list themes and exit (same as germ theme list)")
 	quote := flag.Bool("quote", false, "log child output as quoted strings to show escape sequences")
 	shot := flag.String("screenshot", "", "save a PNG of the window to this path after -screenshot-delay, then exit (testing)")
 	shotDelay := flag.Duration("screenshot-delay", time.Second, "delay before -screenshot")
 	dump := flag.Bool("dump", false, "print the terminal screen as text when the session ends")
 	flag.Parse()
 
-	if *listThemes {
-		fmt.Println(strings.Join(theme.Bundled(), "\n"))
+	if *listThemesFlag {
+		listThemes()
 		return
 	}
 

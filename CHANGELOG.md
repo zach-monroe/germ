@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Themes
+- **Live previews in the palette**: Ctrl+Shift+Space, "theme", lists every
+  theme, yours included; moving onto one recolors the window, Enter keeps
+  it (only the config's `theme =` line changes), Esc goes back.
+- **`germ theme new NAME`** starts your own theme from the current one,
+  with a comment on every color, and switches to it: edit and save to see
+  it live. `germ theme use NAME` picks one from a shell.
+- A themes folder created while germ runs is watched too.
+- [docs/themes.md](docs/themes.md).
+
 ## v0.6.0 (2026-11-25)
 
 **Spread your germs.** Highly contagious coworking.

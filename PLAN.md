@@ -295,6 +295,10 @@ throttled.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
+## Status (themes, after v0.6.0)
+- Palette lists bundled and installed themes (`theme.Installed`); selecting previews (`paletteItem.preview`), Enter keeps (`config.SetTheme`: rewrites only the top-level `theme =` line, keeps comments, follows symlinks), Esc/close restores the theme and the status it covered.
+- `germ theme new [-from T] NAME` (commented template, `theme.Template`, round-trip tested) and `germ theme use NAME`; `germ theme list` / `-list-themes` mark yours and the current one. The watcher picks up a themes dir created later. docs/themes.md.
+
 ## Status (Phase 23)
 - One invite link (protocol v3; the watch-only link and `approve = "typing"` are gone). People are identified by client ID across reconnects (`share.Participant.ID` is a person ID); names are unique by short name ("alice", "alice (2)").
 - The room (`internal/share/room.go`): chat (host-stamped sender, seq and time; 500 kept, 200 sent to newcomers; 4 KB, 5-message burst then 1/s; mute), per-tab owner and helm, helm requests (approver: the tab's owner if a guest owns and holds it, else the host; host can always decide), events in the chat, 90 s grace for people who leave. Saved only on command (`~/.local/share/germ/chats/`).
