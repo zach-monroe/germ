@@ -65,6 +65,7 @@ row_heights = [2, 3]
 # Processes treated as coding agents (tab badges, agents widget, notifications).
 commands = ["claude", "codex", "aider", "gemini", "opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"]
 notify = true           # desktop notification when an agent needs you
+notify_done = true      # ...and when one finishes (needs `germ setup agents`)
 # Matched against the bottom of an agent's screen (case-insensitive):
 # working_patterns = ["esc to interrupt", "ctrl+c to interrupt", "esc to cancel"]
 # waiting_patterns = ["do you want to", "would you like to", "❯ 1. yes", "(y/n)", ...]

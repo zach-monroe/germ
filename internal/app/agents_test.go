@@ -106,3 +106,67 @@ func TestHistory(t *testing.T) {
 		t.Errorf("history tail %q", strings.TrimLeft(h, " "))
 	}
 }
+
+func TestAgentEvents(t *testing.T) {
+	cfg := config.Default()
+	cfg.Agents.Notify = false
+	a := &App{cfg: cfg}
+	p := &pane{}
+	now := time.Now()
+
+	// An agent germ didn't detect makes itself known.
+	if err := a.onAgentEvent(p, "claude", "idle", ""); err != nil {
+		t.Fatal(err)
+	}
+	if p.agent.name != "claude" || p.state(now) != stateIdle {
+		t.Fatalf("after idle: name %q state %v", p.agent.name, p.state(now))
+	}
+	// Screen heuristics don't override what it reported.
+	p.agent.screenWaiting = true
+	if p.state(now) != stateIdle {
+		t.Error("screen prompt overrode the reported state")
+	}
+	p.agent.screenWaiting = false
+
+	a.onAgentEvent(p, "claude", "working", "")
+	if p.state(time.Now()) != stateWorking {
+		t.Error("want working")
+	}
+	// Working lapses when the agent goes quiet (interrupted: no Stop hook).
+	if p.state(time.Now().Add(hookFresh+time.Second)) == stateWorking {
+		t.Error("working never lapsed")
+	}
+	// ...but not while its spinner is still drawing.
+	p.agent.lastOutput.Store(time.Now().Add(hookFresh).UnixNano())
+	if p.state(time.Now().Add(hookFresh+time.Second)) != stateWorking {
+		t.Error("lapsed while still producing output")
+	}
+
+	a.onAgentEvent(p, "claude", "waiting", "wants to use Bash")
+	if p.state(time.Now()) != stateWaiting || p.agent.message != "wants to use Bash" || !p.agent.needsYou {
+		t.Errorf("waiting: state %v message %q needsYou %v", p.state(time.Now()), p.agent.message, p.agent.needsYou)
+	}
+	// Answering the prompt: it carries on working.
+	a.onAgentEvent(p, "claude", "working", "")
+	if p.state(time.Now()) != stateWorking || p.agent.needsYou {
+		t.Error("still waiting after it resumed")
+	}
+
+	a.onAgentEvent(p, "claude", "done", "All tests pass.")
+	if p.state(time.Now()) != stateDone {
+		t.Errorf("want done, got %v", p.state(time.Now()))
+	}
+	// Output after Stop (you typing at its prompt) isn't work.
+	p.agent.lastOutput.Store(time.Now().UnixNano())
+	if p.state(time.Now()) != stateDone {
+		t.Error("output after done counted as work")
+	}
+
+	a.onAgentEvent(p, "claude", "end", "")
+	if p.agent.hook != stateNone {
+		t.Error("end didn't clear the reported state")
+	}
+	if err := a.onAgentEvent(p, "claude", "dancing", ""); err == nil {
+		t.Error("unknown event accepted")
+	}
+}

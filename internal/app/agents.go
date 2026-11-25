@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,10 @@ import (
 //   - recent output that isn't the echo of your typing means "working",
 //     as does an OSC 9;4 progress report;
 //   - quiet after working means "done".
+//
+// Agents that report their own state (Claude Code hooks and Codex notify,
+// installed by `germ setup agents`, calling `germ ctl agent-event`) override
+// the guesses above: see onAgentEvent.
 //
 // Badges clear when you look at the pane.
 
@@ -60,6 +65,14 @@ type paneAgent struct {
 	screenWorking bool
 	screenWaiting bool
 
+	// hook is the state the agent last reported itself (stateNone: it
+	// doesn't report, so germ guesses). It holds while the pane's
+	// foreground process group is hookPgid.
+	hook      agentState
+	hookAt    time.Time
+	hookPgid  int
+	hookAgent string
+
 	// hist is one state sample per second for the last histLen seconds
 	// (a ring; histPos is the next slot), for the agents widget timeline.
 	hist    [histLen]agentState
@@ -78,6 +91,10 @@ type agentNote struct {
 const (
 	workingWindow = 1500 * time.Millisecond // output this recent = working
 	echoWindow    = 400 * time.Millisecond  // output this soon after input = echo
+	// hookFresh: a reported "working" lapses after this long with neither
+	// events nor output (agents don't report being interrupted, but they
+	// animate a spinner while they work).
+	hookFresh = 15 * time.Second
 )
 
 // state computes a pane's current state.
@@ -89,7 +106,10 @@ func (p *pane) state(now time.Time) agentState {
 	if ag.name == "" {
 		return stateNone
 	}
-	if ag.screenWaiting && !ag.screenWorking {
+	if ag.hook == stateWaiting {
+		return stateWaiting
+	}
+	if ag.hook == stateNone && ag.screenWaiting && !ag.screenWorking {
 		return stateWaiting
 	}
 	if p.working(now) {
@@ -103,6 +123,13 @@ func (p *pane) state(now time.Time) agentState {
 
 func (p *pane) working(now time.Time) bool {
 	ag := &p.agent
+	switch ag.hook {
+	case stateWorking:
+		fresh := int64(hookFresh)
+		return now.Sub(ag.hookAt) < hookFresh || now.UnixNano()-ag.lastOutput.Load() < fresh
+	case stateWaiting, stateDone, stateIdle:
+		return false // it told us
+	}
 	if ag.screenWorking {
 		return true
 	}
@@ -124,24 +151,29 @@ func (p *pane) noteOutput() { p.agent.lastOutput.Store(time.Now().UnixNano()) }
 // animating (working).
 func (a *App) agentTick(detect bool) (animating bool) {
 	now := time.Now()
-	visible := map[*pane]bool{}
-	if t := a.tab(); t != nil && a.focused {
-		for _, p := range t.visible() {
-			visible[p] = true
-		}
-	}
+	visible := a.visiblePanes()
 	for _, p := range a.panes {
 		ag := &p.agent
+		if detect && ag.hook != stateNone && p.fgPgid() != ag.hookPgid {
+			ag.clearHook() // the agent that reported has exited
+			a.forceRedraw = true
+		}
 		if detect {
-			if name := a.detectAgent(p); name != ag.name {
+			name := a.detectAgent(p)
+			if name == "" && ag.hook != stateNone {
+				name = ag.hookAgent // e.g. run as `node .../claude`
+			}
+			if name != ag.name {
 				ag.name, ag.worked, ag.since = name, false, now
 				a.forceRedraw = true
 			}
 		}
-		if n := ag.note.Swap(nil); n != nil {
+		if n := ag.note.Swap(nil); n != nil && ag.hook == stateNone {
+			// (An agent that reports its state through hooks has already
+			// told us; its own notifications would be duplicates.)
 			a.onAgentNote(p, n, visible[p])
 		}
-		if detect && ag.name != "" {
+		if detect && ag.name != "" && ag.hook == stateNone {
 			wasWaiting := ag.screenWaiting && !ag.screenWorking
 			prompt := a.scanScreen(p)
 			if ag.screenWaiting && !ag.screenWorking && !wasWaiting {
@@ -167,6 +199,9 @@ func (a *App) agentTick(detect bool) (animating bool) {
 				ag.needsYou, ag.worked = false, false
 				a.forceRedraw = true
 			}
+			if ag.hook == stateDone {
+				ag.hook = stateIdle
+			}
 		}
 	}
 	return animating
@@ -190,21 +225,117 @@ func (a *App) onAgentNote(p *pane, n *agentNote, visible bool) {
 	if isBell && ag.name == "" {
 		return // a shell bell just gets a badge
 	}
-	if !a.cfg.Agents.Notify {
-		return
-	}
-	who := ag.name
-	if who == "" {
-		who = p.titleString()
-	}
 	body := msg
 	if isBell || body == "" {
 		body = "needs your attention"
+	}
+	a.notifyAgent(p, body)
+}
+
+// notifyAgent sends a desktop notification about p's agent.
+func (a *App) notifyAgent(p *pane, body string) {
+	if !a.cfg.Agents.Notify {
+		return
+	}
+	who := p.agent.name
+	if who == "" {
+		who = p.titleString()
 	}
 	if !a.focused {
 		a.attention.Store(true)
 	}
 	go desktopNotify("germ · "+who, body)
+}
+
+// visiblePanes are the panes you can see now (none while unfocused).
+func (a *App) visiblePanes() map[*pane]bool {
+	visible := map[*pane]bool{}
+	if t := a.tab(); t != nil && a.focused {
+		for _, p := range t.visible() {
+			visible[p] = true
+		}
+	}
+	return visible
+}
+
+func (ag *paneAgent) clearHook() {
+	ag.hook, ag.hookAgent, ag.hookPgid = stateNone, "", 0
+}
+
+// onAgentEvent applies a state an agent reported about itself (on the
+// main thread).
+func (a *App) onAgentEvent(p *pane, agent, event, msg string) error {
+	ag := &p.agent
+	now := time.Now()
+	visible := a.visiblePanes()[p]
+	msg = strings.TrimSpace(msg)
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	if event == "end" {
+		ag.clearHook()
+		ag.needsYou, ag.worked = false, false
+		if p.be == nil || a.detectAgent(p) == "" {
+			ag.name = "" // it was only known from its reports
+		}
+		a.forceRedraw = true
+		return nil
+	}
+	next := map[string]agentState{"working": stateWorking, "waiting": stateWaiting,
+		"done": stateDone, "idle": stateIdle}[event]
+	if next == stateNone {
+		return fmt.Errorf("unknown agent event %q (want working, waiting, done, idle or end)", event)
+	}
+	if agent != "" {
+		ag.hookAgent = agent
+	} else if ag.hookAgent == "" {
+		ag.hookAgent = "agent"
+	}
+	ag.hookPgid = p.fgPgid()
+	if ag.name == "" {
+		ag.name = ag.hookAgent
+	}
+	prev := ag.hook
+	ag.hook, ag.hookAt = next, now
+	if next != prev {
+		ag.since = now
+		a.forceRedraw = true
+	}
+	if msg != "" {
+		ag.message = msg
+	}
+	switch next {
+	case stateWorking:
+		ag.needsYou = false // it got what it was waiting for
+		ag.worked = true
+		if prev == stateWaiting && msg == "" {
+			ag.message = "" // the question was answered
+		}
+	case stateWaiting:
+		if prev != stateWaiting {
+			if msg == "" {
+				msg = "needs your attention"
+			}
+			a.onAgentNote(p, &agentNote{body: msg}, visible)
+		}
+	case stateDone:
+		ag.needsYou = false
+		if visible {
+			ag.worked, ag.hook = false, stateIdle
+		} else if prev != stateDone {
+			ag.worked = true
+			if a.cfg.Agents.NotifyDone {
+				body := "finished"
+				if msg != "" {
+					body = "finished: " + msg
+				}
+				a.notifyAgent(p, body)
+			}
+		}
+	case stateIdle:
+		ag.needsYou = false
+	}
+	return nil
 }
 
 func desktopNotify(title, body string) {
@@ -224,6 +355,17 @@ func (a *App) detectAgent(p *pane) string {
 		return ""
 	}
 	return matchAgent(procArgs(fg), a.cfg.Agents.Commands)
+}
+
+// fgPgid is the foreground process group of the pane's terminal.
+func (p *pane) fgPgid() int {
+	if p.be == nil {
+		return 0
+	}
+	if pid := p.be.Pid(); pid > 0 {
+		return foregroundPgid(pid)
+	}
+	return 0
 }
 
 // foregroundPgid reads the foreground process group of pid's terminal

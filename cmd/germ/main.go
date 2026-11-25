@@ -35,6 +35,12 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "share" {
 		os.Exit(runShare(os.Args[2:]))
 	}
+	if len(os.Args) >= 3 && os.Args[1] == "ctl" && os.Args[2] == "agent-event" {
+		os.Exit(runAgentEvent(os.Args[3:]))
+	}
+	if len(os.Args) >= 3 && os.Args[1] == "setup" && os.Args[2] == "agents" {
+		os.Exit(runSetupAgents(os.Args[3:]))
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "setup" {
 		if err := ensureURLHandler(false); err != nil {
 			fmt.Fprintln(os.Stderr, "germ setup:", err)

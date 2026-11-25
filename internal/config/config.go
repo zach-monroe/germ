@@ -92,6 +92,9 @@ type Agents struct {
 	Commands []string `toml:"commands"`
 	// Notify sends desktop notifications when an agent needs you.
 	Notify bool `toml:"notify"`
+	// NotifyDone also notifies when an agent that reports its own state
+	// (see `germ setup agents`) finishes while you're not looking at it.
+	NotifyDone bool `toml:"notify_done"`
 	// Launch is the agent `germ agent` (Ctrl+Shift+A) starts; "{task}" is
 	// replaced by the task (and dropped when there's none).
 	Launch []string `toml:"launch"`
@@ -210,7 +213,7 @@ func Default() Config {
 			Layout:     [][]string{{"clock", "weather", "agents"}, {"news:3", "stocks:2"}},
 			RowHeights: []float64{2, 3}},
 		Control: Control{Enabled: true, AllowInput: true},
-		Agents: Agents{Notify: true, Commands: []string{"claude", "codex", "aider", "gemini",
+		Agents: Agents{Notify: true, NotifyDone: true, Commands: []string{"claude", "codex", "aider", "gemini",
 			"opencode", "goose", "amp", "cursor-agent", "crush", "qwen", "copilot"},
 			ShiftEnter:      true,
 			WorkingPatterns: []string{"esc to interrupt", "ctrl+c to interrupt", "esc to cancel"},

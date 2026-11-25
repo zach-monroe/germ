@@ -25,7 +25,8 @@ edit to parser.go?"), how long it's been working, where it is, and a
 ▇ waiting for you, ▂ done, ▁ idle. **Click an agent** to jump to its pane,
 even in another germ window (which comes to the front).
 
-How germ knows:
+How germ knows (exactly, after `germ setup agents`; see below — otherwise
+by watching):
 - **Which panes are agents**: the pane's foreground process is matched
   against `[agents] commands` (for `node`/`python` scripts, the script name
   counts).
@@ -49,17 +50,40 @@ waiting_patterns = ["do you want to", "would you like to", "❯ 1. yes", "allow 
                     "(y/n)", "[y/n]", "press enter to continue", "waiting for your"]
 ```
 
-### Claude Code setup
+### Exact state: `germ setup agents`
 
-germ reads Claude Code's screen, so badges work with no setup. For desktop
-notifications with Claude's own wording, also tell it to use the iTerm2
-protocol (OSC 9), which germ understands:
+Out of the box germ guesses from the screen. For exact badges, run once:
 
 ```sh
-claude config set --global preferredNotifChannel iterm2
+germ setup agents
 ```
 
-(`terminal_bell` works too, but carries no message.)
+This adds hooks to Claude Code (`~/.claude/settings.json`, or
+`$CLAUDE_CONFIG_DIR`) and sets Codex's `notify` program
+(`~/.codex/config.toml`). Each calls `germ ctl agent-event`, so the agent
+tells germ itself when it starts working, needs your permission (with
+what it wants to do: "wants to use Bash"), finishes, or fails. You also get
+a **"finished" notification** with the first line of its answer when an
+agent you aren't looking at completes (`notify_done = false` turns that
+off). Nothing else in either file changes; the original is saved as
+`settings.json.germ-bak`. Re-run after moving germ; `germ setup agents
+-remove` takes the hooks out; `-n` shows what would change.
+
+Details:
+- Reported state wins over screen guessing while that agent process runs.
+  Claude Code doesn't report being interrupted (Esc), so "working" lapses
+  after 15 seconds without events or output.
+- Codex only reports finished turns; its permission prompts are still
+  read from the screen. If Codex's `notify` is already set to another
+  program, germ leaves it and tells you.
+- Any agent can do the same:
+  `germ ctl agent-event -agent NAME working|waiting|done|idle|end
+  [-message TEXT]`. Outside germ the command does nothing and always
+  exits 0.
+
+Without hooks, you can still get Claude's own wording in notifications by
+telling it to use the iTerm2 protocol (OSC 9): `claude config set --global
+preferredNotifChannel iterm2`.
 
 ### Config
 
@@ -67,7 +91,8 @@ claude config set --global preferredNotifChannel iterm2
 [agents]
 commands = ["claude", "codex", "aider", "gemini", "opencode", "goose", "amp",
             "cursor-agent", "crush", "qwen", "copilot"]
-notify = true   # desktop notifications
+notify = true        # desktop notifications when an agent needs you
+notify_done = true   # ...and when one finishes (agents set up with germ setup agents)
 ```
 
 ## Parallel agents: Ctrl+Shift+A

@@ -32,6 +32,11 @@ const (
 	// CmdSetStatus shows Text on the right of the tab bar for TTL seconds
 	// (0: until replaced; empty Text clears it).
 	CmdSetStatus = "set_status"
+	// CmdAgentEvent is a coding agent reporting its own state from inside
+	// Pane (Claude Code hooks, Codex notify; see `germ setup agents`):
+	// Event is working, waiting, done, idle or end; Agent names it; Text is
+	// an optional message (the question it's asking, its last reply).
+	CmdAgentEvent = "agent_event"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or
@@ -51,6 +56,9 @@ type Request struct {
 	Size    int      `json:"size,omitempty"`    // split: percent of the target for the new pane
 	TTL     int      `json:"ttl,omitempty"`     // set_status: seconds to show it
 	History bool     `json:"history,omitempty"` // list_panes: include agent History
+	// agent_event
+	Event string `json:"event,omitempty"`
+	Agent string `json:"agent,omitempty"`
 }
 
 // PaneInfo describes a pane.

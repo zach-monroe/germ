@@ -58,3 +58,4 @@ jobs:
           scripts/e2e/xtest.sh /tmp/keys.log '' -- "key ctrl+a" "type hello" && grep -q "x01" /tmp/keys.log
           scripts/e2e/tmux.sh
           scripts/e2e/share.sh
+          scripts/e2e/agents.sh

@@ -186,6 +186,9 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **14. Coworking v2** ✅ | Remove/ban guests from the share pane, rotate links; guests navigate tabs independently (grouped tmux sessions) with a follow-the-host toggle; "who's typing" presence; automatic reconnect for guests and host | A guest's Wi-Fi blips and they're back a few seconds later; you remove one guest without stopping the share |
 | **15. Daily-driver polish** ✅ | Drag separators to resize; OSC 8 hyperlinks; combining characters; zsh/bash shell integration | Your zsh gets prompt jumping, command marks, and notifications like fish |
 | **16. Agent tuning** ✅ | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
+| **17. Agent precision** | Agents report their own state: `germ setup agents` installs Claude Code hooks and Codex `notify` that call `germ ctl agent-event`, overriding screen heuristics; "finished" notifications; keyboard hints mode (Ctrl+Shift+E: label every URL, `file:line`, git hash, IP on screen; a letter opens, Shift+letter copies) | Badges and `wait_for` are exact for Claude Code, and you never reach for the mouse to open what an agent printed |
+| **18. Agent review & throughput** | Review tab for `germ agent` worktrees: diff with file list, merge / discard / send feedback to the agent in one key; throughput, latency and memory benchmarks against kitty and alacritty, then fixes | Three agents finish, and you review and merge each from one tab; a 100 MB log scrolls past without germ falling behind |
+| **19. Daily-driver core** | Native Wayland (GLFW 3.4) with fractional scaling and IME; opt-in ligatures (go-text shaping); synthetic italic/bold; DPI changes across monitors; crash log, `germ doctor`, config errors shown in the window; base16/iTerm2/Alacritty theme import | Crisp text on a 1.25× Wayland display, and a broken config tells you what's wrong |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -235,6 +238,11 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (Phase 17, in progress)
+- Agent self-reporting: `agent_event` control command; `germ ctl agent-event` (claude: hook JSON on stdin; codex: notify JSON arg; or a plain state). Never prints to stdout, always exits 0, 2 s cap, only reports to the window owning its pane (requires GERM_SOCKET). ~9 ms per call.
+- `paneAgent.hook` overrides screen/output heuristics while the reporting foreground pgid lives; reported "working" lapses after 15 s without events or output (no Stop on Esc); OSC/bell notes ignored for hook-reporting agents (no duplicates); "finished" notifications (`[agents] notify_done`).
+- `germ setup agents [-remove] [-n]`: Claude Code hooks (10 events) merged into settings.json preserving key order and the user's hooks, backup `.germ-bak`; Codex top-level `notify` (left alone if set to another program). e2e: scripts/e2e/agents.sh.
 
 ## Status (after the polish pass)
 - Scrollback search (Ctrl+Shift+F): bar on the pane's bottom row (render.View.Overlay), highlights (View.Highlights), smart case, matches across soft wraps, Enter/Shift+Enter or Up/Down, Esc. Guest follow moved to Ctrl+Shift+G.

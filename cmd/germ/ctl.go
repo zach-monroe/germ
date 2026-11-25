@@ -27,6 +27,9 @@ Control the germ window this shell runs in (or the newest one).
                                 wait until the pane shows REGEX or goes quiet
   focus PANE                    show and focus a pane
   json REQUEST                  send a raw JSON request
+  agent-event [-agent NAME] [-message TEXT] working|waiting|done|idle|end
+                                report an agent's state for this pane (agents
+                                call this; see germ setup agents)
 
 PANE is a germ pane ID (from list), a tmux pane ID like %3, or "self".
 `

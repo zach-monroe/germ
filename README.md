@@ -20,7 +20,8 @@ built-in tmux and fish integration.
   Free: served from your machine over Tailscale Funnel if you use
   Tailscale, else a free Cloudflare tunnel; no router ports opened. See [docs/coworking.md](docs/coworking.md).
 - **Built for coding agents**: tab badges show which agent is working,
-  done, or needs you (with desktop notifications), a home-screen widget
+  done, or needs you (with desktop notifications; exact for Claude Code
+  and Codex after `germ setup agents`), a home-screen widget
   lists every agent, and `germ mcp` lets agents read and drive your other
   panes (dev servers, tests, logs). See [docs/agents.md](docs/agents.md).
 - **Home screen**: the first tab is a dashboard of widgets (clock,
