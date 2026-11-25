@@ -44,30 +44,32 @@
   <span class="badge wait" id="mode">connecting</span>
   <span class="people" id="people"></span>
   <a id="native" href="#" title="Open this session in the germ app">Open in germ</a>
-  <button id="installBtn" type="button">Get germ</button>
+  <button id="installBtn" type="button">Catch germ</button>
 </header>
 <div id="term"></div>
 
 <div id="overlay">
   <div class="card" id="join">
-    <h1>◆ You're invited to a terminal session</h1>
+    <h1>◆ You've caught something</h1>
     <p>Someone is sharing their terminal with you, live, using
-      <a href="https://github.com/zach-monroe/germ" style="color:var(--blue)">germ</a>.</p>
+      <a href="https://github.com/zach-monroe/germ" style="color:var(--blue)">germ</a>.
+      <span class="dim">Highly contagious coworking.</span></p>
     <form id="nameForm">
       <p class="dim">Your name, so they know who joined:</p>
       <input id="name" maxlength="32" autocomplete="nickname" placeholder="e.g. alex" autofocus>
-      <button type="submit">Join in the browser</button>
+      <button type="submit">Catch it in the browser</button>
     </form>
     <p class="dim" style="margin-top:1rem">End-to-end encrypted: the key is in this page's address after "#",
       which your browser never sends anywhere.</p>
   </div>
   <div class="card" id="install">
-    <h1>Get germ</h1>
+    <h1>Catch germ</h1>
     <p>The browser is all you need to join. For the full app (Linux, x86_64 or arm64):</p>
     <pre>curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh</pre>
     <p class="dim">or with Homebrew: <code>brew install zach-monroe/germ/germ</code></p>
     <p>Then click <b>Open in germ</b>, or run:</p>
     <pre id="cmd"></pre>
+    <p class="dim">Later, spread your own germs: Ctrl+Shift+P shares your session.</p>
     <button type="button" id="closeInstall">Close</button>
   </div>
 </div>

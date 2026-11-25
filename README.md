@@ -1,6 +1,9 @@
 # germ
 
-A fast, GPU-accelerated terminal emulator for Linux, written in Go, with
+**Spread your germs.** Highly contagious coworking.
+
+A fast, GPU-accelerated terminal for Linux, built for coding agents and
+for sharing your session with anyone, with a link. Written in Go, with
 built-in tmux and fish integration.
 
 - **Fast**: OpenGL 3.3 renderer (glyph atlas, three instanced draw calls per
@@ -11,7 +14,7 @@ built-in tmux and fish integration.
   splits — with germ's own scrollback, selection, and clipboard. Your tmux
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
-- **Coworking**: Ctrl+Shift+P shares your session as a link (can-type or
+- **Coworking (highly contagious)**: Ctrl+Shift+P shares your session as a link (can-type or
   watch-only), end-to-end encrypted, and you approve each person who joins.
   Guests open it in any browser, or in germ for native tabs and splits.
   Free: served from your machine over Tailscale Funnel if you use

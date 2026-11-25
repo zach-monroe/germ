@@ -16,7 +16,7 @@ with two links:
 - **Watch only**: the guest sees everything live but can't change anything.
   This one is copied to your clipboard.
 
-The tab bar shows `◉ sharing · alice ✎, bob (watching)` while people are
+The tab bar shows `◉ spreading · alice ✎, bob (watching)` while people are
 connected (✎: typing right now). The share pane lists who's here, numbered,
 and logs joins and leaves. In the share pane:
 
