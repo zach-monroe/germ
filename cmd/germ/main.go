@@ -38,6 +38,9 @@ func main() {
 	if len(os.Args) >= 3 && os.Args[1] == "ctl" && os.Args[2] == "agent-event" {
 		os.Exit(runAgentEvent(os.Args[3:]))
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "doctor" {
+		os.Exit(runDoctor(os.Args[2:]))
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "review" {
 		os.Exit(runReview(os.Args[2:]))
 	}
@@ -102,12 +105,12 @@ func main() {
 		return
 	}
 
+	app.RecordCrashes()
+	defer app.RemoveCrashTemp()
 	cfg, warnings, err := config.Load(*configPath)
+	problems := warnings
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "germ: %s: %v (using defaults)\n", *configPath, err)
-	}
-	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "germ: %s: %s\n", *configPath, w)
+		problems = append(problems, fmt.Sprintf("%v (using the defaults)", err))
 	}
 
 	// Explicit flags win over the config file, including across reloads.
@@ -176,7 +179,7 @@ func main() {
 		tmuxCmd = shellCmd
 	}
 	if err := app.Run(app.Options{
-		Command: cmd, ShellCommand: shellCmd, TmuxCommand: tmuxCmd, Out: os.Stdout, Quote: *quote, Dump: *dump,
+		Command: cmd, ShellCommand: shellCmd, TmuxCommand: tmuxCmd, ConfigProblems: problems, Out: os.Stdout, Quote: *quote, Dump: *dump,
 		Config: cfg, ConfigPath: *configPath, Overrides: over, ExplicitCommand: len(flag.Args()) > 0 && joinLink == "", UseTmux: useTmux, TmuxSession: tmuxSession, Remote: remote,
 		Screenshot: *shot, ScreenshotDelay: *shotDelay,
 	}); err != nil {

@@ -48,6 +48,9 @@ type Options struct {
 	// TmuxCommand, if set, runs in the first pane of a new tmux session
 	// (germ -tmux -shell PROGRAM) instead of tmux's default shell.
 	TmuxCommand []string
+	// ConfigProblems are errors and warnings from loading the config,
+	// shown in the window (stderr is invisible when started from a menu).
+	ConfigProblems []string
 	// UseTmux attaches to tmux in control mode instead of running Command.
 	// TmuxSession names the session; empty picks a free germ-N session.
 	UseTmux bool
@@ -137,8 +140,9 @@ type App struct {
 func Run(opts Options) error {
 	cfg := opts.Config
 	opts.Overrides.apply(&cfg)
+	problems := opts.ConfigProblems
 	if _, err := cfg.ResolveTheme(); err != nil {
-		fmt.Fprintln(os.Stderr, "germ:", err, "(using default theme)")
+		problems = append(problems, fmt.Sprintf("%v (using the default theme)", err))
 		cfg.Theme = theme.DefaultName
 	}
 	bindings, _ := cfg.Bindings() // validated by config.Parse
@@ -221,7 +225,7 @@ func Run(opts Options) error {
 		tmuxStarted = true
 	} else if opts.UseTmux {
 		if err := a.startTmux(opts.TmuxSession); err != nil {
-			fmt.Fprintln(os.Stderr, "germ:", err, "(starting a plain shell instead)")
+			problems = append(problems, fmt.Sprintf("%v (started a plain shell instead)", err))
 		} else {
 			tmuxStarted = true
 		}
@@ -249,6 +253,8 @@ func Run(opts Options) error {
 	win.SetDropCallback(a.onDrop)
 
 	a.startAgentTicker()
+	a.reportProblems(problems)
+	a.reportLastCrash()
 	if stop, err := config.Watch(func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {
 		defer stop()
 	}
@@ -500,17 +506,16 @@ func scaledPad(cfg config.Config, scale float32) int {
 // previous config.
 func (a *App) reloadConfig() {
 	cfg, warnings, err := config.Load(a.opts.ConfigPath)
-	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "germ: %s: %s\n", a.opts.ConfigPath, w)
-	}
+	problems := warnings
+	defer func() { a.reportProblems(problems) }()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "germ: %s: %v (keeping previous config)\n", a.opts.ConfigPath, err)
+		problems = append(problems, fmt.Sprintf("%v (kept the previous config)", err))
 		return
 	}
 	a.opts.Overrides.apply(&cfg)
 	th, err := cfg.ResolveTheme()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "germ:", err, "(keeping previous config)")
+		problems = append(problems, fmt.Sprintf("%v (kept the previous config)", err))
 		return
 	}
 	old := a.cfg
@@ -527,7 +532,7 @@ func (a *App) reloadConfig() {
 			a.render.SetFonts(fonts)
 			refit = true
 		} else {
-			fmt.Fprintln(os.Stderr, "germ:", err)
+			problems = append(problems, err.Error())
 		}
 	}
 	if cfg.Window.Padding != old.Window.Padding {

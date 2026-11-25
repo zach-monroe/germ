@@ -69,6 +69,12 @@ go install github.com/zach-monroe/germ/cmd/germ@latest
 git clone https://github.com/zach-monroe/germ && cd germ && go build -o germ ./cmd/germ
 ```
 
+Then run `germ doctor` to check fonts, tmux, shell integration, agent
+hooks and sharing, with a fix for anything missing. Config mistakes show up
+in the tab bar (and as a notification) when germ starts or reloads, and if
+germ ever crashes, the next launch tells you where the log is
+(`~/.local/state/germ/crash.log`).
+
 ## Usage
 
 ```sh

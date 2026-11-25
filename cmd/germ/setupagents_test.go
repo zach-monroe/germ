@@ -180,3 +180,11 @@ func TestClaudeEvent(t *testing.T) {
 		t.Errorf("codex other: %+v", ev)
 	}
 }
+
+func TestTmuxAtLeast(t *testing.T) {
+	for v, want := range map[string]bool{"tmux 3.4": true, "tmux 3.2a": true, "tmux 3.1c": false, "tmux next-3.6": true, "tmux 2.9": false, "tmux master": true} {
+		if tmuxAtLeast(v, 3, 2) != want {
+			t.Errorf("%s: want %v", v, want)
+		}
+	}
+}

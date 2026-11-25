@@ -239,7 +239,13 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status (Phase 18, in progress)
+## Status (Phase 19, in progress)
+- Native Wayland deferred: the user runs Xorg + i3, and go-gl's GLFW 3.4 bindings are pre-release (v0.1.0-pre.2).
+- Config problems (parse errors, unknown keys, bad theme, font load, tmux start failure) go to the tab bar status for 20 s and a desktop notification, at startup and on reload.
+- Crash log: `debug.SetCrashOutput` to a per-process temp in $XDG_STATE_HOME/germ, renamed to crash.log when its process is gone and non-empty; the next launch reports it once.
+- `germ doctor`: config, theme, font (fc-match family vs requested), emoji font, tmux ≥ 3.2, shell integration, notify-send, xdg-open, germ:// handler, git, Claude/Codex hooks, relay reachability / Funnel / cloudflared, last crash.
+
+## Status (Phase 18)
 - `germ review` / Ctrl+Shift+R (`review_agents`): lists `germ/*` worktrees of the repo (from any of its worktrees), task/base/from from `branch.<b>.germ-*` git config (written by `germ agent`; merge-base fallback), commits, numstat, untracked, dirty; agent pane matched by cwd with live state and message. Enter diff in git's pager, f feedback (send_text), o focus, c commit, m merge (commit + close panes + merge --no-ff + remove), d discard. Polls stdin (no reader goroutine) so the pager/prompt get keys. `mergeBranch` / `removeWorktreeAt` shared with the post-exit menu.
 
 - Throughput (scripts/bench/throughput.sh, Xvfb/llvmpipe, 4 cores, 100x30): plain germ 2.4 s / 1.2 s / 2.1 s for 40 MB log / 20 MB SGR / 20 MB UTF-8 vs kitty 3.0 / 1.5 / 3.8 and ghostty 7.6 / 7.1 / 3.6. tmux mode 5.6 / 6.0 / 15.9 vs kitty+tmux 5.8 / 6.7 / 20.3: the tmux server pegs a core, so it's the ceiling there. RSS after 40 MB: germ 237 MB, kitty 245 MB. No optimization needed; latency not measured yet.
