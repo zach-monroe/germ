@@ -620,11 +620,16 @@ func prepareJoin(link string) (*share.Guest, error) {
 }
 
 // ensureURLHandler registers germ for germ:// links (so "Open in germ"
-// on an invite page works). quiet skips output when already set up.
+// on an invite page works). quiet is the automatic call made when hosting
+// or joining: it prints nothing, and skips temporary builds (go run, a
+// test's binary) so they don't take over links from the installed germ.
 func ensureURLHandler(quiet bool) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	if quiet && temporaryBuild(self) {
+		return nil
 	}
 	dataHome := os.Getenv("XDG_DATA_HOME")
 	if dataHome == "" {
@@ -709,4 +714,18 @@ func notify(msg string) {
 	if p, err := exec.LookPath("notify-send"); err == nil {
 		exec.Command(p, "--app-name=germ", "germ", msg).Run()
 	}
+}
+
+// temporaryBuild reports whether the binary at self lives in a temporary
+// directory, as go run and test builds do.
+func temporaryBuild(self string) bool {
+	if p, err := filepath.EvalSymlinks(self); err == nil {
+		self = p
+	}
+	tmp := os.TempDir()
+	if p, err := filepath.EvalSymlinks(tmp); err == nil {
+		tmp = p
+	}
+	rel, err := filepath.Rel(tmp, self)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
