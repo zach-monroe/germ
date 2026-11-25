@@ -20,7 +20,8 @@ window this shell runs in (or the newest one).
   germ helm ask [TAB]         ask for it (guests)
   germ helm back [TAB]        hand it back (guests)
   germ helm give NAME [TAB]   hand NAME the helm (host)
-  germ helm take [TAB|all]    take it back (host)
+  germ helm take [TAB|all]    take it back (host): this tab, or if no
+                              guest has it, every tab one does
 
 TAB is a tab's number, as the tab bar shows it.
 `

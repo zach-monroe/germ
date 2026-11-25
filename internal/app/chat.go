@@ -553,9 +553,8 @@ func (a *App) chatGive(p *pane, name string) error {
 
 // personNamed finds a guest by name or short name.
 func (a *App) personNamed(name string) (uint32, bool) {
-	want := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), "@"))
 	for _, p := range a.chat.people {
-		if !p.Host && (strings.ToLower(p.Name) == want || strings.ToLower(shortName(p.Name)) == want) {
+		if !p.Host && share.NameMatches(p.Name, name) {
 			return p.ID, true
 		}
 	}
@@ -797,7 +796,8 @@ func (a *App) ctlHelm(p *pane, line string) (string, error) {
 			return "", err
 		}
 		var wins []string
-		if len(args) > 0 && args[0] == "all" {
+		if len(args) > 0 && args[0] == "all" || len(args) == 0 && c.state.HelmOf(win) == 0 {
+			// all, or no tab given and a guest doesn't have this one: wherever one does
 			for _, t := range c.state.Tabs {
 				wins = append(wins, t.Window)
 			}

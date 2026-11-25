@@ -317,6 +317,9 @@ func (h *Host) hello(g *hostGuest, msg []byte) {
 		return
 	}
 	name := sanitizeName(hello.Name)
+	if hello.Kind == "web" { // older viewers added it to the name; Participant.Web says it now
+		name = sanitizeName(strings.TrimSuffix(name, " (browser)"))
+	}
 	if hello.Version != protocolVersion {
 		h.sendMsg(g, msgBye, []byte("this session needs the same germ version as the host's (update germ and try again)"))
 		h.kick(g.id)

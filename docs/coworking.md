@@ -41,7 +41,7 @@ alice · 14:02
 | `/copy` | copy the invite link |
 | `/newlink` | make a new link: the old one stops working, people already here stay |
 | `/helm NAME [TAB]` | hand NAME the helm |
-| `/take [TAB\|all]` | take the helm back |
+| `/take [TAB\|all]` | take the helm back (no TAB: the tab you're on if a guest has it, else every tab a guest has) |
 | `/give NAME [TAB]` | make it NAME's tab (see "Giving someone a tab") |
 | `/takeback [TAB]` | take a given tab back |
 | `/branch NAME [task]` | a tab on a new branch for NAME |

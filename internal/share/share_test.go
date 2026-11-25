@@ -620,3 +620,23 @@ func TestProtectedPane(t *testing.T) {
 		t.Fatalf("panes after kill-pane:\n%s", n)
 	}
 }
+
+func TestNameMatches(t *testing.T) {
+	for _, c := range []struct {
+		name, want string
+		ok         bool
+	}{
+		{"alice@laptop", "alice", true},
+		{"alice@laptop", "@Alice", true},
+		{"alice@laptop", "alice@laptop", true},
+		{"carol", "carol", true},
+		{"carol (browser)", "carol", true}, // a browser from before the viewer stopped adding it
+		{"alice@laptop (2)", "alice (2)", true},
+		{"alice@laptop", "bob", false},
+		{"alice", "", false},
+	} {
+		if got := NameMatches(c.name, c.want); got != c.ok {
+			t.Errorf("NameMatches(%q, %q) = %v", c.name, c.want, got)
+		}
+	}
+}

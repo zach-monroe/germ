@@ -355,8 +355,7 @@
     e.preventDefault();
     name = ($("name").value || "").trim() || "guest";
     try { localStorage.setItem("germ-name", name); } catch (e2) {}
-    myName = name.split(/\s+/)[0]; // for @mentions
-    name += " (browser)";
+    myName = name.split(/\s+/)[0]; // for @mentions (the host knows we're in a browser)
     joined = true;
     $("overlay").style.display = "none";
     fit.fit();

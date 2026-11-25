@@ -38,6 +38,12 @@
 - **`germ helm`** from a shell: `status`, `give NAME [TAB]`, `take
   [TAB|all]`, and for guests `ask` / `back`; plain `germ helm` is
   Ctrl+Shift+O.
+- **Browser guests are named like everyone else**: the viewer added
+  " (browser)" to their name, so `/helm carol` and `germ helm give carol`
+  didn't find them, and the share pane said "carol (browser) (browser)".
+  Names match by name, short name or number. Plain `/take` (and
+  `germ helm take`) takes the helm back wherever a guest has it when they
+  don't have the tab you're on.
 - Guests never type into the share pane, even at the helm of its tab:
   their typing goes to the tab's other pane.
 - germ:// links: hosting or joining from a temporary build (go run, a

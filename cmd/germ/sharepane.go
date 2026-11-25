@@ -514,7 +514,7 @@ func (p *sharePane) send() {
 
 const shareHelp = `/copy · copy the invite link      /newlink · a new link (the old one stops working)
 /helm NAME [TAB] · hand NAME the helm (of TAB; default the underlined tab)
-/take [TAB|all] · take the helm back       /yes /no · answer (or y/n, box empty)
+/take [TAB|all] · take the helm back (default: where a guest has it)   /yes /no
 /give NAME [TAB] · make it NAME's tab       /takeback [TAB] · take a given tab back
 /branch NAME [task] · a tab on a new branch for NAME
 /kick NAME|N · remove someone   /mute NAME   /unmute NAME   /save · save the chat
@@ -579,12 +579,22 @@ func (p *sharePane) command(line string) {
 		p.h.Act(share.Action{Op: op, Window: t.Window, Person: pp.ID})
 	case "take", "takeback", "untake":
 		var tabs []share.Tab
-		if len(args) > 0 && args[0] == "all" {
+		switch {
+		case len(args) > 0 && args[0] == "all":
 			tabs = st.Tabs
-		} else if t, ok := p.tab(st, args, 0); ok {
+		case len(args) == 0 && cmd == "take":
+			// The tab you're on if a guest has it, else wherever one does.
+			if t := st.Tab(st.Current); t != nil && t.Helm != 0 {
+				tabs = []share.Tab{*t}
+			} else {
+				tabs = st.Tabs
+			}
+		default:
+			t, ok := p.tab(st, args, 0)
+			if !ok {
+				return
+			}
 			tabs = []share.Tab{*t}
-		} else {
-			return
 		}
 		did := false
 		for _, t := range tabs {
@@ -622,13 +632,12 @@ func (p *sharePane) person(args []string, i int) (share.Participant, bool) {
 		p.say("whom? · /help")
 		return share.Participant{}, false
 	}
-	want := strings.ToLower(strings.TrimPrefix(args[i], "@"))
 	ps := p.h.Participants()
-	if n, err := strconv.Atoi(want); err == nil && n >= 1 && n < len(ps) {
+	if n, err := strconv.Atoi(strings.TrimPrefix(args[i], "#")); err == nil && n >= 1 && n < len(ps) {
 		return ps[n], true
 	}
 	for _, pp := range ps {
-		if !pp.Host && (strings.ToLower(pp.Name) == want || strings.ToLower(share.ShortName(pp.Name)) == want) {
+		if !pp.Host && share.NameMatches(pp.Name, args[i]) {
 			return pp, true
 		}
 	}

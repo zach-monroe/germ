@@ -124,6 +124,21 @@ func (h *Host) nameOf(id uint32) string {
 
 // ShortName drops the machine from a name: "alice@laptop" -> "alice",
 // "alice@laptop (2)" -> "alice (2)".
+// NameMatches reports whether want (typed by someone: "alice", "@alice",
+// "alice@laptop") names the person called name.
+func NameMatches(name, want string) bool {
+	want = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(want), "@"))
+	if want == "" {
+		return false
+	}
+	for _, n := range []string{name, ShortName(name), strings.TrimSuffix(name, " (browser)"), strings.TrimSuffix(ShortName(name), " (browser)")} {
+		if strings.ToLower(n) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func ShortName(n string) string {
 	if i := strings.IndexByte(n, '@'); i > 0 {
 		rest := ""
