@@ -51,7 +51,7 @@
 - **Synthetic italic and bold** for fonts without them; DPI changes between
   monitors are followed.
 - **`germ theme import`** for base16/base24, iTerm2 and Alacritty schemes.
-- Share status in the tab bar: `◉ contagious · alice ✎, bob (watching)`.
+- Share status in the tab bar: `◉ contagious · alice ✎, bob`.
 
 ### Performance (measured, Xvfb)
 - Throughput: 40 MB of logs in 2.4 s (kitty 3.0 s, ghostty 7.6 s); in tmux
