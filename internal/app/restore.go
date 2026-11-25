@@ -50,7 +50,7 @@ const snapshotFormat = "#{window_index}\t#{window_name}\t#{window_layout}\t#{win
 
 // saveSnapshot records the session's layout (main thread).
 func (c *tmuxController) saveSnapshot() {
-	if c.remote != nil || !c.restored || !c.a.cfg.Tmux.Restore {
+	if c.remote != nil || !c.restored || !c.a.cfg.Tmux.Restore || len(c.a.opts.TmuxCommand) > 0 {
 		return
 	}
 	c.command("list-panes -s -t "+tmuxQuote(c.session)+" -F "+tmuxQuote(snapshotFormat), func(lines []string, failed bool) {

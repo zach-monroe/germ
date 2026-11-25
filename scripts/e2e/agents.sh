@@ -15,6 +15,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 GERM=${GERM:-$(cd "$HERE/../.." && pwd)/germ}
 export DISPLAY=${DISPLAY_E2E:-:99}
 TMP=$(mktemp -d)
+export XDG_STATE_HOME="$TMP/state" # no session snapshots in the real state dir
 GPID=
 trap '[ -n "$GPID" ] && kill $GPID 2>/dev/null; tmux -L $SOCK kill-server 2>/dev/null; rm -rf "$TMP"' EXIT
 printf '[tmux]\nsocket = "%s"\nsession = "e2e"\n[home]\nenabled = false\n' $SOCK > "$TMP/config.toml"

@@ -16,6 +16,7 @@ SHOTS=${1:-}
 # Never talk to the real germ window or tmux this shell may be running in.
 unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET GERM_CONFIG
 TMP=$(mktemp -d)
+export XDG_STATE_HOME="$TMP/state" # no session snapshots in the real state dir
 SOCK=germ-share-e2e
 PORT=18093
 cleanup() {

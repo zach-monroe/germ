@@ -155,7 +155,8 @@ func (a *App) startTmux(session string) error {
 		}
 	}
 	c.begin()
-	if snap, ok := loadSnapshot(session); ok && !exists && a.cfg.Tmux.Restore {
+	// (Not when told what to run: germ -tmux -shell PROGRAM.)
+	if snap, ok := loadSnapshot(session); ok && !exists && a.cfg.Tmux.Restore && len(a.opts.TmuxCommand) == 0 {
 		c.restoreSession(snap)
 	} else {
 		c.restored = true

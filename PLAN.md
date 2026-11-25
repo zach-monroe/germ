@@ -242,6 +242,10 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
+## Status (Phase 22)
+- Key-to-screen latency (scripts/bench/latency.sh + keylat.c: XTest key, XGetImage poll until the window changes; terminals run `cat`; Xvfb/llvmpipe): germ ~5 ms median (p95 10–21 ms, one emulated 60 Hz swap), tmux mode ~6–9 ms; kitty 54–68 ms, ghostty ~45 ms (their deliberate input/repaint delays, tuned for real vsync). No fix needed.
+- Fixed (found by the benchmark): session restore ran for `germ -tmux -shell PROGRAM` and replaced the program; restore and snapshots are now skipped for explicit commands. e2e/bench scripts use a temporary XDG_STATE_HOME.
+
 ## Status (Phase 21)
 - Command palette (Ctrl+Shift+Space, `command_palette`): `render.View.TopOverlay` (rows drawn instead of the top rows, no cursor; the cursor no longer draws over the search bar either). Items: every labeled action with up to two keys from the live bindings, plus Open config file, germ doctor / germ setup agents in a tab, and live theme previews. Fuzzy subsequence scoring (word starts, runs). Enter runs, ↑↓/Tab/Ctrl+N/P move, Esc closes.
 

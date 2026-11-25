@@ -11,6 +11,7 @@ GERM=${GERM:-$HERE/../../germ}
 export DISPLAY=${DISPLAY_E2E:-:99}
 unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET
 B=$(mktemp -d)
+export XDG_STATE_HOME="$B/state"
 trap 'rm -rf "$B"; tmux -L germ-bench kill-server 2>/dev/null; tmux -L kitty-bench kill-server 2>/dev/null' EXIT
 
 python3 - "$B" <<'PY'
