@@ -39,12 +39,12 @@ type tmuxEvent struct {
 }
 
 type tmuxController struct {
-	restored     bool      // restore finished (or wasn't needed): snapshots may be saved
+	restored     bool // restore finished (or wasn't needed): snapshots may be saved
 	lastSnapshot time.Time
-	a       *App
-	wait    func() // waits for the tmux client to finish
-	stdin   io.WriteCloser
-	session string
+	a            *App
+	wait         func() // waits for the tmux client to finish
+	stdin        io.WriteCloser
+	session      string
 
 	writeMu sync.Mutex // serializes commands and keeps queue order
 
