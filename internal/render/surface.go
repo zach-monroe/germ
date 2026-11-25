@@ -52,6 +52,10 @@ type View struct {
 	// bar); OverlayGen must change whenever its content does.
 	Overlay    *term.Line
 	OverlayGen int
+	// TopOverlay lines are drawn instead of the top rows (the command
+	// palette); TopOverlayGen must change whenever they do.
+	TopOverlay    []*term.Line
+	TopOverlayGen int
 	// CursorOff hides the cursor for this frame (the off phase of a blink).
 	CursorOff bool
 }
@@ -115,7 +119,8 @@ func (s *Surface) Update(t *term.Terminal, v View, ox, oy, gutter int) bool {
 	v.Offset = min(v.Offset, t.ScrollbackLen())
 	pushed := t.Pushed()
 	viewChanged := v.Offset != s.view.Offset || v.Selection != s.view.Selection || v.Link != s.view.Link ||
-		v.HighlightGen != s.view.HighlightGen || v.OverlayGen != s.view.OverlayGen || (v.Overlay == nil) != (s.view.Overlay == nil)
+		v.HighlightGen != s.view.HighlightGen || v.OverlayGen != s.view.OverlayGen || (v.Overlay == nil) != (s.view.Overlay == nil) ||
+		v.TopOverlayGen != s.view.TopOverlayGen || len(v.TopOverlay) != len(s.view.TopOverlay)
 	moved := ox != s.ox || oy != s.oy || gutter != s.gutter
 	if force || viewChanged || moved || rows != len(s.rows) || cols != s.cols || modes.ReverseVideo != s.reverse ||
 		s.fontGen != r.fontGen || s.atlasGen != r.atlas.gen {
@@ -160,8 +165,10 @@ func (s *Surface) Update(t *term.Terminal, v View, ox, oy, gutter int) bool {
 		for y := 0; y < rows; y++ {
 			if all || dirty[y] {
 				abs := t.AbsRow(y, v.Offset)
-				if v.Overlay != nil && y == rows-1 {
-					s.buildRow(y, -1<<62, v.Overlay) // not a terminal row: no selection or highlights
+				if y < len(v.TopOverlay) && v.TopOverlay[y] != nil {
+					s.buildOverlayRow(y, v.TopOverlay[y])
+				} else if v.Overlay != nil && y == rows-1 {
+					s.buildOverlayRow(y, v.Overlay)
 				} else {
 					s.buildRow(y, abs, t.LineAt(abs))
 				}
@@ -244,6 +251,15 @@ func (s *Surface) cellColors(c *term.Cell) (fg, bg theme.RGB, paintBG bool) {
 }
 
 var emptyLine term.Line
+
+// buildOverlayRow draws a line that isn't terminal content (search bar,
+// palette): no selection, highlights or cursor.
+func (s *Surface) buildOverlayRow(y int, line *term.Line) {
+	vis := s.cursor.visible
+	s.cursor.visible = false
+	s.buildRow(y, -1<<62, line)
+	s.cursor.visible = vis
+}
 
 // buildRow regenerates the instance data for viewport row y, which shows
 // absolute row abs (line may be nil for rows with no content).

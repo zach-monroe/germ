@@ -60,6 +60,8 @@ func (a *App) doExtended(act config.Action) bool {
 	case config.ActionReview:
 		a.openReview()
 		return true
+	case config.ActionPalette:
+		return a.openPalette()
 	case config.ActionFollow:
 		return a.toggleFollow()
 	case config.ActionShare:

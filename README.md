@@ -132,6 +132,7 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
 | Ctrl+Shift+P | share this session (invite links) |
 | Ctrl+Shift+F | search the pane's scrollback (Enter older, Shift+Enter newer, Esc) |
+| Ctrl+Shift+Space | command palette: every action and its key, filtered as you type; also open the config, germ doctor, theme previews |
 | Ctrl+Shift+R | review agents: every agent worktree with its state and diff; review, send feedback, merge or discard |
 | Ctrl+Shift+E | hints: label every URL, `file:line`, git hash and address on screen; a letter opens it, Shift+letter copies |
 | Ctrl+Shift+G | as a guest: follow the host's tab again |

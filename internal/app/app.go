@@ -97,9 +97,10 @@ type App struct {
 	attention     atomic.Bool
 	agentPoll     atomic.Bool // time to re-detect agents
 	ctl           *ctlServer
-	prevTab       *tab         // the tab shown before the last switch (for toggle_home)
-	search        *searchState // scrollback search bar, if open
-	hints         *hintState   // keyboard hints, if shown
+	prevTab       *tab          // the tab shown before the last switch (for toggle_home)
+	search        *searchState  // scrollback search bar, if open
+	hints         *hintState    // keyboard hints, if shown
+	palette       *paletteState // command palette, if open
 	handCursor    *glfw.Cursor
 	resizeCursors map[glfw.StandardCursor]*glfw.Cursor
 	handShown     bool
@@ -417,6 +418,7 @@ func (a *App) view(p *pane, t *tab) render.View {
 	}
 	a.searchView(p, &v)
 	a.hintsView(p, &v)
+	a.paletteView(p, &v)
 	v.CursorOff = v.Focused && a.blinkOff(p)
 	return v
 }

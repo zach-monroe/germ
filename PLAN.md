@@ -242,6 +242,9 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
+## Status (Phase 21)
+- Command palette (Ctrl+Shift+Space, `command_palette`): `render.View.TopOverlay` (rows drawn instead of the top rows, no cursor; the cursor no longer draws over the search bar either). Items: every labeled action with up to two keys from the live bindings, plus Open config file, germ doctor / germ setup agents in a tab, and live theme previews. Fuzzy subsequence scoring (word starts, runs). Enter runs, ↑↓/Tab/Ctrl+N/P move, Esc closes.
+
 ## Status (Phase 20)
 - Snapshots: `list-panes -s` every 30 s (agent tick) into $XDG_STATE_HOME/germ/sessions/<session>.json (window name/layout/active, pane cwd/agent/active), only once restore is done. Restore when startTmux creates a session that didn't exist: one command line per window (new-window -c, split-window -c, select-layout, select-pane {next}), kill the initial window, select the active one relative to `:^`; resume commands typed 1.5 s later by pane ID (typed earlier, shells echo them before the prompt). `%exit` not caused by germ deletes the snapshot unless systemd says the system is stopping or the login session is closing. e2e verified by hand (simulated reboot: kill -9 germ, kill-server, relaunch); `[tmux] restore`.
 
