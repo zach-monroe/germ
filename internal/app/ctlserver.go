@@ -132,6 +132,24 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		a.setStatus(req.Text, ttl)
 		ok(&control.Response{})
 		return
+	case control.CmdShareUpdate:
+		if req.Share == nil {
+			reply(ctlErr("share_update needs share"))
+			return
+		}
+		seq, err := a.shareUpdate(req.Share)
+		if err != nil {
+			reply(ctlErr("%v", err))
+			return
+		}
+		ok(&control.Response{Seq: seq})
+		return
+	case control.CmdShareWait:
+		a.shareWait(func(r *control.Response) {
+			r.OK = true
+			reply(r)
+		})
+		return
 	case control.CmdListPanes:
 		var out []control.PaneInfo
 		for _, t := range a.tabs {

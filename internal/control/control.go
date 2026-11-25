@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/zach-monroe/germ/internal/share"
 )
 
 // Commands.
@@ -37,6 +39,13 @@ const (
 	// Event is working, waiting, done, idle or end; Agent names it; Text is
 	// an optional message (the question it's asking, its last reply).
 	CmdAgentEvent = "agent_event"
+	// CmdShareUpdate is `germ share` telling the window what's going on in
+	// the shared session (Share); the response's Seq is the last chat
+	// message the window has, so the next update sends what's after it.
+	CmdShareUpdate = "share_update"
+	// CmdShareWait waits (up to about 8 s) for the host to do something in
+	// the window (chat, the helm); the response's Actions say what.
+	CmdShareWait = "share_wait"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or
@@ -59,6 +68,8 @@ type Request struct {
 	// agent_event
 	Event string `json:"event,omitempty"`
 	Agent string `json:"agent,omitempty"`
+	// share_update
+	Share *share.Update `json:"share,omitempty"`
 }
 
 // PaneInfo describes a pane.
@@ -94,6 +105,10 @@ type Response struct {
 	Text    string     `json:"text,omitempty"`
 	Session string     `json:"session,omitempty"` // tmux session, if any
 	Window  int        `json:"window,omitempty"`  // germ's process ID
+	// share_update: the last chat message the window has; share_wait: what
+	// the host did.
+	Seq     uint64         `json:"seq,omitempty"`
+	Actions []share.Action `json:"actions,omitempty"`
 }
 
 // Dir is where germ windows put their sockets.

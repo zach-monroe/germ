@@ -2,29 +2,25 @@
 
 Share your germ session with someone by sending them a link. They see your
 tabs and splits in their own germ (with their own font, theme, scrollback
-and selection) and, if you let them, type alongside you. It's built for
+and selection), chat with you, and type when you hand them the helm. It's built for
 pair programming and for watching or steering coding agents together.
 
 ## Share
 
 In germ's tmux mode (the default), press **Ctrl+Shift+P**. A pane opens
-with two links:
+with your invite link, already on your clipboard. Anyone with it can
+watch and chat; typing is by turns (see "The helm" below).
 
-- **Can type**: the guest can type in your terminal and open tabs and
-  splits, which is like handing them your keyboard. Only give it to people
-  you trust.
-- **Watch only**: the guest sees everything live but can't change anything.
-  This one is copied to your clipboard.
-
-The tab bar shows `◉ contagious · alice ✎, bob (watching)` while people are
-connected (✎: typing right now). The share pane lists who's here, numbered,
-and logs joins and leaves. In the share pane:
+The tab bar shows `◉ contagious · alice ✎, bob` while people are connected
+(✎: typing right now). The share pane lists who's here, numbered, and logs
+the session: joins, the chat, who has the helm. In the share pane:
 
 | Key | |
 |---|---|
-| `c` / `w` | copy the can-type / watch-only link |
-| `1`-`9` | remove that person (and optionally make new links so they can't rejoin) |
-| `r` | make new links: the old ones stop working, people already here stay |
+| `c` | copy the invite link |
+| `1`-`9` | remove that person (and optionally make a new link so they can't rejoin) |
+| `r` | make a new link: the old one stops working, people already here stay |
+| `s` | save the chat to a file |
 | `q` (or Ctrl+C) | stop sharing and disconnect everyone |
 
 If your connection to the relay drops, `germ share` reconnects by itself,
@@ -32,6 +28,68 @@ and guests reconnect too.
 
 You can also run `germ share` in any pane of a germ tmux session, or
 `germ share -session NAME` from anywhere.
+
+## The chat
+
+**Ctrl+Shift+M** opens the chat: a panel on the right of your germ
+window (the terminal makes room for it). Everyone in the session is in
+one channel, guests in a browser included, and sees the same messages in
+the same order, each with who sent it and when.
+
+- While the panel is focused, your keys go to the message box, not the
+  terminal (its cursor turns hollow). **Enter** sends, **Shift+Enter**
+  starts a new line, **Up** brings back what you sent, **PgUp/PgDn**
+  scroll. **Esc** goes back to the terminal with the panel still open;
+  Ctrl+Shift+M again closes it.
+- Closed, new messages show in the tab bar (`alice: pushed the fix`, then
+  `2 new`).
+- `@alice` or `@here` highlights the message for them and sends a desktop
+  notification.
+- Joins, leaves and who got the helm show as dim one-line notices, so the
+  chat doubles as a log of who drove when.
+- Nothing is saved unless you ask: `s` in the share pane, `/save` in the
+  chat, or the palette. Chats go to `~/.local/share/germ/chats/`.
+- The host can mute someone in chat (`/mute alice`, `/unmute alice`, or
+  the palette). Messages are limited to 4 KB and a few per second.
+- Type `/help` in the chat for its commands. To send a message that starts
+  with `/`, start it with `//`.
+
+## The helm
+
+One person types in a tab at a time: whoever has its **helm**. At first
+that's you, the host, in every tab.
+
+- **A guest asks** with **Ctrl+Shift+O** (or **Request the helm** in the
+  browser). You get a notification and a bell, and the request shows in
+  your chat panel: **y** hands it over, **n** says no (with the message box
+  empty; or `/yes`, `/no`). The share pane asks too, if no germ window is
+  showing the chat.
+- **While a guest has the helm**, only their keystrokes reach that tab,
+  and yours don't (germ tells you who has it). The tab bar marks the tab
+  `⎈alice`.
+- **Ctrl+Shift+O takes it back** at once, from anyone. It's yours: a
+  guest can't refuse or hold on to it.
+- A guest hands it back with Ctrl+Shift+O (or **Hand back the helm**).
+
+Without the helm, a guest can still look at every tab, scroll, select
+and copy, and chat.
+
+### Giving someone a tab
+
+Say alice is building a feature: give her its tab, and she can work there
+while you work in yours.
+
+- **Ctrl+Shift+Space** (the palette) → **Give this tab to alice**, or type
+  `/give alice` in the chat, while looking at the tab.
+- alice owns the tab and has its helm. Others ask *her* for it, not you.
+- **Take this tab back** (the palette, or `/takeback`) returns it to you.
+  Ctrl+Shift+O still takes the helm at any moment.
+- If alice's connection drops, the tab waits for her (she gets it back
+  when she reconnects). If she's gone for good, it comes back to you after
+  90 seconds.
+
+A tab a guest opens while they have the helm starts out with them at its
+helm.
 
 ## Join
 
@@ -44,16 +102,16 @@ germ join 'https://relay.example.com/j/ROOM#KEY'
 ```
 
 A germ window opens on the shared session, with `⇄ zach, alice ✎` in the
-tab bar. Your home tab stays yours. Closing the window leaves the session.
+tab bar. Closing the window leaves the session. **Ctrl+Shift+M** chats,
+**Ctrl+Shift+O** asks for the helm of the tab you're looking at.
 
 **Following**: you start out following the host: when they switch tabs, so
 do you. Switch tabs yourself to look around on your own (the host's view
-doesn't move); **Ctrl+Shift+G** follows them again. Typing goes to the pane
-you're looking at.
+doesn't move); **Ctrl+Shift+G** follows them again.
 
 **Dropped connection**: if your network blips (or the host's does), germ
 shows `⇄ reconnecting…` and picks up where it left off, for up to 90
-seconds.
+seconds, helm and tabs included.
 
 Guests without germ can install it with one command (shown on the invite
 page): `curl -fsSL https://raw.githubusercontent.com/zach-monroe/germ/main/install.sh | sh`,
@@ -99,7 +157,7 @@ the Cloudflare tunnel meanwhile.
 ```toml
 [share]
 mode = "auto"      # auto (Tailscale Funnel if set up, else Cloudflare), tailscale, tunnel
-approve = "all"    # whose joins you approve: all, typing (can-type only), none
+approve = "all"    # approve each person who joins: all (default) or none
 ```
 
 `mode = "direct"` also exists: a UPnP port forward on your router and a
@@ -109,13 +167,9 @@ the page isn't https.
 
 ## Letting people in
 
-By default you approve every guest. When someone opens your link, the
-share pane rings the bell (germ marks the tab), sends a desktop
-notification, and asks:
-
-```
-» alex (browser) wants to join (can type). Let them in? [y/N]
-```
+By default you approve every guest. When someone opens your link, germ
+rings the bell, sends a desktop notification, and asks in your chat panel
+(and the share pane): `alex (browser) wants to join` (**y**/**n**).
 
 Their browser says "Waiting for the host to let you in…". So a link that
 ends up somewhere it shouldn't is useless without your OK. If a guest's
@@ -127,9 +181,10 @@ the relay limits how often a link can be tried.
 
 Opening a link shows the session right in the browser (xterm.js), with no
 install. Guests enter a name and they're in: your tabs as tmux draws them,
-live. Can-type links type; watch-only links can't (their keystrokes are
-dropped on your machine, and tmux also runs their view read-only).
-Guests with germ can click **Open in germ** for native tabs and splits.
+live, with the chat on the right. A strip of tabs above the terminal lets
+them look at any tab (or **Follow the host**), and **Request the helm**
+asks to type in the one they're looking at. Guests with germ can click
+**Open in germ** for native tabs and splits.
 
 ## Your own relay (optional)
 
@@ -143,34 +198,35 @@ bytes it can't read; no accounts, nothing on disk.
 
 ## Security
 
-- **End-to-end encrypted.** Each share makes two random 256-bit keys, one
-  for each link. They live only in the link's `#fragment`, which browsers
-  never send to servers, so a relay or tunnel sees who connects and how
-  much traffic flows, but not a single keystroke or byte of output.
+- **End-to-end encrypted.** Each share makes a random 256-bit key. It
+  lives only in the link's `#fragment`, which browsers never send to
+  servers, so a relay or tunnel sees who connects and how much traffic
+  flows, but not a single keystroke, chat message or byte of output.
   Messages are sealed with NaCl secretbox (XSalsa20-Poly1305), which the
   browser viewer runs in plain JavaScript (tweetnacl), so it works on
   plain-http direct links too.
 - **The link is the key, and you're the door.** A link carries the key,
   but by default you approve each person who uses it. Each `germ share`
-  makes new links, and old ones stop working (`r` in the share pane makes
-  new ones mid-session).
+  makes a new link, and old ones stop working (`r` in the share pane makes
+  a new one mid-session).
 - **Your machine only serves your share.** germ's built-in relay accepts
   one session, and only `germ share` (holding a secret token) can be its
   host. Joins are rate-limited.
-- **Watch-only is enforced on your machine**, not trusted to the guest's
-  germ. Guests drive tmux by sending it commands, and your `germ share`
-  checks every command against an allowlist that only reads the session.
-  (tmux's own read-only mode only blocks typing; it would still let a
-  guest open windows or kill the server.) Format strings that would run
-  shell commands (`#(...)`) are refused too.
-- **"Can type" guests** can do anything you could do from your keyboard
-  in that session, but germ still refuses commands that would end or
-  hijack it (`kill-server`, `kill-session`, `attach`, `source-file`, ...).
+- **The helm is enforced on your machine**, not trusted to the guest's
+  germ. Guests drive tmux by sending it commands, and `germ share` checks
+  every one against an allowlist: commands that only look are allowed;
+  commands that type into or change a tab only for whoever has its helm;
+  everything else never (tmux's key bindings and command prompt
+  included, and format strings that would run shell commands, `#(...)`).
+  Browser guests' keystrokes are typed into the pane by `germ share`
+  itself (`send-keys`), never through tmux's key tables.
+- **Nobody can speak for someone else.** Chat messages go through your
+  `germ share`, which stamps who sent each one by the connection it came
+  on, and numbers them, so everyone sees the same order.
 - Each guest gets their own tmux session grouped with yours (same windows,
-  own current window), so they can look around without moving your view.
-  Window switches are always qualified with the guest's own session, and
-  watchers may only switch windows in theirs. Guest sessions are removed
-  when guests leave (and swept up if `germ share` died).
+  own current window), so they can look around without moving your view,
+  and never resizes your windows. Guest sessions are removed when guests
+  leave (and swept up if `germ share` died).
 
 ## How it works
 
@@ -183,7 +239,10 @@ bytes it can't read; no accounts, nothing on disk.
 ```
 
 `germ share` creates a session grouped with yours for each guest and runs
-`tmux -C attach-session` on it (watchers with `-f read-only,ignore-size`,
-so their window size doesn't change yours), and tunnels it, so the guest's germ runs the same tmux control-mode client as
-your own window. Code: `internal/share` (relay, host, guest, protocol) and
-`cmd/germ-relay`.
+`tmux -C attach-session -f ignore-size` on it (so their window size doesn't
+change yours), and tunnels it, so the guest's germ runs the same tmux
+control-mode client as your own window. The chat, the tabs and the helm
+travel in the same encrypted tunnel; your germ window gets them from
+`germ share` over its control socket. Code: `internal/share` (relay, host,
+guest, protocol, `room.go` for the chat and the helm), `cmd/germ-relay`,
+and `internal/app/chat.go` (the panel).

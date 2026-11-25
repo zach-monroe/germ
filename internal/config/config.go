@@ -361,6 +361,8 @@ const (
 	ActionHints          Action = "hints"
 	ActionReview         Action = "review_agents"
 	ActionPalette        Action = "command_palette"
+	ActionChat           Action = "toggle_chat"
+	ActionHelm           Action = "helm"
 )
 
 var actions = map[Action]bool{}
@@ -371,7 +373,7 @@ func init() {
 		ActionScrollTop, ActionScrollBottom, ActionPrevPrompt, ActionNextPrompt, ActionCopyLastOutput,
 		ActionNewTab, ActionCloseTab, ActionNextTab, ActionPrevTab, ActionSplitRight, ActionSplitDown,
 		ActionClosePane, ActionFocusLeft, ActionFocusRight, ActionFocusUp, ActionFocusDown,
-		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent, ActionShare, ActionFollow, ActionSearch, ActionHints, ActionReview, ActionPalette} {
+		ActionZoomPane, ActionDetach, ActionReloadConfig, ActionHome, ActionNewAgent, ActionSendToAgent, ActionShare, ActionFollow, ActionSearch, ActionHints, ActionReview, ActionPalette, ActionChat, ActionHelm} {
 		actions[a] = true
 	}
 }
@@ -503,6 +505,8 @@ func DefaultBindings() map[string]Action {
 		"ctrl+shift+e":           ActionHints,
 		"ctrl+shift+r":           ActionReview,
 		"ctrl+shift+space":       ActionPalette,
+		"ctrl+shift+m":           ActionChat,
+		"ctrl+shift+o":           ActionHelm,
 	}
 }
 

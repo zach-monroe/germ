@@ -101,6 +101,7 @@ type App struct {
 	search        *searchState  // scrollback search bar, if open
 	hints         *hintState    // keyboard hints, if shown
 	palette       *paletteState // command palette, if open
+	chat          *chatState    // the shared session's chat and helm
 	handCursor    *glfw.Cursor
 	resizeCursors map[glfw.StandardCursor]*glfw.Cursor
 	handShown     bool
@@ -202,6 +203,7 @@ func Run(opts Options) error {
 	}
 	a.focusedA.Store(true)
 	a.tabSurf = rnd.NewSurface()
+	a.chat = newChatState(rnd.NewSurface())
 	a.gridCols, a.gridRows = rnd.Resize(fbw, fbh)
 
 	switch cfg.Shell.Term {
@@ -400,6 +402,10 @@ func (a *App) sendUser(b []byte) {
 	if p == nil || len(b) == 0 {
 		return
 	}
+	if why := a.helmBlocked(p); why != "" { // one person types at a time
+		a.chatToast(why, 4*time.Second)
+		return
+	}
 	if p.offset != 0 {
 		p.offset = 0
 		a.forceRedraw = true
@@ -411,7 +417,7 @@ func (a *App) sendUser(b []byte) {
 func (a *App) view(p *pane, t *tab) render.View {
 	v := render.View{
 		Offset:    p.offset,
-		Focused:   a.focused && p == t.active,
+		Focused:   a.focused && p == t.active && !(a.chat.focused && a.chat.visible()),
 		Selection: p.sel.render(p.term),
 		Link:      p.link,
 		Force:     a.forceRedraw,
@@ -476,6 +482,10 @@ func (a *App) drawFrame() bool {
 		surfaces = append(surfaces, a.tabSurf)
 	}
 	rects = append(rects, a.separatorRects(t, blendRGB(th.Background, th.Foreground, 0.25))...)
+	if s, r := a.chatSurface(th); s != nil {
+		surfaces = append(surfaces, s)
+		rects = append(rects, r...)
+	}
 	a.render.Frame(t.active.surf.DefaultBG(), surfaces, rects)
 	return true
 }

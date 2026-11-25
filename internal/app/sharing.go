@@ -34,10 +34,11 @@ func (a *App) setStatus(text string, ttl time.Duration) {
 
 func (a *App) statusLine() string {
 	st := a.status.Load()
-	if st == nil || (!st.until.IsZero() && time.Now().After(st.until)) {
-		return ""
+	text := ""
+	if st != nil && (st.until.IsZero() || time.Now().Before(st.until)) {
+		text = st.text
 	}
-	return st.text
+	return a.chatStatus(text)
 }
 
 // forceRedrawAsync asks the main loop to redraw everything.
@@ -53,9 +54,6 @@ func presenceText(ps []share.Participant, prefix string) string {
 		n := p.Name
 		if i := strings.IndexByte(n, '@'); i > 0 {
 			n = n[:i]
-		}
-		if p.ReadOnly {
-			n += " (watching)"
 		}
 		if p.Typing {
 			n += " ✎"
@@ -77,6 +75,7 @@ func (a *App) startRemote(g *share.Guest) {
 		c.offline.Store(true)
 		a.setStatus("⇄ reconnecting…", 0)
 	}
+	a.startGuestChat(g)
 	a.updateGuestStatus()
 	c.begin()
 	c.findHost()
@@ -132,6 +131,11 @@ func (c *tmuxController) findHost() {
 		c.hostSessionID = sid
 		if c.follow && wid != "" {
 			c.command("select-window -t "+c.windowTarget(wid), nil)
+			// If we're already there tmux says nothing, and after a
+			// reconnect germ may be showing another tab.
+			if id, ok := parseTmuxID(wid); ok {
+				c.showWindow(id)
+			}
 		}
 	})
 }

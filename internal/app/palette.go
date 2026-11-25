@@ -55,6 +55,7 @@ var actionLabels = map[config.Action]string{
 	config.ActionShare: "Share this session (invite link)", config.ActionFollow: "Follow the host (guests)",
 	config.ActionSearch: "Search scrollback", config.ActionHints: "Hints: open or copy links, files, hashes",
 	config.ActionReview: "Review agents' work",
+	config.ActionChat:   "Chat with the session (toggle)", config.ActionHelm: "Helm: take it here (host) or ask for it (guest)",
 }
 
 func (a *App) paletteItems() []paletteItem {
@@ -109,6 +110,7 @@ func (a *App) paletteItems() []paletteItem {
 	}
 	sort.Slice(actionItems, func(i, j int) bool { return actionItems[i].label < actionItems[j].label })
 	items = append(items, actionItems...)
+	items = append(items, a.chatPaletteItems()...)
 
 	self, _ := os.Executable()
 	inTab := func(args ...string) func(a *App) {

@@ -340,7 +340,7 @@ func (c *tmuxController) finish(lines []string, failed bool) {
 		cb, c.queue = c.queue[0], c.queue[1:]
 	}
 	c.mu.Unlock()
-	if failed && cb.fn == nil && (c.remote == nil || !c.remote.Welcome.ReadOnly) { // watchers' blocked actions are expected
+	if failed && cb.fn == nil && c.remote == nil { // guests' actions without the helm are refused
 		fmt.Fprintln(os.Stderr, "germ: tmux:", strings.Join(lines, " "))
 	}
 	if cb.fn == nil {

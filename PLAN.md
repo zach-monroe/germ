@@ -186,12 +186,13 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **14. Coworking v2** ✅ | Remove/ban guests from the share pane, rotate links; guests navigate tabs independently (grouped tmux sessions) with a follow-the-host toggle; "who's typing" presence; automatic reconnect for guests and host | A guest's Wi-Fi blips and they're back a few seconds later; you remove one guest without stopping the share |
 | **15. Daily-driver polish** ✅ | Drag separators to resize; OSC 8 hyperlinks; combining characters; zsh/bash shell integration | Your zsh gets prompt jumping, command marks, and notifications like fish |
 | **16. Agent tuning** ✅ | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
-| **17. Agent precision** | Agents report their own state: `germ setup agents` installs Claude Code hooks and Codex `notify` that call `germ ctl agent-event`, overriding screen heuristics; "finished" notifications; keyboard hints mode (Ctrl+Shift+E: label every URL, `file:line`, git hash, IP on screen; a letter opens, Shift+letter copies) | Badges and `wait_for` are exact for Claude Code, and you never reach for the mouse to open what an agent printed |
-| **18. Agent review & throughput** | Review tab for `germ agent` worktrees: diff with file list, merge / discard / send feedback to the agent in one key; throughput, latency and memory benchmarks against kitty and alacritty, then fixes | Three agents finish, and you review and merge each from one tab; a 100 MB log scrolls past without germ falling behind |
-| **19. Daily-driver core** | Native Wayland (GLFW 3.4) with fractional scaling and IME; opt-in ligatures (go-text shaping); synthetic italic/bold; DPI changes across monitors; crash log, `germ doctor`, config errors shown in the window; base16/iTerm2/Alacritty theme import | Crisp text on a 1.25× Wayland display, and a broken config tells you what's wrong |
-| **20. Survive a reboot** | Snapshot each tmux session's windows, layouts, directories and agents every 30 s; rebuild them when the session is created afresh; type agents' resume commands | Reboot, open germ: your tabs and splits are back in their directories, with `claude --continue` waiting in each agent pane |
-| **21. Command palette** | Ctrl+Shift+Space: fuzzy-searchable list of every action (with its key) | Every feature is findable without memorizing chords |
-| **22. Input latency** | Measure key-to-screen latency against kitty/ghostty; fix what's slow | germ is as quick to echo a key as the fastest terminal here |
+| **17. Agent precision** ✅ | Agents report their own state: `germ setup agents` installs Claude Code hooks and Codex `notify` that call `germ ctl agent-event`, overriding screen heuristics; "finished" notifications; keyboard hints mode (Ctrl+Shift+E: label every URL, `file:line`, git hash, IP on screen; a letter opens, Shift+letter copies) | Badges and `wait_for` are exact for Claude Code, and you never reach for the mouse to open what an agent printed |
+| **18. Agent review & throughput** ✅ | Review tab for `germ agent` worktrees: diff with file list, merge / discard / send feedback to the agent in one key; throughput, latency and memory benchmarks against kitty and alacritty, then fixes | Three agents finish, and you review and merge each from one tab; a 100 MB log scrolls past without germ falling behind |
+| **19. Daily-driver core** ✅ | Native Wayland (GLFW 3.4) with fractional scaling and IME; opt-in ligatures (go-text shaping); synthetic italic/bold; DPI changes across monitors; crash log, `germ doctor`, config errors shown in the window; base16/iTerm2/Alacritty theme import | Crisp text on a 1.25× Wayland display, and a broken config tells you what's wrong |
+| **20. Survive a reboot** ✅ | Snapshot each tmux session's windows, layouts, directories and agents every 30 s; rebuild them when the session is created afresh; type agents' resume commands | Reboot, open germ: your tabs and splits are back in their directories, with `claude --continue` waiting in each agent pane |
+| **21. Command palette** ✅ | Ctrl+Shift+Space: fuzzy-searchable list of every action (with its key) | Every feature is findable without memorizing chords |
+| **22. Input latency** ✅ | Measure key-to-screen latency against kitty/ghostty; fix what's slow | germ is as quick to echo a key as the fastest terminal here |
+| **23. Coworking v3: chat and the helm** ✅ | One invite link; a session chat (docked panel in germ, side panel in the browser); typing by turns: one person at the helm per tab, guests request it, the host (or the tab's owner) approves, Ctrl+Shift+O always takes it back; tabs assigned to a guest | You give alice the feature tab and she works there while you work in yours; bob asks for the helm in chat and you hand it over with one key |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -231,6 +232,58 @@ same window; the socket is 0600.
 
 **Parallel agents (11)** and **input polish (12)** build on both.
 
+## Coworking v3 design (Phase 23)
+
+**One link.** Everyone who joins can watch and chat; typing is by turns.
+The read-only link is gone (`[share] approve = "typing"` now means "all").
+
+**The helm, per tab.** Each tab (tmux window) has an owner (the host
+unless assigned) and a helm holder (the owner unless handed over). Only
+the holder's keystrokes reach the tab, the host's included: one person
+types at a time.
+- A guest asks for the helm (Ctrl+Shift+O in germ, a button in the
+  browser). The tab's owner approves if a guest owns it and holds it;
+  otherwise the host. The host can answer any request.
+- The holder can hand it back (Ctrl+Shift+O again).
+- The host's Ctrl+Shift+O takes the helm of the tab they're looking at,
+  from anyone, immediately.
+- Assigning a tab to a guest makes them its owner and holder ("Give this
+  tab to alice" in the palette, `/give alice` in chat); taking it back
+  returns both to the host. Owners and holders survive reconnects (people
+  are identified by their client ID, not their connection); 90 s after
+  someone leaves for good, their tabs go back to the host.
+- Enforced on the host: guest tmux commands are allowlisted (view
+  commands always; commands that type or change a tab only for the tab's
+  holder; `send-keys -K`, i.e. tmux key bindings, never). Browser guests
+  attach to their own grouped session, but nothing is ever written to that
+  client: their keystrokes go through `send-keys -H` to the active pane, so
+  tmux's prefix and command prompt are out of reach. (Not `attach -r`:
+  command-line tmux commands run as the most recently active client, and a
+  read-only one makes tmux refuse them, the host's own included.) The host's germ drops its own keystrokes in a
+  tab a guest holds.
+
+**Chat.** The host's `germ share` process owns the channel: guests send
+text to it, it stamps sender (by connection, so nobody can impersonate),
+sequence number and time, and broadcasts. Everyone renders in the host's
+order. Last 500 messages in memory, last 200 sent to newcomers; nothing
+on disk unless the host saves it (`/save`, the palette, or `s` in the
+share pane: `~/.local/share/germ/chats/`). Session events (joins, helm,
+tabs) are dim one-line notices. 4 KB per message, rate-limited, the host
+can mute. `@name` / `@here` highlight and notify. "alice is typing…"
+throttled.
+- germ: a docked panel on the right (Ctrl+Shift+M opens and focuses; Esc
+  back to the terminal; Ctrl+Shift+M again closes). While focused, keys go
+  to the message box, and the terminal cursor goes hollow. Enter sends,
+  Shift+Enter newline, Up recalls. With an empty box, y/n answer a pending
+  helm or join request. Closed, new messages show an unread count and a
+  preview in the tab bar.
+- The host's germ talks to `germ share` over the control socket:
+  `share_update` (share → germ: people, tabs and helm, requests, new
+  messages) and `share_wait` (germ long-polls for the host's chat and
+  decisions).
+- Browser: a chat panel, a tab strip (look at any tab, or follow the
+  host), and "Request the helm".
+
 ## Decisions (2026-11-23)
 - **Home screen**: germ-native first tab; widgets are executables (any language) run in PTYs.
 - **Coworking**: start with a tiny relay + E2E-encrypted invite links (no SSH setup for guests); hosting the relay is the user's call later.
@@ -241,6 +294,15 @@ same window; the socket is 0600.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (Phase 23)
+- One invite link (protocol v3; the watch-only link and `approve = "typing"` are gone). People are identified by client ID across reconnects (`share.Participant.ID` is a person ID); names are unique by short name ("alice", "alice (2)").
+- The room (`internal/share/room.go`): chat (host-stamped sender, seq and time; 500 kept, 200 sent to newcomers; 4 KB, 5-message burst then 1/s; mute), per-tab owner and helm, helm requests (approver: the tab's owner if a guest owns and holds it, else the host; host can always decide), events in the chat, 90 s grace for people who leave. Saved only on command (`~/.local/share/germ/chats/`).
+- Enforcement in `germ share`: guest tmux commands allowlisted by class (view / needs the helm of the -t target's tab / new-window needs the helm of the guest's current tab); `send-keys -K` never. Browser guests get grouped sessions too (tab strip, follow the host) and type via `send-keys -H`. Not `attach -r`: a read-only client makes tmux refuse command-line commands, the host's own included (found testing the browser).
+- germ: `internal/app/chat.go`, a docked panel drawn as a small `term.Terminal` (Ctrl+Shift+M `toggle_chat`), Ctrl+Shift+O `helm`; the host's own keystrokes and mouse reports are dropped in a tab a guest holds; `⎈alice` tab tags; toasts and unread count in the tab bar; @mentions notify; y/n answer requests with an empty box; `/give /takeback /mute /unmute /save /yes /no /helm`; palette items. The host's window talks to `germ share` with `share_update` / `share_wait` (long poll) on its own control connection.
+- Browser: chat panel, tab strip, Request / Hand back the helm, mention highlights, unread count in the title; mouse and focus reports never sent.
+- Fixed: a guest following the host could show the wrong tab after a reconnect (tmux says nothing when the session is already on the host's window). `germ share`'s control connection was used from several goroutines at once.
+- Tests: `TestHelmAndChat` (in-process relay, host, three guests), `TestFilterCommand`, chat rendering tests; `scripts/e2e/share.sh` drives two germ guests through the helm, chat, `/give`, a relay restart and removal (17 checks). The browser viewer was checked by hand in Firefox on Xvfb.
 
 ## Status (Phase 22)
 - Key-to-screen latency (scripts/bench/latency.sh + keylat.c: XTest key, XGetImage poll until the window changes; terminals run `cat`; Xvfb/llvmpipe): germ ~5 ms median (p95 10–21 ms, one emulated 60 Hz swap), tmux mode ~6–9 ms; kitty 54–68 ms, ghostty ~45 ms (their deliberate input/repaint delays, tuned for real vsync). No fix needed.

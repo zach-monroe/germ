@@ -25,6 +25,12 @@ type Guest struct {
 	Welcome Welcome
 	// OnPresence is called when the participant list changes.
 	OnPresence func([]Participant)
+	// OnChat is called with each chat message (Seq 0: a notice just for
+	// us), and OnHistory with the recent chat when we (re)join.
+	OnChat    func(ChatMsg)
+	OnHistory func([]ChatMsg)
+	// OnState is called when tabs, the helm or requests change.
+	OnState func(State)
 	// OnDisconnect is called when the connection drops and reconnecting
 	// starts.
 	OnDisconnect func()
@@ -46,6 +52,8 @@ type Guest struct {
 	ended   bool            // the host said goodbye or removed us
 	reason  string
 	people  []Participant
+	state   State
+	chat    []ChatMsg
 }
 
 // ReconnectMarker is the line Read yields when the stream restarts.
@@ -196,6 +204,41 @@ func (g *Guest) readLoop(c *websocket.Conn) {
 					g.OnPresence(ps)
 				}
 			}
+		case msgChat:
+			var m ChatMsg
+			if json.Unmarshal(msg[1:], &m) == nil {
+				if m.Seq != 0 {
+					g.mu.Lock()
+					g.chat = append(g.chat, m)
+					if len(g.chat) > chatKeep {
+						g.chat = append([]ChatMsg(nil), g.chat[len(g.chat)-chatKeep:]...)
+					}
+					g.mu.Unlock()
+				}
+				if g.OnChat != nil {
+					g.OnChat(m)
+				}
+			}
+		case msgHistory:
+			var ms []ChatMsg
+			if json.Unmarshal(msg[1:], &ms) == nil {
+				g.mu.Lock()
+				g.chat = ms
+				g.mu.Unlock()
+				if g.OnHistory != nil {
+					g.OnHistory(ms)
+				}
+			}
+		case msgState:
+			var st State
+			if json.Unmarshal(msg[1:], &st) == nil {
+				g.mu.Lock()
+				g.state = st
+				g.mu.Unlock()
+				if g.OnState != nil {
+					g.OnState(st)
+				}
+			}
 		case msgBye:
 			g.mu.Lock()
 			g.reason = string(msg[1:])
@@ -203,6 +246,27 @@ func (g *Guest) readLoop(c *websocket.Conn) {
 			g.mu.Unlock()
 		}
 	}
+}
+
+// Chat is the chat so far (what the host sent when we joined, and since).
+func (g *Guest) Chat() []ChatMsg {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]ChatMsg(nil), g.chat...)
+}
+
+// State is the latest tabs and helm.
+func (g *Guest) State() State {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.state
+}
+
+// Act sends an action (chat, the helm) to the host. While reconnecting
+// it's dropped.
+func (g *Guest) Act(a Action) error {
+	b, _ := json.Marshal(a)
+	return g.send(msgAction, b)
 }
 
 // finish ends the stream.
@@ -259,23 +323,28 @@ func (g *Guest) Read(p []byte) (int, error) { return g.pr.Read(p) }
 // Write sends tmux commands to the host. While reconnecting, writes are
 // dropped (the reader re-requests state after ReconnectMarker).
 func (g *Guest) Write(p []byte) (int, error) {
+	if err := g.send(msgData, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (g *Guest) send(typ byte, p []byte) error {
 	g.mu.Lock()
 	c, closed := g.conn, g.closed
 	g.mu.Unlock()
 	if closed {
-		return 0, io.ErrClosedPipe
+		return io.ErrClosedPipe
 	}
 	if c == nil {
-		return len(p), nil
+		return nil
 	}
 	g.writeMu.Lock()
 	defer g.writeMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := c.Write(ctx, websocket.MessageBinary, g.box.seal(append([]byte{msgData}, p...))); err != nil {
-		return len(p), nil // the reader notices and reconnects
-	}
-	return len(p), nil
+	c.Write(ctx, websocket.MessageBinary, g.box.seal(append([]byte{typ}, p...))) // on failure the reader notices and reconnects
+	return nil
 }
 
 // Close leaves the session.

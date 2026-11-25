@@ -62,6 +62,10 @@ func (a *App) doExtended(act config.Action) bool {
 		return true
 	case config.ActionPalette:
 		return a.openPalette()
+	case config.ActionChat:
+		return a.toggleChat()
+	case config.ActionHelm:
+		return a.helmKey()
 	case config.ActionFollow:
 		return a.toggleFollow()
 	case config.ActionShare:

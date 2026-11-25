@@ -82,7 +82,7 @@ allow_input = true      # let clients type into panes and open new ones
 
 [share]
 mode = "auto"            # how guests reach you: auto (Tailscale Funnel if set up, else a free Cloudflare tunnel), tailscale, tunnel
-approve = "all"          # approve each guest: all, typing (only can-type guests), none
+approve = "all"          # approve each person who joins: all, or none
 # mode = "direct" serves a plain-http link to your public IP via a router port forward (never automatic)
 # relay = "https://relay.example.com"  # use your own relay server instead (docs/coworking.md)
 
@@ -92,7 +92,9 @@ approve = "all"          # approve each guest: all, typing (only can-type guests
 #   previous_prompt, next_prompt, copy_last_output,
 #   new_tab, close_tab, next_tab, previous_tab, split_right, split_down,
 #   close_pane, focus_left, focus_right, focus_up, focus_down,
-#   toggle_pane_zoom, detach, reload_config
+#   toggle_pane_zoom, detach, reload_config, toggle_home, new_agent,
+#   send_to_agent, share_session, toggle_follow, search, hints,
+#   review_agents, command_palette, toggle_chat, helm
 [keybindings]
 # "ctrl+shift+c" = "copy"
 # "ctrl+shift+v" = "paste"

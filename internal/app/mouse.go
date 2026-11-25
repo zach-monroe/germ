@@ -206,7 +206,7 @@ func reporting(p *pane, mods glfw.ModifierKey) (term.MouseMode, term.MouseEncodi
 
 func (a *App) reportMouse(p *pane, col, row int, btn input.Button, act input.MouseAction, mods glfw.ModifierKey) {
 	mode, enc, ok := reporting(p, mods)
-	if !ok {
+	if !ok || a.helmBlocked(p) != "" {
 		return
 	}
 	ox, oy, _ := a.paneOrigin(p)
@@ -242,6 +242,15 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 	}
 	if action == glfw.Press && btn == input.ButtonLeft && a.startSepDrag(a.mouse.gx, a.mouse.gy) {
 		return
+	}
+	if row, ok := a.chatHit(a.mouse.gx, a.mouse.gy); ok && a.mouse.capture == nil {
+		if action == glfw.Press && btn == input.ButtonLeft {
+			a.chatClick(row)
+		}
+		return
+	}
+	if action == glfw.Press && a.chat.focused {
+		a.chat.focused, a.chat.dirty, a.forceRedraw = false, true, true // back to the terminal
 	}
 	p, col, row, inBar := a.hit()
 	if action == glfw.Release {
@@ -360,6 +369,14 @@ func (a *App) onCursorPos(_ *glfw.Window, x, y float64) {
 }
 
 func (a *App) onScroll(_ *glfw.Window, _, yoff float64) {
+	if _, ok := a.chatHit(a.mouse.gx, a.mouse.gy); ok {
+		if yoff > 0 {
+			a.chatScroll(1)
+		} else if yoff < 0 {
+			a.chatScroll(-1)
+		}
+		return
+	}
 	p, col, row, inBar := a.hit()
 	if inBar {
 		if yoff > 0 {

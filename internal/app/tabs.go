@@ -83,7 +83,7 @@ func (a *App) barRows() int {
 
 // content is the grid area for panes.
 func (a *App) content() cellRect {
-	return cellRect{0, 0, a.gridCols, a.gridRows - a.barRows()}
+	return cellRect{0, 0, a.gridCols - a.chatCols(), a.gridRows - a.barRows()}
 }
 
 // relayout recomputes pane rectangles for every tab and resizes terminals
@@ -424,7 +424,11 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 		if r := badgeRune(badge, now); r != 0 {
 			head += string(r) + " "
 		}
-		label := []rune(head + t.title() + " ")
+		title := t.title()
+		if tag := a.helmTag(t); tag != "" {
+			title += " " + tag
+		}
+		label := []rune(head + title + " ")
 		if len(label) > maxW {
 			label = append(label[:maxW-2], '…', ' ')
 		}

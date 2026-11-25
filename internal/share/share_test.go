@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -56,151 +57,234 @@ func TestLinks(t *testing.T) {
 
 func TestFilterCommand(t *testing.T) {
 	for _, c := range []struct {
-		line     string
-		readOnly bool
-		ok       bool
+		line   string
+		class  int
+		target string
 	}{
-		{`list-windows -F "#{window_id}"`, true, true},
-		{`capture-pane -p -e -t %1 -S -2000`, true, true},
-		{`display -p -t %1 "#{cursor_x}"`, true, true},
-		{`display "hi"`, true, false},
-		{`send-keys -t %1 -H 41`, true, false},
-		{`new-window`, true, false},
-		{`new-window`, false, true},
-		{`send-keys -t %1 -H 41`, false, true},
-		{`kill-server`, false, false},
-		{`list-windows ; kill-server`, true, false},
-		{`display -p "#(touch /tmp/x)"`, true, false},
-		{`set-environment GERM_SOCKET /x`, false, false},
-		{`select-window -t $4:@2`, true, true},
-		{`select-window -t $1:@2`, true, false}, // someone else's session
-		{`select-window -t @2`, true, false},    // ambiguous in a group
+		{`list-windows -F "#{window_id}"`, cmdView, ""},
+		{`capture-pane -p -e -t %1 -S -2000`, cmdView, ""},
+		{`display -p -t %1 "#{cursor_x}"`, cmdView, ""},
+		{`display "hi"`, cmdBlocked, ""},
+		{`send-keys -t %1 -H 41`, cmdHelm, "%1"},
+		{`send-keys -X -t %3 cancel`, cmdHelm, "%3"},
+		{`send-keys -K -c /dev/pts/3 C-b c`, cmdBlocked, ""}, // tmux bindings: the prefix and command prompt
+		{`split-window -h -t %2 -c '/tmp/x'`, cmdHelm, "%2"},
+		{`kill-window -t @4`, cmdHelm, "@4"},
+		{`resize-pane -Z -t %2`, cmdHelm, "%2"},
+		{`new-window -c '/tmp'`, cmdNewWindow, ""},
+		{`new-window -t $1`, cmdBlocked, ""},
+		{`kill-server`, cmdBlocked, ""},
+		{`run-shell "rm -rf ~"`, cmdBlocked, ""},
+		{`command-prompt`, cmdBlocked, ""},
+		{`list-windows ; kill-server`, cmdBlocked, ""},
+		{`display -p "#(touch /tmp/x)"`, cmdBlocked, ""},
+		{`set-environment GERM_SOCKET /x`, cmdBlocked, ""},
+		{`select-window -t $4:@2`, cmdView, ""},
+		{`select-window -t '$4:@2'`, cmdView, ""},
+		{`select-window -t $1:@2`, cmdBlocked, ""}, // someone else's session
+		{`select-window -t @2`, cmdBlocked, ""},    // ambiguous in a group
 	} {
-		if _, ok := filterCommand(c.line, c.readOnly, "$4"); ok != c.ok {
-			t.Errorf("%q (ro=%v): ok=%v", c.line, c.readOnly, ok)
+		if class, target := filterCommand(c.line, "$4"); class != c.class || target != c.target {
+			t.Errorf("%q: class %d target %q, want %d %q", c.line, class, target, c.class, c.target)
 		}
 	}
 }
 
-// TestShareEndToEnd runs a relay, a host sharing a scratch tmux session,
-// and two guests (one read-only) in-process.
-func TestShareEndToEnd(t *testing.T) {
+// testSession starts a scratch tmux server with session name running cat,
+// and a relay, and returns a host sharing it (not yet running).
+func testSession(t *testing.T, name string) (h *Host, tmux func(...string) (string, error), relay *Relay) {
+	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("no tmux")
 	}
 	sock := "germ-share-test-" + randomID(4)
-	tmux := func(args ...string) error {
-		return exec.Command("tmux", append([]string{"-L", sock}, args...)...).Run()
+	tmux = func(args ...string) (string, error) {
+		out, err := exec.Command("tmux", append([]string{"-L", sock}, args...)...).Output()
+		return string(out), err
 	}
-	if err := tmux("new-session", "-d", "-s", "shared", "-x", "80", "-y", "24", "cat"); err != nil {
+	if _, err := tmux("new-session", "-d", "-s", name, "-x", "80", "-y", "24", "cat"); err != nil {
 		t.Skip("can't start tmux:", err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		tmux("kill-server") // before removing its socket, or it can't be reached
 		os.Remove("/tmp/tmux-" + itoa(os.Getuid()) + "/" + sock)
-	}()
-
-	relay := NewRelay()
+	})
+	relay = NewRelay()
 	relay.Log.SetOutput(new(strings.Builder))
 	srv := httptest.NewServer(relay.Handler())
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	u, _ := url.Parse(srv.URL)
-
-	h, _ := NewHost(u, "shared")
+	h, _ = NewHost(u, name)
 	h.TmuxArgs = []string{"-L", sock}
 	h.Name = "host@test"
 	h.Approval = "none"
+	h.Log = func(f string, a ...any) { t.Logf(f, a...) }
+	return h, tmux, relay
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if cond() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// TestHelmAndChat runs a relay, a host and two guests in-process: nobody
+// types until they have the helm, the host hands it over and takes it
+// back, and the chat reaches everyone in one order with trusted senders.
+func TestHelmAndChat(t *testing.T) {
+	h, tmux, _ := testSession(t, "shared")
+	var hostChat []ChatMsg
+	var mu sync.Mutex
+	h.OnChat = func(m ChatMsg) { mu.Lock(); hostChat = append(hostChat, m); mu.Unlock() }
+	asked := make(chan HelmRequest, 4)
+	h.OnHelmRequest = func(r HelmRequest) { asked <- r }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go h.Run(ctx)
-	rw, ro := h.Links()
 	time.Sleep(200 * time.Millisecond)
 
-	g, err := Join(ctx, rw, "alice", nil)
-	if err != nil {
-		t.Fatal(err)
+	join := func(name string) *Guest {
+		g, err := Join(ctx, h.Link(), name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { g.Close() })
+		go io.Copy(io.Discard, g)
+		return g
 	}
-	defer g.Close()
-	if g.Welcome.Session != "shared" || g.Welcome.ReadOnly {
-		t.Errorf("welcome %+v", g.Welcome)
+	pane := func() string { out, _ := tmux("capture-pane", "-p", "-t", "shared"); return out }
+
+	alice := join("alice")
+	if alice.Welcome.Session != "shared" || alice.Welcome.You == 0 {
+		t.Errorf("welcome %+v", alice.Welcome)
 	}
-	lines := bufio.NewScanner(g)
-	var seen strings.Builder // pane output so far: tmux may split it across %output lines
-	expect := func(want string) {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) && lines.Scan() {
-			seen.WriteString(outputText(lines.Text()))
-			if strings.Contains(seen.String(), want) {
-				return
+	var win string
+	waitFor(t, "state", func() bool {
+		if st := alice.State(); len(st.Tabs) == 1 {
+			win = st.Tabs[0].Window
+		}
+		return win != ""
+	})
+
+	// Without the helm, typing goes nowhere.
+	alice.Write([]byte("send-keys -t %0 -l no-helm\n"))
+	time.Sleep(500 * time.Millisecond)
+	if strings.Contains(pane(), "no-helm") {
+		t.Fatal("alice typed without the helm")
+	}
+	// She asks; the host is asked and says yes; now she types.
+	alice.Act(Action{Op: OpRequest, Window: win})
+	var r HelmRequest
+	select {
+	case r = <-asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host wasn't asked")
+	}
+	if r.Name != "alice" || r.Window != win || r.Approver != 0 {
+		t.Errorf("request %+v", r)
+	}
+	h.Act(Action{Op: OpDecide, Request: r.ID, Allow: true})
+	if got := h.State().HelmOf(win); got != alice.Welcome.You {
+		t.Fatalf("helm is %d", got)
+	}
+	alice.Write([]byte("send-keys -t %0 -l with-helm\n"))
+	waitFor(t, "alice's typing", func() bool { return strings.Contains(pane(), "with-helm") })
+
+	// bob can't type while alice has it, and can't take it.
+	bob := join("bob")
+	bob.Write([]byte("send-keys -t %0 -l bob-was-here\n"))
+	bob.Act(Action{Op: OpTake, Window: win})
+	time.Sleep(500 * time.Millisecond)
+	if strings.Contains(pane(), "bob-was-here") || h.State().HelmOf(win) != alice.Welcome.You {
+		t.Fatal("bob typed or took the helm")
+	}
+	// The host takes it back at once.
+	h.Act(Action{Op: OpTake, Window: win})
+	alice.Write([]byte("send-keys -t %0 -l after-take\n"))
+	time.Sleep(500 * time.Millisecond)
+	if strings.Contains(pane(), "after-take") {
+		t.Fatal("alice typed after the host took the helm")
+	}
+
+	// A tab given to bob: he types there, and approves others' requests.
+	h.Act(Action{Op: OpGive, Window: win, Person: bob.Welcome.You})
+	bob.Write([]byte("send-keys -t %0 -l bobs-tab\n"))
+	waitFor(t, "bob's typing", func() bool { return strings.Contains(pane(), "bobs-tab") })
+	alice.Act(Action{Op: OpRequest, Window: win})
+	waitFor(t, "request to bob", func() bool {
+		rs := bob.State().Requests
+		return len(rs) == 1 && rs[0].Approver == bob.Welcome.You
+	})
+	rid := bob.State().Requests[0].ID
+	bob.Act(Action{Op: OpDecide, Request: rid, Allow: true})
+	waitFor(t, "alice has bob's tab", func() bool { return h.State().HelmOf(win) == alice.Welcome.You })
+	alice.Act(Action{Op: OpRelease, Window: win})
+	waitFor(t, "back to bob", func() bool { return h.State().HelmOf(win) == bob.Welcome.You })
+
+	// Chat: one order everywhere, senders stamped by the host.
+	alice.Act(Action{Op: OpSay, Text: "hi from alice", Person: 0})
+	time.Sleep(100 * time.Millisecond)
+	h.Act(Action{Op: OpSay, Text: "hi from the host"})
+	bob.Act(Action{Op: OpSay, Text: "  \x1b[31mhi from bob\n\n"})
+	said := func(chat []ChatMsg) []string {
+		var out []string
+		for _, m := range chat {
+			if !m.Event {
+				out = append(out, m.Name+": "+m.Text)
 			}
 		}
-		t.Fatalf("never saw %q", want)
+		return out
 	}
-	g.Write([]byte("send-keys -t shared -l hello-from-guest\n"))
-	expect("hello-from-guest") // echoed by cat via %output
+	want := "alice: hi from alice|host: hi from the host|bob: [31mhi from bob"
+	for _, g := range []*Guest{alice, bob} {
+		waitFor(t, "chat", func() bool { return strings.Join(said(g.Chat()), "|") == want })
+	}
+	mu.Lock()
+	if got := strings.Join(said(hostChat), "|"); got != want {
+		t.Errorf("host chat %q", got)
+	}
+	mu.Unlock()
 
-	r, err := Join(ctx, ro, "bob", nil)
+	// Someone joining later gets the history, events included.
+	carol := join("alice") // same name: gets a unique one
+	waitFor(t, "history", func() bool { return strings.Contains(strings.Join(said(carol.Chat()), "|"), want) })
+	ps := h.Participants()
+	if len(ps) != 4 || ps[3].Name != "alice (2)" {
+		t.Errorf("participants %+v", ps)
+	}
+	events := 0
+	for _, m := range carol.Chat() {
+		if m.Event && strings.Contains(m.Text, "gave alice the helm") {
+			events++
+		}
+	}
+	if events == 0 {
+		t.Error("no helm events in the history")
+	}
+
+	// Saved on command, only.
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	path, err := h.SaveChat()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
-	if !r.Welcome.ReadOnly {
-		t.Error("read-only link joined read-write")
-	}
-	rlines := bufio.NewScanner(r)
-	r.Write([]byte("new-window\n"))
-	deadline := time.Now().Add(5 * time.Second)
-	sawError := false
-	for time.Now().Before(deadline) && rlines.Scan() {
-		if strings.HasPrefix(rlines.Text(), "%error") {
-			sawError = true
-			break
-		}
-	}
-	if !sawError {
-		t.Error("read-only guest's new-window wasn't refused")
-	}
-	time.Sleep(200 * time.Millisecond)
-	if ps := h.Participants(); len(ps) != 3 {
-		t.Errorf("participants %+v", ps)
-	}
-	out, _ := exec.Command("tmux", "-L", sock, "list-windows", "-t", "shared").Output()
-	if n := strings.Count(string(out), "\n"); n != 1 {
-		t.Errorf("windows: %d", n)
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), "alice: hi from alice") {
+		t.Errorf("saved chat:\n%s", b)
 	}
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // TestShareV2 covers typing presence, grouped guest sessions, removing a
-// guest, and reconnecting after the relay drops every connection.
+// guest, and reconnecting after the relay drops every connection (keeping
+// the helm).
 func TestShareV2(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("no tmux")
-	}
-	sock := "germ-share-test-" + randomID(4)
-	tmux := func(args ...string) (string, error) {
-		out, err := exec.Command("tmux", append([]string{"-L", sock}, args...)...).Output()
-		return string(out), err
-	}
-	if _, err := tmux("new-session", "-d", "-s", "s", "-x", "80", "-y", "24", "cat"); err != nil {
-		t.Skip("can't start tmux:", err)
-	}
-	defer func() {
-		tmux("kill-server")
-		os.Remove("/tmp/tmux-" + itoa(os.Getuid()) + "/" + sock)
-	}()
-
-	relay := NewRelay()
-	relay.Log.SetOutput(new(strings.Builder))
-	srv := httptest.NewServer(relay.Handler())
-	defer srv.Close()
-	u, _ := url.Parse(srv.URL)
-	h, _ := NewHost(u, "s")
-	h.TmuxArgs = []string{"-L", sock}
-	h.Approval = "none"
-	h.Log = func(f string, a ...any) { t.Logf(f, a...) }
+	h, tmux, relay := testSession(t, "s")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { // like germ share: keep serving across relay drops
@@ -209,27 +293,18 @@ func TestShareV2(t *testing.T) {
 			time.Sleep(200 * time.Millisecond)
 		}
 	}()
-	rw, ro := h.Links()
 	time.Sleep(200 * time.Millisecond)
 
-	alice, err := Join(ctx, rw, "alice", nil)
+	alice, err := Join(ctx, h.Link(), "alice", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer alice.Close()
-	bob, err := Join(ctx, ro, "bob", nil)
+	bob, err := Join(ctx, h.Link(), "bob", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor := func(what string, cond func() bool) {
-		t.Helper()
-		for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-			if cond() {
-				return
-			}
-		}
-		t.Fatalf("timed out waiting for %s", what)
-	}
+	waitFor := func(what string, cond func() bool) { t.Helper(); waitFor(t, what, cond) }
 	go io.Copy(io.Discard, bob)
 	aliceOut := make(chan string, 1000)
 	go func() {
@@ -265,8 +340,11 @@ func TestShareV2(t *testing.T) {
 		out, _ := tmux("list-sessions", "-F", "#{session_name}")
 		return strings.Count(out, "s-guest-") == 2
 	})
-	// Typing shows up in presence, then clears.
-	alice.Write([]byte("send-keys -t s -l typing\n"))
+	// Give alice the tab. Typing shows up in presence.
+	waitFor("tabs", func() bool { return len(h.State().Tabs) == 1 })
+	win := h.State().Tabs[0].Window
+	h.Act(Action{Op: OpGive, Window: win, Person: alice.Welcome.You})
+	alice.Write([]byte("send-keys -t %0 -l typing\n"))
 	expect("typing")
 	waitFor("typing", func() bool {
 		for _, p := range h.Participants() {
@@ -290,11 +368,15 @@ func TestShareV2(t *testing.T) {
 		return strings.Count(out, "s-guest-") == 1
 	})
 
-	// The relay drops everyone: alice comes back on her own.
+	// The relay drops everyone: alice comes back on her own, still at the
+	// helm of her tab.
 	relay.dropAll()
 	expect(ReconnectMarker)
-	alice.Write([]byte("send-keys -t s -l back-again\n"))
+	alice.Write([]byte("send-keys -t %0 -l back-again\n"))
 	expect("back-again")
+	if st := h.State(); st.Tab(win).Owner != alice.Welcome.You {
+		t.Errorf("alice's tab after reconnecting: %+v", st.Tabs)
+	}
 }
 
 // TestBrowserCrypto checks the browser viewer's crypto (tweetnacl, as
@@ -412,14 +494,14 @@ func TestApproval(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
-	rw, ro := h.Links()
+	rw := h.Link()
 	time.Sleep(200 * time.Millisecond)
 
 	// alice is let in.
 	waited := make(chan bool, 1)
 	go func() {
 		r := <-asked
-		if r.Name != "alice" || r.ReadOnly {
+		if r.Name != "alice" {
 			t.Errorf("request %+v", r)
 		}
 		h.Decide(r.ID, true)
@@ -438,7 +520,7 @@ func TestApproval(t *testing.T) {
 
 	// bob is turned away.
 	go func() { h.Decide((<-asked).ID, false) }()
-	if _, err := Join(ctx, ro, "bob", nil); err == nil || !strings.Contains(err.Error(), "didn't let you in") {
+	if _, err := Join(ctx, rw, "bob", nil); err == nil || !strings.Contains(err.Error(), "didn't let you in") {
 		t.Errorf("bob: %v", err)
 	}
 

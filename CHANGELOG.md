@@ -4,6 +4,22 @@
 
 **Spread your germs.** Highly contagious coworking.
 
+### Coworking: chat and the helm
+- **One invite link.** Everyone who joins can watch and chat; typing is
+  by turns.
+- **Session chat, Ctrl+Shift+M**: a panel beside the terminal in germ, and
+  in the browser. Messages are grouped by sender with times, joins and
+  helm changes show as notices, `@name` / `@here` notify. Saved only when
+  the host asks (`/save`, `s` in the share pane).
+- **The helm, Ctrl+Shift+O**: one person types in a tab at a time. Guests
+  ask, the host hands it over with `y` in the chat panel, and Ctrl+Shift+O
+  takes it back at once. Enforced on the host's machine.
+- **Give a guest a tab** (`/give alice`, or the palette): it's theirs to
+  type in, and others ask them for it.
+- Browser guests get a tab strip (look at any tab, or follow the host).
+- `germ share`'s guests can no longer use the host's tmux key bindings or
+  command prompt.
+
 ### Agents
 - **Exact agent status** (`germ setup agents`): Claude Code hooks and Codex's
   notify report working / needs you / finished to germ directly, instead of

@@ -14,9 +14,12 @@ built-in tmux and fish integration.
   splits — with germ's own scrollback, selection, and clipboard. Your tmux
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
-- **Coworking (highly contagious)**: Ctrl+Shift+P shares your session as a link (can-type or
-  watch-only), end-to-end encrypted, and you approve each person who joins.
-  Guests open it in any browser, or in germ for native tabs and splits.
+- **Coworking (highly contagious)**: Ctrl+Shift+P shares your session as a link,
+  end-to-end encrypted, and you approve each person who joins. Everyone
+  chats in a panel beside the terminal; typing is by turns: one person at
+  the helm of each tab, which you hand out and take back with one key, and
+  you can give a guest a tab of their own. Guests open the link in any
+  browser, or in germ for native tabs and splits.
   Free: served from your machine over Tailscale Funnel if you use
   Tailscale, else a free Cloudflare tunnel; no router ports opened. See [docs/coworking.md](docs/coworking.md).
 - **Built for coding agents**: tab badges show which agent is working,
@@ -130,7 +133,9 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+\` | home tab ↔ last tab |
 | Ctrl+Shift+A | new agent on its own git worktree (see docs/agents.md) |
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
-| Ctrl+Shift+P | share this session (invite links) |
+| Ctrl+Shift+P | share this session (invite link) |
+| Ctrl+Shift+M | the session chat (open and focus; Esc back to the terminal; again to close) |
+| Ctrl+Shift+O | the helm: take it back (host), or ask for it / hand it back (guest) |
 | Ctrl+Shift+F | search the pane's scrollback (Enter older, Shift+Enter newer, Esc) |
 | Ctrl+Shift+Space | command palette: every action and its key, filtered as you type; also open the config, germ doctor, theme previews |
 | Ctrl+Shift+R | review agents: every agent worktree with its state and diff; review, send feedback, merge or discard |

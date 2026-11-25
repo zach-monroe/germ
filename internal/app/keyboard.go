@@ -113,6 +113,22 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 			return
 		}
 	}
+	if a.chat.focused && a.chat.visible() {
+		if action == glfw.Release {
+			return
+		}
+		ctrlAlt := mods&(glfw.ModControl|glfw.ModAlt) != 0
+		if a.chatKey(key, mods) {
+			a.suppressChar = ctrlAlt || key == glfw.KeyEnter || key == glfw.KeyKPEnter
+			return
+		}
+		if a.binding(key, scancode, mods) {
+			a.suppressChar = true
+			return
+		}
+		a.suppressChar = ctrlAlt // typed text arrives in onChar
+		return
+	}
 	if action != glfw.Release && a.tmuxPrefixKey(key, scancode, mods) {
 		a.suppressChar = a.tmux.prefixPending == "" // the char completes a pending prefix
 		return
@@ -169,6 +185,10 @@ func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
 	}
 	if a.search != nil {
 		a.searchType(string(r))
+		return
+	}
+	if a.chat.focused && a.chat.visible() {
+		a.chatType(r)
 		return
 	}
 	if a.tmuxPrefixChar(r) {

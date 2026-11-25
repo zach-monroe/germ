@@ -96,6 +96,10 @@ func (a *App) pastePrimary() {
 }
 
 func (a *App) paste(text string) {
+	if a.chat.focused && a.chat.visible() {
+		a.chatInsert(text)
+		return
+	}
 	if text != "" {
 		a.sendUser(a.encodePaste(text))
 	}
