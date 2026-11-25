@@ -195,7 +195,97 @@ func (s *Set) Glyph(r rune, st Style) (Glyph, bool) {
 		copy(cp.Pix, am.Pix)
 		am = cp
 	}
+	// Fonts without italic or bold faces get them synthesized.
+	if s.syntheticBold(st) {
+		am, dr = embolden(am, dr, max(1, int(s.sizePx/18)))
+	}
+	if s.syntheticItalic(st) {
+		am, dr = slant(am, dr, s.metrics.Baseline)
+	}
 	return Glyph{Mask: am, Bounds: dr}, true
+}
+
+// syntheticItalic: the font has no italic face for st (fontconfig gave
+// back the upright one).
+func (s *Set) syntheticItalic(st Style) bool {
+	switch st {
+	case Italic:
+		return s.faces[Italic] == s.faces[Regular]
+	case BoldItalic:
+		return s.faces[BoldItalic] == s.faces[Bold] || s.faces[BoldItalic] == s.faces[Regular]
+	}
+	return false
+}
+
+// syntheticBold: the font has no bold face for st.
+func (s *Set) syntheticBold(st Style) bool {
+	switch st {
+	case Bold:
+		return s.faces[Bold] == s.faces[Regular]
+	case BoldItalic:
+		return s.faces[BoldItalic] == s.faces[Italic] || s.faces[BoldItalic] == s.faces[Regular]
+	}
+	return false
+}
+
+// slantFactor is the synthetic italic's shear (about 11°, like most
+// obliques).
+const slantFactor = 0.2
+
+// slant shears a mask to the right above the baseline (and left below
+// it), with sub-pixel interpolation.
+func slant(m *image.Alpha, b image.Rectangle, baseline int) (*image.Alpha, image.Rectangle) {
+	w, h := b.Dx(), b.Dy()
+	if w == 0 || h == 0 {
+		return m, b
+	}
+	off := func(y int) float64 { return slantFactor * (float64(baseline) - (float64(y) + 0.5)) }
+	lo := math.Floor(off(b.Max.Y - 1))
+	hi := math.Ceil(off(b.Min.Y))
+	extra := int(hi-lo) + 1
+	out := image.NewAlpha(image.Rect(0, 0, w+extra, h))
+	for row := 0; row < h; row++ {
+		o := off(b.Min.Y+row) - lo
+		i := int(o)
+		f := o - float64(i)
+		src := m.Pix[row*m.Stride : row*m.Stride+w]
+		dst := out.Pix[row*out.Stride : row*out.Stride+w+extra]
+		for x, a := range src {
+			if a == 0 {
+				continue
+			}
+			v := float64(a)
+			dst[x+i] = uint8(min(255, float64(dst[x+i])+v*(1-f)+0.5))
+			if x+i+1 < len(dst) {
+				dst[x+i+1] = uint8(min(255, float64(dst[x+i+1])+v*f+0.5))
+			}
+		}
+	}
+	nb := image.Rect(b.Min.X+int(lo), b.Min.Y, b.Min.X+int(lo)+w+extra, b.Max.Y)
+	return out, nb
+}
+
+// embolden thickens strokes by n pixels to the right.
+func embolden(m *image.Alpha, b image.Rectangle, n int) (*image.Alpha, image.Rectangle) {
+	w, h := b.Dx(), b.Dy()
+	if w == 0 || h == 0 {
+		return m, b
+	}
+	out := image.NewAlpha(image.Rect(0, 0, w+n, h))
+	for row := 0; row < h; row++ {
+		src := m.Pix[row*m.Stride : row*m.Stride+w]
+		dst := out.Pix[row*out.Stride : row*out.Stride+w+n]
+		for x := range dst {
+			var v uint8
+			for k := 0; k <= n; k++ {
+				if j := x - k; j >= 0 && j < w && src[j] > v {
+					v = src[j]
+				}
+			}
+			dst[x] = v
+		}
+	}
+	return out, image.Rect(b.Min.X, b.Min.Y, b.Max.X+n, b.Max.Y)
 }
 
 func (s *Set) fallbackFor(r rune) *face {

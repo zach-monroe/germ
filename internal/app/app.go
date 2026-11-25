@@ -248,6 +248,7 @@ func Run(opts Options) error {
 	win.SetCursorPosCallback(a.onCursorPos)
 	win.SetScrollCallback(a.onScroll)
 	win.SetFramebufferSizeCallback(a.onResize)
+	win.SetContentScaleCallback(a.onContentScale)
 	win.SetRefreshCallback(func(*glfw.Window) { a.forceRedraw = true; a.draw() })
 	win.SetFocusCallback(a.onFocus)
 	win.SetDropCallback(a.onDrop)
@@ -549,6 +550,24 @@ func (a *App) reloadConfig() {
 }
 
 // setFontSize reloads fonts at a new size and refits the grid.
+// onContentScale re-renders at the new DPI when the window moves to a
+// monitor with a different scale.
+func (a *App) onContentScale(_ *glfw.Window, x, _ float32) {
+	if x <= 0 || x == a.scale {
+		return
+	}
+	fonts, err := font.Load(a.cfg.Font.Family, a.fontSize, 96*float64(x))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "germ:", err)
+		return
+	}
+	a.scale = x
+	a.render.SetFonts(fonts)
+	a.render.SetPad(scaledPad(a.cfg, x))
+	a.refit()
+	a.forceRedraw = true
+}
+
 func (a *App) setFontSize(size float64) {
 	size = max(4, min(size, 96))
 	fonts, err := font.Load(a.cfg.Font.Family, size, 96*float64(a.scale))
