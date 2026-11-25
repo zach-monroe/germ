@@ -141,7 +141,7 @@ func runShare(args []string) int {
 		fmt.Printf("%sWatch only%s:\n  %s%s%s\n\n", bold+green, reset, cyan, ro, reset)
 		copyOSC52(ro.String())
 	}
-	fmt.Printf("%s◆ spreading your germs%s · tmux session %q %s\n", bold+blue, reset, *session, via)
+	fmt.Printf("%s◆ you're contagious%s · tmux session %q %s\n", bold+blue, reset, *session, via)
 	fmt.Printf("%sAnyone with a link catches it in their browser (or in germ). Nothing to install.%s\n\n", dim, reset)
 	printLinks()
 	help := func() {
@@ -151,7 +151,7 @@ func runShare(args []string) int {
 	}
 	help()
 
-	status("◉ spreading")
+	status("◉ contagious")
 	go func() { // keep the status alive (it expires if we die)
 		t := time.NewTicker(60 * time.Second)
 		defer t.Stop()
@@ -180,7 +180,7 @@ func runShare(args []string) int {
 				wait = time.Second
 			}
 			h.Log("%s; reconnecting in %s", err, wait)
-			status("◉ spreading (reconnecting…)")
+			status("◉ contagious (reconnecting…)")
 			select {
 			case <-ctx.Done():
 				done <- nil
@@ -207,7 +207,7 @@ func runShare(args []string) int {
 			mode = "watch only"
 		}
 		fmt.Printf("\a\n%s» %s wants to join (%s). Let them in? [y/N]%s ", bold+yel, r.Name, mode, reset)
-		status("◉ spreading · " + r.Name + " wants to join")
+		status("◉ contagious · " + r.Name + " wants to join")
 		go notify(r.Name + " wants to join your germ session")
 	}
 	for {
@@ -320,7 +320,7 @@ func printPeople(ps []share.Participant) {
 
 func presence(ps []share.Participant) string {
 	if len(ps) <= 1 {
-		return "◉ spreading"
+		return "◉ contagious"
 	}
 	var names []string
 	for _, p := range ps[1:] {
@@ -333,7 +333,7 @@ func presence(ps []share.Participant) string {
 		}
 		names = append(names, n)
 	}
-	return "◉ spreading · " + strings.Join(names, ", ")
+	return "◉ contagious · " + strings.Join(names, ", ")
 }
 
 // copyOSC52 puts text on the clipboard through the terminal.
