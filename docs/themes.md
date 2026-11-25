@@ -70,6 +70,47 @@ germ theme import -name ocean2 base16-ocean.yaml
 Imported themes land in `~/.config/germ/themes/` and show up in the
 palette and `germ theme list`.
 
+## Follow your desktop theme
+
+If a desktop tool sets your colors (caelestia, pywal, matugen, …), have it
+write a germ theme and point germ at that file. germ recolors whenever the
+tool rewrites it, so switching the desktop theme switches germ too.
+
+1. Give the tool a template in germ's theme format (above). With
+   caelestia, put it in `~/.config/caelestia/templates/germ.toml`;
+   colors are written `"#{{ surface.hex }}"`, and caelestia's terminal
+   colors are `onSurface` (text), `surface` (background), `secondary`
+   (cursor and selection) and `term0` … `term15`:
+
+   ```toml
+   name = "caelestia"
+   foreground = "#{{ onSurface.hex }}"
+   background = "#{{ surface.hex }}"
+   cursor = "#{{ secondary.hex }}"
+   cursor_text = "#{{ surface.hex }}"
+   selection_foreground = "#{{ onSecondary.hex }}"
+   selection_background = "#{{ secondary.hex }}"
+   normal = ["#{{ term0.hex }}", "#{{ term1.hex }}", "#{{ term2.hex }}", "#{{ term3.hex }}", "#{{ term4.hex }}", "#{{ term5.hex }}", "#{{ term6.hex }}", "#{{ term7.hex }}"]
+   bright = ["#{{ term8.hex }}", "#{{ term9.hex }}", "#{{ term10.hex }}", "#{{ term11.hex }}", "#{{ term12.hex }}", "#{{ term13.hex }}", "#{{ term14.hex }}", "#{{ term15.hex }}"]
+   ```
+
+   caelestia writes it to `~/.local/state/caelestia/theme/germ.toml` on
+   every scheme change (run `caelestia scheme set` once to create it).
+
+2. Link it into your themes, so it shows in the palette as one theme
+   among the others, and use it:
+
+   ```sh
+   ln -s ~/.local/state/caelestia/theme/germ.toml ~/.config/germ/themes/caelestia.toml
+   germ theme use caelestia
+   ```
+
+   (`theme = "~/.local/state/caelestia/theme/germ.toml"` works too.)
+
+3. These tools usually also send colors to terminals directly, and
+   your shell startup may replay them. Set `program_colors = false`
+   (below) so the theme file is the one source and every tab matches.
+
 ## Shells that set colors
 
 Some setups set the terminal's colors themselves with escape sequences

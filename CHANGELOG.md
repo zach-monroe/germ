@@ -15,6 +15,10 @@
   tab took those colors while reattached tabs kept the theme.
 - A config given with `-config`, or linked from a dotfiles repo, reloads
   when saved.
+- **Follow your desktop theme**: a theme linked to, or given as the path
+  of, a file elsewhere recolors germ when that file is rewritten, so a
+  desktop theme tool (caelestia, pywal, matugen) that writes a germ theme
+  from a template switches germ along with everything else.
 - [docs/themes.md](docs/themes.md).
 
 ### Tabs

@@ -148,8 +148,8 @@ func (f *File) Apply(t *Theme, required bool) error {
 // ".toml" is a file path; otherwise each of dirs is searched for
 // "<name>.toml", then the bundled themes.
 func Load(name string, dirs ...string) (*Theme, error) {
-	if strings.ContainsRune(name, '/') || strings.HasSuffix(name, ".toml") {
-		data, err := os.ReadFile(expandHome(name))
+	if f := Path(name, dirs...); f != "" {
+		data, err := os.ReadFile(f)
 		if err != nil {
 			return nil, err
 		}
@@ -158,15 +158,6 @@ func Load(name string, dirs ...string) (*Theme, error) {
 			return nil, fmt.Errorf("theme %s: %w", name, err)
 		}
 		return t, nil
-	}
-	for _, d := range dirs {
-		if data, err := os.ReadFile(filepath.Join(d, name+".toml")); err == nil {
-			t, err := Parse(data)
-			if err != nil {
-				return nil, fmt.Errorf("theme %s: %w", name, err)
-			}
-			return t, nil
-		}
 	}
 	data, err := bundled.ReadFile("themes/" + name + ".toml")
 	if err != nil {
@@ -236,6 +227,22 @@ bright = %s
 `, name, name, name, name, t.Foreground.Hex(), t.Background.Hex(), t.Cursor.Hex(), t.CursorText.Hex(),
 		t.SelectionFG.Hex(), t.SelectionBG.Hex(), list(0), list(8))
 	return []byte(b.String())
+}
+
+// Path returns the file Load reads for name: the path itself when name is a
+// path, else the first "<name>.toml" found in dirs. It returns "" for a
+// bundled or unknown theme.
+func Path(name string, dirs ...string) string {
+	if strings.ContainsRune(name, '/') || strings.HasSuffix(name, ".toml") {
+		return expandHome(name)
+	}
+	for _, d := range dirs {
+		p := filepath.Join(d, name+".toml")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 func expandHome(p string) string {

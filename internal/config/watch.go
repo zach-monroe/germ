@@ -6,10 +6,15 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/zach-monroe/germ/internal/theme"
 )
 
 // Watch calls onChange (from a background goroutine) whenever the config
-// file (path, or the default one if empty) or a user theme changes. Directories are watched rather than files
+// file (path, or the default one if empty), a user theme, or the file the
+// configured theme is read from changes. That file can live anywhere: a
+// theme given as a path, or a theme linked to a file a desktop theme tool
+// rewrites. Directories are watched rather than files
 // because editors usually save by writing a new file and renaming it over
 // the old one. Events are debounced. The returned function stops watching.
 func Watch(path string, onChange func()) (stop func(), err error) {
@@ -21,21 +26,26 @@ func Watch(path string, onChange func()) (stop func(), err error) {
 		path = Path()
 	}
 	path, _ = filepath.Abs(path)
-	files := []string{path}
-	if p, err := filepath.EvalSymlinks(path); err == nil && p != path {
-		files = append(files, p) // a dotfiles link: the file it points to changes
-	}
-	dirs := []string{Dir()}
-	for _, f := range files {
-		dirs = append(dirs, filepath.Dir(f))
-	}
-	dirs = append(dirs, ThemeDirs()...)
-	watched := 0
-	for _, d := range dirs {
-		if w.Add(d) == nil {
-			watched++
+	configFiles := withTarget(path) // a dotfiles link: the file it points to changes
+	var files, dirs []string
+	// track recomputes the files that matter, since the theme can change,
+	// and watches their directories.
+	track := func() (watched int) {
+		files = append(slices.Clone(configFiles), themeFiles(path)...)
+		dirs = append([]string{Dir()}, ThemeDirs()...)
+		for _, f := range files {
+			if d := filepath.Dir(f); !slices.Contains(dirs, d) {
+				dirs = append(dirs, d)
+			}
 		}
+		for _, d := range dirs {
+			if w.Add(d) == nil {
+				watched++
+			}
+		}
+		return watched
 	}
+	watched := track()
 	// If the config dir doesn't exist yet, watch its parent so creating it
 	// is noticed too.
 	if watched == 0 {
@@ -56,11 +66,7 @@ func Watch(path string, onChange func()) (stop func(), err error) {
 				if !relevant(ev.Name, files) {
 					continue
 				}
-				if ev.Op&fsnotify.Create != 0 && (ev.Name == Dir() || slices.Contains(ThemeDirs(), ev.Name)) {
-					for _, d := range dirs {
-						_ = w.Add(d)
-					}
-				}
+				track()
 				if timer != nil {
 					timer.Stop()
 				}
@@ -82,4 +88,29 @@ func relevant(name string, files []string) bool {
 		}
 	}
 	return false
+}
+
+// withTarget returns the absolute path p, and the file it links to if it
+// is a symlink.
+func withTarget(p string) []string {
+	p, _ = filepath.Abs(p)
+	files := []string{p}
+	if t, err := filepath.EvalSymlinks(p); err == nil && t != p {
+		files = append(files, t)
+	}
+	return files
+}
+
+// themeFiles returns the file the theme configured at path is read from,
+// and its link target, or nothing for a bundled theme.
+func themeFiles(path string) []string {
+	cfg, _, err := Load(path)
+	if err != nil {
+		return nil
+	}
+	f := theme.Path(cfg.Theme, ThemeDirs()...)
+	if f == "" {
+		return nil
+	}
+	return withTarget(f)
 }

@@ -135,3 +135,69 @@ func TestWatchPath(t *testing.T) {
 		stop()
 	}
 }
+
+// A theme that lives outside the themes folder reloads when rewritten: one
+// linked to a file a desktop theme tool regenerates (caelestia, pywal), and
+// one given as a path.
+func TestWatchThemeElsewhere(t *testing.T) {
+	for _, link := range []bool{true, false} {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		gen := t.TempDir() // e.g. ~/.local/state/caelestia/theme
+		real := filepath.Join(gen, "germ.toml")
+		os.WriteFile(real, []byte(`background = "#000000"`), 0o644)
+		os.MkdirAll(ThemeDirs()[0], 0o755)
+		name := real
+		if link {
+			name = "desktop"
+			os.Symlink(real, filepath.Join(ThemeDirs()[0], "desktop.toml"))
+		}
+		os.WriteFile(Path(), []byte(`theme = "`+name+`"`), 0o644)
+		changed := make(chan struct{}, 4)
+		stop, err := Watch("", func() { changed <- struct{}{} })
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The tool writes a temp file and renames it over, as caelestia does.
+		tmp := filepath.Join(gen, "tmpabc123")
+		os.WriteFile(tmp, []byte(`background = "#ffffff"`), 0o644)
+		os.Rename(tmp, real)
+		select {
+		case <-changed:
+		case <-time.After(2 * time.Second):
+			t.Errorf("link=%v: no change notification", link)
+		}
+		stop()
+	}
+}
+
+// Switching to a theme kept elsewhere starts watching it.
+func TestWatchFollowsThemeSwitch(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	os.MkdirAll(Dir(), 0o755)
+	os.WriteFile(Path(), []byte(`theme = "nord"`), 0o644)
+	gen := t.TempDir()
+	real := filepath.Join(gen, "germ.toml")
+	os.WriteFile(real, nil, 0o644)
+	changed := make(chan struct{}, 8)
+	stop, err := Watch("", func() { changed <- struct{}{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	os.WriteFile(Path(), []byte(`theme = "`+real+`"`), 0o644)
+	select {
+	case <-changed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification for the config")
+	}
+	time.Sleep(200 * time.Millisecond)
+	for len(changed) > 0 {
+		<-changed
+	}
+	os.WriteFile(real, []byte(`background = "#ffffff"`), 0o644)
+	select {
+	case <-changed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification for the theme switched to")
+	}
+}
