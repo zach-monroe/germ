@@ -55,6 +55,12 @@ const (
 	// "give NAME [TAB]" or "take [TAB|all]". The response's Text says
 	// what happened.
 	CmdHelm = "helm"
+	// CmdShareStart starts sharing the window's tmux session in the
+	// background (what Ctrl+Shift+P does); the controls are in the window.
+	CmdShareStart = "share_start"
+	// CmdChat reads the window's session chat as text (no Text), or sends
+	// Text to it as if typed in the chat box (a message or a /command).
+	CmdChat = "chat"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or

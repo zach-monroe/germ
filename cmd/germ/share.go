@@ -54,6 +54,7 @@ func runShare(args []string) int {
 	relay := fs.String("relay", cfg.Share.Relay, "relay server URL (default from [share] relay; none: serve from this machine)")
 	mode := fs.String("mode", cfg.Share.Mode, "without a relay: auto (Tailscale Funnel if set up, else a Cloudflare tunnel), tailscale, tunnel, or direct")
 	session := fs.String("session", "", "tmux session to share (default: the one this pane is in)")
+	headless := fs.Bool("headless", false, "run in the background, with the controls in the host's germ window (germ starts it this way)")
 	fs.Parse(args)
 	var u *url.URL
 	if *relay != "" {
@@ -62,6 +63,19 @@ func runShare(args []string) int {
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			fmt.Fprintf(os.Stderr, "germ share: bad relay URL %q\n", *relay)
 			return pause(1)
+		}
+	}
+	// In a germ window, sharing runs in the background and the controls are
+	// in the window, where guests can't see them (a pane here would be in
+	// the shared session, drafts and all).
+	if !*headless && *session == "" && os.Getenv("GERM_SOCKET") != "" {
+		if c, err := control.Connect(); err == nil {
+			_, err := c.Call(control.Request{Cmd: control.CmdShareStart})
+			c.Close()
+			if err == nil {
+				fmt.Println("Sharing in the background: the link, who's here and the chat are in your germ window (Ctrl+Shift+M).")
+				return 0
+			}
 		}
 	}
 	var tmuxArgs []string
@@ -83,7 +97,7 @@ func runShare(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	logf := func(format string, a ...any) { // the share pane's log once it's up
+	logf := func(format string, a ...any) { // the share pane's log (or the window's) once it's up
 		if logTo != nil {
 			logTo(format, a...)
 			return
@@ -124,51 +138,64 @@ func runShare(args []string) int {
 		h.Approval = "all"
 	}
 	h.TmuxArgs = tmuxArgs
-	if inSession { // guests don't type into this pane
+	if inSession && !*headless { // guests don't type into this pane
 		h.Protect = os.Getenv("TMUX_PANE")
 	}
-	ctl, _ := control.Connect()
-	var ctlMu sync.Mutex // one call at a time on the connection
-	status := func(text string) {
-		if ctl != nil {
-			ctlMu.Lock()
-			ctl.Call(control.Request{Cmd: control.CmdSetStatus, Text: text, TTL: 90})
-			ctlMu.Unlock()
+	// The window learns about the session (the panel, the tab bar, the
+	// helm, alerts) and sends what the host does there.
+	br := newShareBridge(h, *session, via, !*headless, stop)
+	var pane *sharePane
+	if *headless {
+		logTo = func(format string, a ...any) {
+			line := fmt.Sprintf(format, a...)
+			fmt.Printf("%s  %s\n", time.Now().Format("15:04:05"), line)
+			br.notice(line)
 		}
+	} else {
+		pane = newSharePane(h, br, *session, via, stop)
+		logTo = pane.log
 	}
-	// The window learns about the session (the tab bar, the helm, alerts)
-	// and sends what the host does there (Ctrl+Shift+O, the palette).
-	br := newShareBridge(h, *session, ctl)
-	pane := newSharePane(h, br, ctl, *session, via, stop)
-	logTo = pane.log
-	h.Log = pane.log
+	h.Log = logTo
+	changed := func() {
+		if pane != nil {
+			pane.changed()
+		}
+		br.changed()
+	}
 	h.OnRequest = func(r share.JoinRequest) {
-		pane.asked(fmt.Sprintf("join/%d", r.ID), r.Name+" wants to join")
+		if pane != nil {
+			pane.asked(fmt.Sprintf("join/%d", r.ID), r.Name+" wants to join")
+		}
 		br.changed()
 	}
 	h.OnHelmRequest = func(r share.HelmRequest) {
-		pane.asked(fmt.Sprintf("helm/%d", r.ID), share.ShortName(r.Name)+" asks for the helm")
+		if pane != nil {
+			pane.asked(fmt.Sprintf("helm/%d", r.ID), share.ShortName(r.Name)+" asks for the helm")
+		}
 		br.changed()
 	}
 	h.OnChat = func(m share.ChatMsg) {
-		pane.chat(m)
+		if pane != nil {
+			pane.chat(m)
+		}
 		br.changed()
 	}
-	h.OnState = func(share.State) { pane.changed(); br.changed() }
+	h.OnState = func(share.State) { changed() }
 	h.OnChange = func(ps []share.Participant) {
-		status(presence(ps))
-		pane.changed()
-		br.changed()
+		br.status(presence(ps))
+		changed()
 	}
 	ensureURLHandler(true)
-	copyOSC52(h.Link().String())
-	who := "you let each person in"
-	if h.Approval == "none" {
-		who = "anyone with it can join"
+	if pane != nil {
+		copyOSC52(h.Link().String())
+		who := "you let each person in"
+		if h.Approval == "none" {
+			who = "anyone with it can join"
+		}
+		pane.log("The invite link is on your clipboard: %s, everyone can watch and chat, and you hand out the helm to type. Chat here; /help lists commands.", who)
+		pane.log("Guests can see this pane: it's in the session you're sharing. In germ, Ctrl+Shift+P shares with the controls in the window instead.")
 	}
-	pane.log("The invite link is on your clipboard: %s, everyone can watch and chat, and you hand out the helm to type. Chat here; /help lists commands.", who)
 
-	status("◉ contagious")
 	go func() { // keep the status alive (it expires if we die)
 		t := time.NewTicker(60 * time.Second)
 		defer t.Stop()
@@ -177,11 +204,24 @@ func runShare(args []string) int {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				status(presence(h.Participants()))
+				br.status(presence(h.Participants()))
 			}
 		}
 	}()
 	go br.run(ctx)
+	go func() { // the session went away (killed, the tmux server quit): so does sharing
+		gone := 0
+		for ctx.Err() == nil {
+			time.Sleep(5 * time.Second)
+			if h.SessionAlive() {
+				gone = 0
+			} else if gone++; gone >= 2 {
+				h.Log("the tmux session %q ended", *session)
+				stop()
+				return
+			}
+		}
+	}()
 	// Serve guests, reconnecting to the relay if the connection drops;
 	// guests reconnect on their own meanwhile.
 	done := make(chan error, 1)
@@ -198,7 +238,7 @@ func runShare(args []string) int {
 				wait = time.Second
 			}
 			h.Log("%s; reconnecting in %s", err, wait)
-			status("◉ contagious (reconnecting…)")
+			br.status("◉ contagious (reconnecting…)")
 			select {
 			case <-ctx.Done():
 				done <- nil
@@ -208,11 +248,15 @@ func runShare(args []string) int {
 			wait = min(wait*2, 30*time.Second)
 		}
 	}()
-	pane.run(ctx)
+	if pane != nil {
+		pane.run(ctx)
+	} else {
+		<-ctx.Done()
+	}
 	logTo = nil
 	err = <-done
 	br.end()
-	return finishShare(ctl, err)
+	return finishShare(err)
 }
 
 // tabName is "tab 2 (zsh)".
@@ -242,20 +286,26 @@ func saveChat(h *share.Host, br *shareBridge) string {
 }
 
 // shareBridge keeps the host's germ window up to date with the session
-// (share_update), and does what the host does there (share_wait).
+// (share_update), and does what the host does there (share_wait). It
+// finds the window again if it closes and another opens.
 type shareBridge struct {
 	h       *share.Host
 	session string
-	ctl     *control.Client
+	via     string
+	server  string // the tmux server's socket
+	pane    bool   // germ share runs in a pane (Update.Pane)
+	stop    func() // /stop in the window
 	kick    chan struct{}
 	mu      sync.Mutex
-	seq     uint64 // the window's last chat message
-	ok      bool   // the window understands share_update
+	path    string          // the window's control socket ("" without one)
+	conn    *control.Client // for pushes (run's goroutine only)
+	seq     uint64          // the window's last chat message
+	ok      bool            // the window shows the session
 	notices []string
 }
 
-func newShareBridge(h *share.Host, session string, ctl *control.Client) *shareBridge {
-	return &shareBridge{h: h, session: session, ctl: ctl, kick: make(chan struct{}, 1)}
+func newShareBridge(h *share.Host, session, via string, pane bool, stop func()) *shareBridge {
+	return &shareBridge{h: h, session: session, via: via, server: h.Server(), pane: pane, stop: stop, kick: make(chan struct{}, 1)}
 }
 
 // window reports whether a germ window is showing the session's chat.
@@ -279,33 +329,82 @@ func (b *shareBridge) notice(text string) {
 	b.changed()
 }
 
-func (b *shareBridge) run(ctx context.Context) {
-	if b.ctl == nil {
-		return
+// call sends one request to the window, on a connection of its own.
+func (b *shareBridge) call(req control.Request) (*control.Response, error) {
+	b.mu.Lock()
+	path := b.path
+	b.mu.Unlock()
+	if path == "" {
+		return nil, fmt.Errorf("no germ window")
 	}
-	c, err := control.Dial(b.ctl.Path) // a connection of its own: calls can't overlap
+	c, err := control.Dial(path)
 	if err != nil {
-		return
+		return nil, err
 	}
 	defer c.Close()
-	b.ctl = c
+	return c.Call(req)
+}
+
+// status shows text on the right of the window's tab bar.
+func (b *shareBridge) status(text string) {
+	b.call(control.Request{Cmd: control.CmdSetStatus, Text: text, TTL: 90})
+}
+
+func (b *shareBridge) run(ctx context.Context) {
 	go b.waitLoop(ctx)
-	b.push(false)
 	t := time.NewTicker(20 * time.Second) // the window forgets a share it doesn't hear from
 	defer t.Stop()
 	for {
+		if b.conn == nil {
+			b.find()
+		} else if !b.push(false) {
+			b.conn.Close()
+			b.conn = nil
+		}
+		retry := 24 * time.Hour
+		if b.conn == nil || !b.window() {
+			retry = 3 * time.Second
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-b.kick:
 		case <-t.C:
+		case <-time.After(retry):
 		}
-		b.push(false)
 		time.Sleep(30 * time.Millisecond) // coalesce bursts
 	}
 }
 
-func (b *shareBridge) push(ended bool) {
+// find looks for the window showing the session: $GERM_SOCKET's first,
+// then any other.
+func (b *shareBridge) find() {
+	var paths []string
+	if p := os.Getenv("GERM_SOCKET"); p != "" {
+		paths = append(paths, p)
+	}
+	for _, p := range append(paths, control.Sockets()...) {
+		c, err := control.Dial(p)
+		if err != nil {
+			continue
+		}
+		b.mu.Lock()
+		b.conn, b.path, b.seq = c, p, 0 // a new window gets the whole chat
+		b.mu.Unlock()
+		if b.push(false) {
+			b.status(presence(b.h.Participants()))
+			return
+		}
+		c.Close()
+		b.mu.Lock()
+		b.conn, b.path = nil, ""
+		b.mu.Unlock()
+	}
+}
+
+// push sends the window what changed. It reports false if the window is
+// gone or won't show the session (then the next window gets it).
+func (b *shareBridge) push(ended bool) bool {
 	b.mu.Lock()
 	since := b.seq
 	notices := b.notices
@@ -313,28 +412,40 @@ func (b *shareBridge) push(ended bool) {
 	b.mu.Unlock()
 	u := &share.Update{Session: b.session, Link: b.h.Link().String(), People: b.h.Participants(),
 		State: b.h.State(), Joins: b.h.JoinRequests(), Ended: ended, Notice: strings.Join(notices, "; "),
-		Pane: os.Getenv("TMUX_PANE")}
+		Via: b.via, Server: b.server}
+	if b.pane {
+		u.Pane = os.Getenv("TMUX_PANE")
+	}
 	for _, m := range b.h.Chat() {
 		if m.Seq > since {
 			u.Chat = append(u.Chat, m)
 		}
 	}
-	resp, err := b.ctl.Call(control.Request{Cmd: control.CmdShareUpdate, Share: u})
+	resp, err := b.conn.Call(control.Request{Cmd: control.CmdShareUpdate, Share: u})
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.ok = err == nil
-	if err == nil {
-		b.seq = resp.Seq
+	if err != nil {
+		b.notices = append(notices, b.notices...)
+		return false
 	}
-	b.mu.Unlock()
+	b.seq = resp.Seq
+	return true
 }
 
-// waitLoop does what the host does in the window: chat, the helm, joins.
+// waitLoop does what the host does in the window: chat, the helm, joins,
+// the link, removing people, stopping.
 func (b *shareBridge) waitLoop(ctx context.Context) {
 	var c *control.Client
 	for ctx.Err() == nil {
 		if c == nil {
-			var err error
-			if c, err = control.Dial(b.ctl.Path); err != nil {
+			b.mu.Lock()
+			path := b.path
+			b.mu.Unlock()
+			if path != "" {
+				c, _ = control.Dial(path)
+			}
+			if c == nil {
 				time.Sleep(2 * time.Second)
 				continue
 			}
@@ -352,6 +463,21 @@ func (b *shareBridge) waitLoop(ctx context.Context) {
 				saveChat(b.h, b)
 			case share.OpJoin:
 				b.h.Decide(a.Request, a.Allow)
+			case share.OpRotate:
+				if err := b.h.RotateLinks(); err != nil {
+					b.notice("couldn't make a new link: " + err.Error())
+				} else {
+					b.notice("new link, copied: the old one no longer works; people here stay")
+				}
+			case share.OpKick:
+				for _, p := range b.h.Participants() {
+					if p.ID == a.Person && !p.Host {
+						b.h.Remove(p.ID)
+						b.notice("removed " + share.ShortName(p.Name) + " · /newlink so they can't come back")
+					}
+				}
+			case share.OpStop:
+				b.stop()
 			default:
 				b.h.Act(a)
 			}
@@ -367,16 +493,13 @@ func (b *shareBridge) waitLoop(ctx context.Context) {
 
 // end tells the window sharing stopped.
 func (b *shareBridge) end() {
-	if b.ctl != nil {
+	if b.conn != nil {
 		b.push(true)
 	}
+	b.status("")
 }
 
-func finishShare(ctl *control.Client, err error) int {
-	if ctl != nil {
-		ctl.Call(control.Request{Cmd: control.CmdSetStatus, Text: ""})
-		ctl.Close()
-	}
+func finishShare(err error) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "germ share:", err)
 		return pause(1)

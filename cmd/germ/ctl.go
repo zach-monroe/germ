@@ -26,6 +26,8 @@ Control the germ window this shell runs in (or the newest one).
   wait PANE [-match REGEX] [-quiet DUR] [-timeout DUR]
                                 wait until the pane shows REGEX or goes quiet
   focus PANE                    show and focus a pane
+  chat [TEXT]                   print the shared session's chat panel, or
+                                send TEXT to it (a message or a /command)
   json REQUEST                  send a raw JSON request
   agent-event [-agent NAME] [-message TEXT] working|waiting|done|idle|end
                                 report an agent's state for this pane (agents
@@ -181,6 +183,15 @@ func ctl(c *control.Client, cmd string, args []string) error {
 		}
 		_, err = c.Call(control.Request{Cmd: control.CmdFocusPane, Pane: pane})
 		return err
+	case "chat":
+		resp, err := c.Call(control.Request{Cmd: control.CmdChat, Text: strings.Join(args, " ")})
+		if err != nil {
+			return err
+		}
+		if len(args) == 0 {
+			fmt.Println(resp.Text)
+		}
+		return nil
 	case "json":
 		var req control.Request
 		if err := json.Unmarshal([]byte(strings.Join(args, " ")), &req); err != nil {

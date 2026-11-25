@@ -16,7 +16,8 @@ built-in tmux and fish integration.
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
 - **Coworking (highly contagious)**: Ctrl+Shift+P shares your session as a link,
   end-to-end encrypted, and you approve each person who joins. You run it
-  from one share pane: the link, who's here, the chat, who has the helm.
+  from one panel in your window, which guests never see: the link, who's
+  here, the chat, who has the helm.
   Typing is by turns: one person at the helm of each tab; guests ask by
   typing and pressing Enter, and you hand it out and take it back with one
   key, and you can give a guest a tab of their own. Guests open the link in any
@@ -139,7 +140,7 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+A | new agent on its own git worktree (see docs/agents.md) |
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
 | Ctrl+Shift+P | share this session (invite link) |
-| Ctrl+Shift+M | the session chat: the share pane (host), or the chat panel (guest; Esc back to the terminal, again to close) |
+| Ctrl+Shift+M | the session panel: link, people, helm and chat (host), or the chat (guest); Esc back to the terminal, again to close |
 | Ctrl+Shift+O | the helm: take it back (host), or ask for it / hand it back (guest); Enter in a tab you can't type in does the same |
 | Ctrl+Shift+F | search the pane's scrollback (Enter older, Shift+Enter newer, Esc) |
 | Ctrl+Shift+Space | command palette: every action and its key, filtered as you type; also open the config, germ doctor, theme previews |

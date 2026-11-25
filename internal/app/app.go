@@ -85,9 +85,10 @@ func (o Overrides) apply(c *config.Config) {
 }
 
 type App struct {
-	opts   Options
-	win    *glfw.Window
-	render *render.Renderer
+	opts         Options
+	shareStarted time.Time // germ share starting in the background
+	win          *glfw.Window
+	render       *render.Renderer
 
 	// Cross-goroutine signals.
 	wakePending   atomic.Bool

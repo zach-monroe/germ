@@ -352,6 +352,16 @@ func (h *Host) hello(g *hostGuest, msg []byte) {
 	h.admit(g, name)
 }
 
+// Server is the tmux server's socket path ("" if tmux can't say).
+func (h *Host) Server() string {
+	return h.tmuxOutput("display", "-p", "-t", h.Session, "#{socket_path}")
+}
+
+// SessionAlive reports whether the shared tmux session still exists.
+func (h *Host) SessionAlive() bool {
+	return exec.Command("tmux", append(append([]string(nil), h.TmuxArgs...), "has-session", "-t", "="+h.Session)...).Run() == nil
+}
+
 // JoinRequests lists guests waiting to be let in.
 func (h *Host) JoinRequests() []JoinRequest {
 	h.mu.Lock()

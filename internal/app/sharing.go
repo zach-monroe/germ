@@ -2,7 +2,10 @@ package app
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -97,23 +100,78 @@ func guestName() string {
 	return user + "@" + host
 }
 
-// shareSession opens a pane running `germ share` for this tmux session.
+// shareSession shares this tmux session: `germ share` runs in the
+// background (in no pane, so guests can't see it) and the controls are in
+// the chat panel. Already sharing, it shows the panel.
 func (a *App) shareSession() {
 	if a.tmux == nil || a.tmux.remote != nil {
 		go desktopNotify("germ", "Sharing needs germ's tmux mode ([tmux] enabled = true).")
 		return
 	}
-	if p := a.sharePane(); p != nil { // already sharing: go to it
-		a.focusPane(p)
+	c := a.chat
+	if c.host && c.active() {
+		if p := a.sharePane(); p != nil { // germ share in a pane, from before
+			a.focusPane(p)
+			return
+		}
+		a.openChat(true)
+		return
+	}
+	if time.Since(a.shareStarted) < 30*time.Second {
+		a.chatToast("◉ starting to share…", 4*time.Second)
 		return
 	}
 	self, err := os.Executable()
 	if err != nil {
 		return
 	}
-	noop := func(*control.Response) {}
-	a.ctlOpen(control.Request{Where: "right", Size: 40, Command: []string{self, "share"}},
-		a.workPane(), noop, noop)
+	cmd := exec.Command(self, "share", "-session", a.tmux.session, "-headless")
+	env := []string{"GERM_SOCKET=" + control.SocketPath(os.Getpid())}
+	if a.opts.ConfigPath != "" {
+		env = append(env, "GERM_CONFIG="+a.opts.ConfigPath)
+	}
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if k != "TMUX" && k != "TMUX_PANE" && k != "GERM_PANE_ID" && k != "GERM_SOCKET" && k != "GERM_CONFIG" {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = env
+	os.MkdirAll(StateDir(), 0o700)
+	logPath := filepath.Join(StateDir(), "share.log")
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
+		cmd.Stdout, cmd.Stderr = f, f
+		defer f.Close()
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // keeps sharing if this window closes
+	if err := cmd.Start(); err != nil {
+		a.chatToast("couldn't start sharing: "+err.Error(), 8*time.Second)
+		return
+	}
+	a.shareStarted = time.Now()
+	a.chatToast("◉ starting to share…", 10*time.Second)
+	go func() {
+		err := cmd.Wait()
+		a.mainThread(func() {
+			a.shareStarted = time.Time{}
+			if err != nil {
+				a.chatToast("sharing stopped: "+lastLine(logPath), 12*time.Second)
+				go desktopNotify("germ", "Sharing stopped: "+lastLine(logPath))
+			}
+		})
+	}()
+}
+
+// lastLine is the last non-empty line of the file at path.
+func lastLine(path string) string {
+	b, _ := os.ReadFile(path)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	l := strings.TrimSpace(lines[len(lines)-1])
+	l = strings.TrimPrefix(l, "germ share: ")
+	if l == "" {
+		return "see " + path
+	}
+	return l
 }
 
 // reconnected re-reads a remote session after its stream restarted.

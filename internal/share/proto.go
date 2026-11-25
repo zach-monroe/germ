@@ -154,6 +154,10 @@ const (
 	OpUnmute = "unmute"
 	OpJoin   = "join" // answer join request Request
 	OpSave   = "save" // save the chat to a file
+	// The host's window to germ share only (not room actions):
+	OpRotate = "rotate" // a new invite link; the old one stops working
+	OpKick   = "kick"   // remove Person from the session
+	OpStop   = "stop"   // stop sharing
 )
 
 // Update is what `germ share` tells the host's germ window about the
@@ -170,6 +174,12 @@ type Update struct {
 	// Pane is the tmux pane germ share runs in: the host's chat, link and
 	// questions are there (Ctrl+Shift+M goes to it).
 	Pane string `json:"pane,omitempty"`
+	// Via says how guests reach the session ("through a Cloudflare quick
+	// tunnel").
+	Via string `json:"via,omitempty"`
+	// Server is the tmux server's socket: a window shows the session only
+	// if it's on the same server (session names repeat across servers).
+	Server string `json:"server,omitempty"`
 }
 
 // protocolVersion 3: one link, chat, and the helm (2: NaCl secretbox; 1

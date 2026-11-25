@@ -170,6 +170,28 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		return
 	}
 
+	switch req.Cmd {
+	case control.CmdShareStart:
+		if a.tmux == nil || a.tmux.remote != nil {
+			reply(ctlErr("this window isn't in tmux mode"))
+			return
+		}
+		a.shareSession()
+		ok(&control.Response{})
+		return
+	case control.CmdChat:
+		if !a.chat.active() {
+			reply(ctlErr("this window isn't in a shared session"))
+			return
+		}
+		if req.Text != "" {
+			a.chat.input, a.chat.cur = []rune(req.Text), len([]rune(req.Text))
+			a.chatSend()
+			a.chat.dirty, a.forceRedraw = true, true
+		}
+		ok(&control.Response{Text: a.chatText()})
+		return
+	}
 	if req.Cmd == control.CmdHelm {
 		p, _ := a.resolvePane(req.Pane) // from outside the window: the active tab
 		text, err := a.ctlHelm(p, req.Text)

@@ -21,8 +21,14 @@
   from a template switches germ along with everything else.
 - [docs/themes.md](docs/themes.md).
 
-### Coworking: one share pane
-- **The share pane is where you run a session**: the invite link, who's
+### Coworking: one share panel
+- **Your controls are private**: `germ share` runs in the background and
+  the share panel is drawn by your window, so guests never see it or
+  your drafts (they could, in a share pane: it was part of the session).
+  Sharing keeps going if the window closes, and stops with `/stop` or
+  when the session ends. `germ ctl chat [TEXT]` reads or types into the
+  panel.
+- **The share panel is where you run a session**: the invite link, who's
   here, who has the helm of each tab, the chat with a message box, and
   questions to answer (joins, the helm) with y/n. Everything else is a
   command typed in the box: `/copy`, `/newlink`, `/helm alice`, `/take
@@ -30,7 +36,7 @@
   Before, requests went to the window's chat panel when one was showing
   and the share pane ignored y, so a host looking at the share pane
   couldn't let anyone in. Ctrl+Shift+M (and Ctrl+Shift+P, once sharing)
-  goes to the share pane; it opens on the right.
+  shows it; it opens by itself when someone asks to join.
 - **The helm is a key away**: a guest without the helm just starts typing,
   and Enter asks for it; the host's Enter in a tab a guest holds takes it
   back. `/helm alice` hands it over unasked. Guests hear when they get the
@@ -44,8 +50,8 @@
   Names match by name, short name or number. Plain `/take` (and
   `germ helm take`) takes the helm back wherever a guest has it when they
   don't have the tab you're on.
-- Guests never type into the share pane, even at the helm of its tab:
-  their typing goes to the tab's other pane.
+- In a plain tmux pane, `germ share` still runs there; guests never type
+  into it, even at the helm of its tab.
 - germ:// links: hosting or joining from a temporary build (go run, a
   test) no longer takes them over from the installed germ.
 

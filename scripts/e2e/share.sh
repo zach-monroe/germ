@@ -21,6 +21,7 @@ export XDG_DATA_HOME="$TMP/data"   # no germ:// handler or saved chats in the re
 SOCK=germ-share-e2e
 PORT=18093
 cleanup() {
+	[ -n "$CTL" ] && { $CTL chat /stop >/dev/null 2>&1 || true; } # germ share runs on its own; it also quits when the session goes
 	kill $HOST $ALICE $BOB $RELAY 2>/dev/null || true
 	tmux -L $SOCK kill-server 2>/dev/null || true
 	rm -rf "$TMP"
@@ -57,15 +58,17 @@ HW=$(winof $HOST); sleep 2
 xdotool windowfocus --sync "$HW"
 xdotool key ctrl+shift+p; sleep 2
 CTL="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl"
-SHARE=$($CTL list | awk '/ germ /{gsub(/\*/,"",$1); print $1}' | tail -1)
-$CTL read "$SHARE" -n 60 > "$TMP/share.txt"
+# germ share runs in the background; the controls are in the window's
+# chat panel (germ ctl chat reads it, or types into it).
+for _ in $(seq 40); do $CTL chat > "$TMP/share.txt" 2>/dev/null && grep -q '^http' "$TMP/share.txt" && break; sleep 0.5; done
 # The link wraps over full-width rows.
 LINK=$(awk '/^http/{l=$0; w=length($0); while ((getline n) > 0 && length(l)%w==0 && n !~ / /) l=l n; print l; exit}' "$TMP/share.txt")
-[ -n "$LINK" ] || { echo "FAIL no link"; cat "$TMP/share.txt"; exit 1; }
-echo "ok   share pane shows the link"
-sharelog() { $CTL read "$SHARE" -n 60; }
-# The share pane's text with wrapped lines joined, for grep.
-SL="$CTL read $SHARE -n 60 | tr '\\n' ' ' | tr -s ' '"
+[ -n "$LINK" ] || { echo "FAIL no link"; cat "$TMP/share.txt" "$XDG_STATE_HOME/germ/share.log"; exit 1; }
+echo "ok   the panel shows the link"
+check_panes_none() { ! tmux -L $SOCK list-panes -a -F '#{pane_current_command}' | grep -qx germ; }
+sharelog() { $CTL chat; }
+# The panel's text with wrapped lines joined, for grep.
+SL="$CTL chat | tr '\\n' ' ' | tr -s ' '"
 pane0() { tmux -L $SOCK capture-pane -p -t %0; }
 fail=0
 check() { # description command...
@@ -76,36 +79,36 @@ typein() { # window text
 	xdotool windowfocus --sync "$1"; sleep 0.2
 	xdotool type --delay 15 "echo $2"; xdotool key Return; sleep 1.2
 }
-toshell() { tmux -L $SOCK select-pane -t %0; sleep 0.3; } # the host's cursor out of the share pane
-inshare() { xdotool windowfocus --sync "$HW"; xdotool key ctrl+shift+m; sleep 0.5; } # Ctrl+Shift+M: to the share pane
+inpanel() { xdotool windowfocus --sync "$HW"; xdotool key ctrl+shift+m; sleep 0.5; } # Ctrl+Shift+M: focus the open panel
+outpanel() { xdotool windowfocus --sync "$HW"; xdotool key Escape; sleep 0.3; } # back to the terminal, the panel still open
+check "no share pane in the session" check_panes_none
 
 USER=alice GERM_DEBUG_TMUX=${SHOTS:-$TMP}/alice.tmux.log "$GERM" -config "$TMP/guest.toml" join "$LINK" 2>"$TMP/alice.err" & ALICE=$!
 sleep 2
-check "the share pane asks to let alice in" sh -c "$SL | grep -q 'alice.* wants to join'"
+check "the panel asks to let alice in" sh -c "$SL | grep -q 'alice.* wants to join'"
 [ -n "$SHOTS" ] && { xdotool windowraise "$HW"; sleep 0.3; import -window root "$SHOTS/host-join.png"; }
-$CTL send "$SHARE" -no-enter y; sleep 2
-check "let alice in from the share pane" sh -c "$SL | grep -q 'alice joined'"
+inpanel; xdotool type y; sleep 2; outpanel
+check "let alice in from the panel" sh -c "$SL | grep -q 'alice joined'"
 AW=$(winof $ALICE); sleep 2
 [ -n "$AW" ] || { echo "FAIL guest window"; cat "$TMP/alice.err"; exit 1; }
-toshell
 xdotool windowfocus --sync "$AW"; sleep 0.2; xdotool type --delay 15 "echo typed-without-helm"; sleep 1
 check "a guest can't type without the helm" sh -c "! tmux -L $SOCK capture-pane -p -t %0 | grep -q typed-without-helm"
 xdotool key ctrl+shift+t; sleep 1
 check "a guest can't open tabs without the helm" [ "$(tmux -L $SOCK list-windows -t germ | wc -l)" = 1 ]
 
-# Enter asks for the helm; the host says yes in the share pane, reached
-# with Ctrl+Shift+M.
+# Enter asks for the helm; the host says yes in the panel (Ctrl+Shift+M).
 xdotool key Return; sleep 1
-check "Enter asked for the helm" sh -c "$SL | grep -q 'alice asks for the helm'"
-inshare
+check "Enter asked for the helm" sh -c "$SL | grep -q 'alice asked for the helm'"
+inpanel
 [ -n "$SHOTS" ] && { xdotool windowraise "$HW"; sleep 0.3; import -window root "$SHOTS/host-request.png"; }
 xdotool type y; sleep 1
-check "the host handed over the helm from the share pane" sh -c "$SL | grep -q 'gave alice the helm'"
-# The host's cursor is still in the share pane: alice's typing goes to
-# the shell, not there.
+check "the host handed over the helm from the panel" sh -c "$SL | grep -q 'gave alice the helm'"
+# A draft in the panel stays the host's: it's in no pane guests can see.
+xdotool type --delay 15 'secret-draft'; sleep 0.5
+check "the host's draft is in no pane" sh -c "! tmux -L $SOCK list-panes -a -F '#{pane_id}' | while read p; do tmux -L $SOCK capture-pane -p -t \$p; done | grep -q secret-draft"
+xdotool key ctrl+u; outpanel
 typein "$AW" typed-at-the-helm
-check "the guest types at the helm (in the shell, not the share pane)" sh -c "tmux -L $SOCK capture-pane -p -t %0 | grep -qx typed-at-the-helm"
-toshell
+check "the guest types at the helm" sh -c "tmux -L $SOCK capture-pane -p -t %0 | grep -qx typed-at-the-helm"
 typein "$HW" host-while-alice-drives
 check "the host's keys don't go through while a guest has the helm" sh -c "! tmux -L $SOCK capture-pane -p -t %0 | grep -q host-while-alice-drives"
 # The host takes it back with one key.
@@ -115,7 +118,7 @@ typein "$HW" host-after-takeback
 check "Ctrl+Shift+O took the helm back" sh -c "! tmux -L $SOCK capture-pane -p -t %0 | grep -q alice-after-takeback && tmux -L $SOCK capture-pane -p -t %0 | grep -qx host-after-takeback"
 GHELM="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM helm"
 # /helm hands it over unasked; the host's Enter takes it back.
-$CTL send "$SHARE" "/helm alice 0"; sleep 1
+$CTL chat "/helm alice 0"; sleep 1
 check "/helm alice handed it over" sh -c "$GHELM status | grep -q '^0 .*: alice'"
 xdotool windowfocus --sync "$HW"; xdotool key Return; sleep 1
 check "the host's Enter took it back" sh -c "$GHELM status | grep -q '^0 .*: you'"
@@ -130,20 +133,19 @@ xdotool windowfocus --sync "$AW"; xdotool key ctrl+shift+m; sleep 0.5
 xdotool type --delay 15 'hello from alice'; xdotool key Return; sleep 1
 check "a guest's chat reaches the host" sh -c "$SL | grep -q 'hello from alice'"
 xdotool key Escape
-inshare
-xdotool type --delay 15 'hi alice'; xdotool key Return; sleep 1
+inpanel
+xdotool type --delay 15 'hi alice'; xdotool key Return; sleep 1; outpanel
 check "the host's chat goes out" sh -c "$SL | grep -q 'hi alice'"
 [ -n "$SHOTS" ] && { xdotool windowraise "$HW"; sleep 0.3; import -window root "$SHOTS/host-chat.png"; xdotool windowraise "$AW"; sleep 0.3; import -window root "$SHOTS/alice-chat.png"; }
 
-# bob joins; the host lets him in and gives him the tab, in the share pane.
+# bob joins; the host lets him in and gives him the tab, in the panel.
 USER=bob "$GERM" -config "$TMP/guest.toml" join "$LINK" 2>"$TMP/bob.err" & BOB=$!
 sleep 2
-inshare
-xdotool type y; sleep 2
+$CTL chat /yes; sleep 2
 check "let bob in" sh -c "$SL | grep -q 'bob joined'"
 BW=$(winof $BOB); sleep 2
-inshare
-xdotool type --delay 15 '/give bob'; xdotool key Return; sleep 1
+inpanel
+xdotool type --delay 15 '/give bob'; xdotool key Return; sleep 1; outpanel
 check "the host gave bob the tab" sh -c "$SL | grep -q 'gave tab 0 (.*) to bob'"
 typein "$BW" bobs-tab
 check "bob types in his tab" sh -c "tmux -L $SOCK capture-pane -p -t %0 | grep -qx bobs-tab"
@@ -153,8 +155,7 @@ check "bob types in his tab" sh -c "tmux -L $SOCK capture-pane -p -t %0 | grep -
 # host's repo (the shell's directory) and gives her the tab.
 git init -q -b main "$TMP/repo" && git -C "$TMP/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 tmux -L $SOCK send-keys -t %0 "cd $TMP/repo" Enter; sleep 0.5
-toshell; inshare
-xdotool type --delay 15 '/branch alice fix the readme'; xdotool key Return; sleep 3
+$CTL chat "/branch alice fix the readme"; sleep 3
 check "/branch made alice's branch" sh -c "git -C '$TMP/repo' branch --list 'germ/alice-*' | grep -q fix-the-readme"
 check "the branch tab is alice's" sh -c "$SL | grep -q 'gave tab 1 (.*) to alice'"
 BRANCHWIN=$(tmux -L $SOCK list-windows -t germ -F '#{window_id}' | tail -1)
@@ -176,7 +177,7 @@ tmux -L $SOCK select-window -t germ:0
 
 # The relay restarts: everyone reconnects by themselves, and bob still
 # has his tab.
-kill $RELAY; wait $RELAY 2>/dev/null || true; sleep 1
+kill $RELAY 2>/dev/null || { echo "relay had exited:"; tail -5 "$TMP/relay.log"; }; wait $RELAY 2>/dev/null || true; sleep 1
 "$TMP/germ-relay" -addr 127.0.0.1:$PORT 2>>"$TMP/relay.log" & RELAY=$!
 for _ in $(seq 40); do grep -q "host connected" <(tail -3 "$TMP/relay.log") && break; sleep 0.5; done
 sleep 7
@@ -186,7 +187,7 @@ else echo "FAIL reconnect"; tail -5 "$TMP/relay.log"; sharelog | tail -4; tail -
 
 # Remove bob from the share pane, without a new link.
 sleep 1
-$CTL send "$SHARE" "/kick bob" >/dev/null
+$CTL chat "/kick bob" >/dev/null
 for _ in $(seq 30); do kill -0 $BOB 2>/dev/null || break; sleep 0.2; done
 if kill -0 $BOB 2>/dev/null; then echo "FAIL bob still connected after removal"; fail=1
 else echo "ok   removed bob ($(cat "$TMP/bob.err"))"; fi
@@ -194,7 +195,7 @@ else echo "ok   removed bob ($(cat "$TMP/bob.err"))"; fi
 xdotool windowfocus --sync "$HW"; sleep 0.5
 [ -n "$SHOTS" ] && import -window root "$SHOTS/host.png"
 # Stopping the share disconnects guests.
-$CTL send "$SHARE" "/stop" >/dev/null
+$CTL chat "/stop" >/dev/null
 for _ in $(seq 30); do kill -0 $ALICE 2>/dev/null || break; sleep 0.2; done
 if kill -0 $ALICE 2>/dev/null; then echo "FAIL guest still connected after sharing stopped"; fail=1
 else echo "ok   guests disconnected when sharing stopped ($(cat "$TMP/alice.err"))"; fi

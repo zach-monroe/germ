@@ -2,8 +2,7 @@
 # End-to-end test of a browser guest (germ's xterm.js viewer, in headless
 # Chromium through Playwright) in a session shared from a host germ on a
 # virtual X server: letting them in, Enter for the helm, typing, handing
-# back, following the host, /helm and /take by name, and typing kept off
-# the share pane.
+# back, following the host, /helm and /take by name in the host's panel.
 #
 #   Xvfb :99 -screen 0 1280x800x24 &
 #   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core CHROME=/path/to/chrome \
@@ -25,6 +24,7 @@ SOCK=germ-browser-e2e
 PORT=18095
 cleanup() {
 	exec 3>&- 2>/dev/null || true
+	[ -n "$CTL" ] && { $CTL chat /stop >/dev/null 2>&1 || true; }
 	kill $HOST $RELAY $NODE 2>/dev/null || true
 	tmux -L $SOCK kill-server 2>/dev/null || true
 	rm -rf "$TMP"
@@ -56,12 +56,11 @@ HW=$(winof $HOST); sleep 2
 xdotool windowfocus --sync "$HW"
 xdotool key ctrl+shift+p; sleep 2
 CTL="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl"
-SHARE=$($CTL list | awk '/ germ /{gsub(/\*/,"",$1); print $1}' | tail -1)
-SHARE_TMUX=$($CTL list | awk '/ germ /{print $2}' | tail -1)
 GHELM="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM helm"
-LINK=$($CTL read "$SHARE" -n 60 | awk '/^http/{l=$0; w=length($0); while ((getline n) > 0 && length(l)%w==0 && n !~ / /) l=l n; print l; exit}')
+for _ in $(seq 40); do $CTL chat 2>/dev/null | grep -q '^http' && break; sleep 0.5; done
+LINK=$($CTL chat | awk '/^http/{l=$0; w=length($0); while ((getline n) > 0 && length(l)%w==0 && n !~ / /) l=l n; print l; exit}')
 [ -n "$LINK" ] || { echo "FAIL no link"; exit 1; }
-SL() { $CTL read "$SHARE" -n 60 | tr '\n' ' ' | tr -s ' '; }
+SL() { $CTL chat | tr '\n' ' ' | tr -s ' '; }
 fail=0
 check() { # description shell-condition: polled for up to 20 s
 	for _ in $(seq 40); do eval "$2" && { echo "ok   $1"; return; }; sleep 0.5; done
@@ -75,12 +74,11 @@ b() { echo "$*" >&3; sleep 1; }
 
 b open "$LINK"; sleep 2; b name carol
 check "asked to let carol in" "SL | grep -q 'carol (browser) wants to join'"
-$CTL send "$SHARE" -no-enter y
+$CTL chat /yes
 check "carol joined" "SL | grep -q 'carol joined'"
-tmux -L $SOCK select-pane -t %0
 b term; b type "echo nohelm"; b key Enter
 check "Enter asked for the helm" "SL | grep -q 'carol asked for the helm of tab 0'"
-$CTL send "$SHARE" -no-enter y; sleep 1
+$CTL chat /yes; sleep 1
 b type "echo carol-typed"; b key Enter
 check "carol typed at the helm" "tmux -L $SOCK capture-pane -p -t %0 | grep -qx carol-typed"
 b click '#helm'
@@ -88,17 +86,16 @@ check "the button handed it back" "$GHELM status | grep -q '^0 .*: you'"
 NEW=$(tmux -L $SOCK new-window -d -P -F '#{window_index}' -t germ:); tmux -L $SOCK select-window -t "germ:$NEW"; sleep 2
 b term; b key Enter
 check "carol followed and asked for the new tab" "SL | grep -q 'carol asked for the helm of tab $NEW'"
-$CTL send "$SHARE" -no-enter y; sleep 1
+$CTL chat /yes; sleep 1
 b type "echo carol-tab2"; b key Enter
 check "carol typed in the new tab" "tmux -L $SOCK capture-pane -p -t 'germ:$NEW' | grep -qx carol-tab2"
 tmux -L $SOCK select-window -t germ:0; sleep 1
-$CTL send "$SHARE" "/take"
+$CTL chat /take
 check "/take found carol's tab from another" "$GHELM status | grep -q '^$NEW .*: you'"
-$CTL send "$SHARE" "/helm carol 0"
+$CTL chat "/helm carol 0"
 check "/helm carol, by name" "$GHELM status | grep -q '^0 .*: carol'"
-tmux -L $SOCK select-pane -t "$SHARE_TMUX"; sleep 1
-b type "echo while-host-in-share"; b key Enter
-check "carol's typing skips the share pane" "tmux -L $SOCK capture-pane -p -t %0 | grep -qx while-host-in-share"
+b type "echo carol-at-0"; b key Enter
+check "carol types in tab 0" "tmux -L $SOCK capture-pane -p -t %0 | grep -qx carol-at-0"
 check "carol is named once" "SL | grep -q 'gave carol the helm' && ! SL | grep -q 'browser) (browser'"
 [ -n "$SHOTS" ] && { b shot "$SHOTS/browser.png"; xdotool windowraise "$HW"; sleep 0.3; import -window root "$SHOTS/browser-host.png"; }
 b quit

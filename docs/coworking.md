@@ -7,12 +7,15 @@ pair programming and for watching or steering coding agents together.
 
 ## Share
 
-In germ's tmux mode (the default), press **Ctrl+Shift+P**. The share pane
-opens on the right with your invite link, already on your clipboard.
-Anyone with it can ask to join; you let each person in, everyone can
-watch and chat, and typing is by turns (see "The helm" below).
+In germ's tmux mode (the default), press **Ctrl+Shift+P**. Sharing
+starts in the background, the invite link goes on your clipboard, and
+the share panel opens on the right of your window. Anyone with the link
+can ask to join; you let each person in, everyone can watch and chat,
+and typing is by turns (see "The helm" below).
 
-The share pane is where you run the session, all in one place:
+The panel is where you run the session, all in one place. It's part of
+your window, not of the session you're sharing, so guests never see it
+(nor what you're typing in it):
 
 ```
 ◆ contagious · session "work" through Tailscale Funnel
@@ -54,27 +57,31 @@ alice · 14:02
 NAME is a name or its number from the list; TAB is a tab's number.
 **Up** brings back what you sent, **PgUp/PgDn** scroll.
 
-**Ctrl+Shift+M** takes you to the share pane from anywhere in the window
-(Ctrl+Shift+P too, once you're sharing). The tab bar shows
+**Ctrl+Shift+M** focuses the panel (again: closes it; **Esc** goes back
+to the terminal with it open). Ctrl+Shift+P, once you're sharing, shows
+it too. It opens by itself when someone asks to join. The tab bar shows
 `◉ contagious · alice ✎, bob`, and new messages and questions appear
-there too (`» bob wants to join · Ctrl+Shift+M`), with a desktop
-notification if you're looking elsewhere.
+there too, with a desktop notification if you're looking elsewhere.
 
-Guests see the share pane (it's part of your session), but never type
-into it, even at the helm of its tab: their typing goes to the tab's other
-pane.
+Sharing keeps going if you close the window (guests stay); open germ on
+the session again and the panel comes back. `/stop` ends it, as does
+the session ending. If your connection to the relay drops, `germ share`
+reconnects by itself, and guests reconnect too. Its log is
+`~/.local/state/germ/share.log`.
 
-If your connection to the relay drops, `germ share` reconnects by itself,
-and guests reconnect too.
+Scripts can use the panel too: `germ ctl chat` prints it, and
+`germ ctl chat TEXT` sends a message or runs a command.
 
-You can also run `germ share` in any pane of a germ tmux session, or
-`germ share -session NAME` from anywhere.
+`germ share` in a pane of a germ window does the same as Ctrl+Shift+P.
+Outside germ (plain tmux), `germ share` runs in the pane itself, with
+the same controls, but that pane is part of the session you're sharing:
+guests can see it (they never type into it).
 
 ## The chat
 
 Everyone in the session is in one channel, guests in a browser included,
 and sees the same messages in the same order, each with who sent it and
-when. You chat in the share pane; guests with germ chat in a panel on
+when. You chat in the share panel; guests with germ chat in a panel on
 the right of their window (**Ctrl+Shift+M**), and browser guests beside
 the terminal.
 
@@ -89,7 +96,7 @@ the terminal.
   notification.
 - Joins, leaves and who got the helm show as dim one-line notices, so the
   chat doubles as a log of who drove when.
-- Nothing is saved unless you ask: `/save` in the share pane, or the
+- Nothing is saved unless you ask: `/save` in the panel, or the
   palette. Chats go to `~/.local/share/germ/chats/`.
 - Messages are limited to 4 KB and a few per second. To send a message
   that starts with `/`, start it with `//`.
@@ -103,8 +110,8 @@ that's you, the host, in every tab.
   says `⎈ zach has the helm here · Enter asks for it`; **Enter** asks.
   (Or **Ctrl+Shift+O**, `/helm` in the chat, **Request the helm** in the
   browser, or `germ helm` in a shell.) You get a notification and the
-  question in the share pane: **y** hands it over, **n** says no.
-- **You can hand it over unasked**: `/helm alice` in the share pane, or
+  question in the panel: **y** hands it over, **n** says no.
+- **You can hand it over unasked**: `/helm alice` in the panel, or
   `germ helm give alice`.
 - **While a guest has the helm**, only their keystrokes reach that tab,
   and yours don't: germ says `⎈ alice has the helm here · Enter takes it
@@ -137,7 +144,7 @@ germ window it runs in: handy in scripts, and for coding agents.
 Say alice is building a feature: give her its tab, and she can work there
 while you work in yours.
 
-- `/give alice` in the share pane (the tab you're on, or `/give alice 2`),
+- `/give alice` in the panel (the tab you're on, or `/give alice 2`),
   or **Ctrl+Shift+Space** (the palette) → **Give this tab to alice**.
 - alice owns the tab and has its helm. Others ask *her* for it, not you.
 - `/takeback` (or **Take this tab back** in the palette) returns it to
@@ -154,7 +161,7 @@ helm.
 For real work, give them a branch too, the way `germ agent` gives one to
 a coding agent:
 
-- `/branch alice fix the login page` in the share pane (the branch starts
+- `/branch alice fix the login page` in the panel (the branch starts
   from the directory of the tab you're on), or **Ctrl+Shift+Space** →
   **New tab for alice on its own branch** from a pane in your project.
 - germ makes a git worktree on a new branch (`germ/alice-fix-the-login-page`),
@@ -242,7 +249,7 @@ the page isn't https.
 ## Letting people in
 
 By default you approve every guest. When someone opens your link, germ
-sends a desktop notification and asks in the share pane:
+sends a desktop notification and asks in the panel:
 `» alex (browser) wants to join  y yes · n no`.
 
 Their browser says "Waiting for the host to let you in…". So a link that
@@ -293,8 +300,11 @@ bytes it can't read; no accounts, nothing on disk.
   everything else never (tmux's key bindings and command prompt
   included, and format strings that would run shell commands, `#(...)`).
   Browser guests' keystrokes are typed into the pane by `germ share`
-  itself (`send-keys`), never through tmux's key tables. No guest types
-  into the share pane, helm or not.
+  itself (`send-keys`), never through tmux's key tables.
+- **Your controls are yours.** The share panel is drawn by your germ
+  window, outside the session you're sharing: guests can't see it or what
+  you type there. (Run in a plain tmux pane, `germ share` is in the
+  session: guests see it but never type into it.)
 - **Nobody can speak for someone else.** Chat messages go through your
   `germ share`, which stamps who sent each one by the connection it came
   on, and numbers them, so everyone sees the same order.
@@ -317,9 +327,11 @@ bytes it can't read; no accounts, nothing on disk.
 `tmux -C attach-session -f ignore-size` on it (so their window size doesn't
 change yours), and tunnels it, so the guest's germ runs the same tmux
 control-mode client as your own window. The chat, the tabs and the helm
-travel in the same encrypted tunnel; your germ window gets them from
-`germ share` over its control socket (for the tab bar, the helm, and
-Ctrl+Shift+O). Code: `internal/share` (relay, host, guest, protocol,
-`room.go` for the chat and the helm), `cmd/germ-relay`,
-`cmd/germ/sharepane.go` (the share pane), `internal/app/chat.go` (the
-guest's panel) and `internal/chatview` (drawing the chat, for both).
+travel in the same encrypted tunnel. `germ share` runs in the background
+and talks to your germ window over its control socket: the window draws
+the share panel and sends back what you do there. Code: `internal/share`
+(relay, host, guest, protocol, `room.go` for the chat and the helm),
+`cmd/germ-relay`, `cmd/germ/share.go` (germ share and the bridge to the
+window), `internal/app/chat.go` (the panel, host's and guests'),
+`cmd/germ/sharepane.go` (germ share in a plain tmux pane) and
+`internal/chatview` (drawing the chat, for both).

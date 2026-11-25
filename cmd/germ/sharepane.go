@@ -29,7 +29,6 @@ import (
 type sharePane struct {
 	h       *share.Host
 	br      *shareBridge
-	ctl     *control.Client // the window, for /branch (nil without one)
 	session string
 	via     string
 	stop    func() // stop sharing
@@ -51,8 +50,8 @@ type sharePane struct {
 	redraw chan struct{}
 }
 
-func newSharePane(h *share.Host, br *shareBridge, ctl *control.Client, session, via string, stop func()) *sharePane {
-	return &sharePane{h: h, br: br, ctl: ctl, session: session, via: via, stop: stop,
+func newSharePane(h *share.Host, br *shareBridge, session, via string, stop func()) *sharePane {
+	return &sharePane{h: h, br: br, session: session, via: via, stop: stop,
 		rung: map[string]bool{}, redraw: make(chan struct{}, 1)}
 }
 
@@ -186,67 +185,9 @@ func (p *sharePane) draw() {
 }
 
 // head is the rows above the chat: the session, the link, who's here
-// (numbered, for /kick) and who has the helm of each tab.
+// and who has the helm of each tab.
 func (p *sharePane) head(people []share.Participant, st share.State, cols int) []string {
-	const b, d, r = "\x1b[1m", "\x1b[2m", "\x1b[0m"
-	rows := []string{
-		chatview.Fit(fmt.Sprintf("%s\x1b[34m◆ contagious%s%s · session %q %s · /copy copies the link", b, r, d, p.session, p.via), cols),
-	}
-	// The link in full, wrapped (cut, it wouldn't work when copied).
-	link := []rune(p.h.Link().String())
-	for len(link) > 0 && cols > 0 {
-		n := min(len(link), cols)
-		rows = append(rows, "\x1b[36m"+string(link[:n]))
-		link = link[n:]
-	}
-	names := map[uint32]string{0: "you"}
-	var here []string
-	for i, pp := range people {
-		if pp.Host {
-			continue
-		}
-		names[pp.ID] = share.ShortName(pp.Name)
-		s := fmt.Sprintf("%s%d%s %s", b, i, r, share.ShortName(pp.Name))
-		if pp.Web {
-			s += d + " (browser)" + r
-		}
-		if pp.Typing {
-			s += " ✎"
-		}
-		if pp.Muted {
-			s += d + " (muted)" + r
-		}
-		here = append(here, s)
-	}
-	if len(here) == 0 {
-		rows = append(rows, d+"nobody's here yet: send them the link")
-	} else {
-		rows = append(rows, chatview.Fit("here: "+strings.Join(here, "  "), cols))
-	}
-	var tabs []string
-	for _, t := range st.Tabs {
-		who := names[t.Helm]
-		if who == "" {
-			who = "someone"
-		}
-		s := fmt.Sprintf("%s%d%s %s: ", b, t.Index, r, t.Name)
-		if t.Helm == 0 {
-			s += d + "you" + r
-		} else {
-			s += "\x1b[33m" + who + r
-		}
-		if t.Owner != 0 {
-			s += d + " (" + names[t.Owner] + "'s tab)" + r
-		}
-		if t.Window == st.Current {
-			s = "\x1b[4m" + s + r // the tab /helm and /take act on by default
-		}
-		tabs = append(tabs, s)
-	}
-	if len(tabs) > 0 {
-		rows = append(rows, chatview.Fit("⎈ "+strings.Join(tabs, d+" · "+r), cols))
-	}
-	return rows
+	return chatview.HostHead(fmt.Sprintf("session %q", p.session), p.via+" · /copy copies the link", p.h.Link().String(), people, st, cols)
 }
 
 // ---- running ---------------------------------------------------------------
@@ -689,15 +630,9 @@ func (p *sharePane) branch(name, task string) {
 			}
 		}
 	}
-	if p.ctl != nil {
-		c, err := control.Dial(p.ctl.Path)
-		if err == nil {
-			defer c.Close()
-			if _, err := c.Call(control.Request{Cmd: control.CmdOpenPane, Where: "tab", Command: argv, Focus: true,
-				Cwd: strings.TrimSpace(string(cwd))}); err == nil {
-				return
-			}
-		}
+	if _, err := p.br.call(control.Request{Cmd: control.CmdOpenPane, Where: "tab", Command: argv, Focus: true,
+		Cwd: strings.TrimSpace(string(cwd))}); err == nil {
+		return
 	}
 	p.say("/branch needs germ's window")
 }

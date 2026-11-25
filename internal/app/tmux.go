@@ -48,6 +48,7 @@ type tmuxController struct {
 	wait         func() // waits for the tmux client to finish
 	stdin        io.WriteCloser
 	session      string
+	socketPath   string // the tmux server's socket (to tell shares of same-named sessions apart)
 
 	writeMu sync.Mutex // serializes commands and keeps queue order
 
@@ -509,11 +510,18 @@ func (c *tmuxController) refresh() {
 			c.ready = true
 			c.a.forceRedraw = true
 		})
-	c.command(`display -p "#{session_name}	#{session_id}"`, func(lines []string, failed bool) {
+	c.command(`display -p "#{session_name}	#{session_id}	#{socket_path}"`, func(lines []string, failed bool) {
 		if failed || len(lines) == 0 {
 			return
 		}
-		name, id, _ := strings.Cut(lines[0], "\t")
+		f := strings.SplitN(lines[0], "\t", 3)
+		name, id := f[0], ""
+		if len(f) > 1 {
+			id = f[1]
+		}
+		if len(f) > 2 && c.remote == nil {
+			c.socketPath = f[2]
+		}
 		c.sessionID = id
 		if name != c.session && c.remote == nil { // a guest keeps showing the host's name
 			c.session = name // renamed, or switched with choose-tree etc.
