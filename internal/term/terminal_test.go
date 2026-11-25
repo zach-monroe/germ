@@ -485,6 +485,27 @@ func TestOSCColors(t *testing.T) {
 	}
 }
 
+func TestFixedColors(t *testing.T) {
+	tm, resp := newTerm(10, 2)
+	feed(tm, "\x1b]4;1;#102030\x07\x1b]11;#000000\x07")
+	tm.SetFixedColors(true) // drops what was set
+	if th, _ := tm.Colors(); *th != *theme.Default() {
+		t.Error("turning fixed on kept a program's colors")
+	}
+	feed(tm, "\x1b]4;1;#102030\x07\x1b]10;#ff0000;#00ff00\x07\x1b]4;1;?\x07")
+	if th, _ := tm.Colors(); *th != *theme.Default() {
+		t.Error("fixed colors changed")
+	}
+	if want := "\x1b]4;1;" + rgbSpec(theme.Default().Palette[1]) + "\x1b\\"; resp.String() != want {
+		t.Errorf("query = %q, want %q", resp.String(), want)
+	}
+	tm.SetFixedColors(false)
+	feed(tm, "\x1b]4;1;#102030\x07")
+	if th, _ := tm.Colors(); th.Palette[1].Hex() != "#102030" {
+		t.Error("not fixed any more, but the change was ignored")
+	}
+}
+
 func TestShellIntegrationMarks(t *testing.T) {
 	var done []int
 	tm := New(20, 4, Options{Scrollback: 100, OnCommandDone: func(exit int, _ time.Duration) { done = append(done, exit) }})

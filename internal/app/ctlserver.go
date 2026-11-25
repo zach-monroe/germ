@@ -359,7 +359,7 @@ func (a *App) ctlOpen(req control.Request, target *pane, ok func(*control.Respon
 		c := a.tmux
 		var cmd string
 		if where == "tab" {
-			cmd = "new-window -P -F '#{pane_id}'"
+			cmd = newWindowCmd(c.remote == nil) + " -P -F '#{pane_id}'"
 		} else {
 			flag := "-h"
 			if where == "down" {

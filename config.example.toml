@@ -23,6 +23,8 @@ lines = 10000
 # program = "/usr/bin/fish"   # default: $SHELL
 # args = ["--login"]
 # term = "xterm-256color"     # default: "xterm-germ" (installed automatically)
+program_colors = true         # let programs recolor the terminal (pywal, desktop theme
+                              # scripts); false: your theme always wins (docs/themes.md)
 
 # Override individual theme colors.
 [colors]

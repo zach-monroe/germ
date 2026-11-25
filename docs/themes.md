@@ -70,9 +70,22 @@ germ theme import -name ocean2 base16-ocean.yaml
 Imported themes land in `~/.config/germ/themes/` and show up in the
 palette and `germ theme list`.
 
-## A note on shells that set colors
+## Shells that set colors
 
-Some shell setups and tools set the terminal's colors themselves with
-escape sequences (OSC 4/10/11), e.g. a prompt framework's "theme". Those
-win over germ's theme until the program resets them, so if a theme seems
-not to apply, check your shell startup files.
+Some setups set the terminal's colors themselves with escape sequences
+(OSC 4/10/11): pywal, desktop theme tools that `cat` a sequences file in
+your shell startup, a prompt framework's "theme". By default germ lets
+them, as other terminals do, and they win over germ's theme. Every new
+tab runs your shell startup again, so new tabs look different from tabs
+germ reattached to.
+
+To have germ's theme always win, set:
+
+```toml
+[shell]
+program_colors = false
+```
+
+It applies at once, to open tabs too. Programs can still ask for the
+colors (so editors pick light or dark correctly); they just can't change
+them.

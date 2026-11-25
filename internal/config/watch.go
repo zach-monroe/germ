@@ -9,15 +9,27 @@ import (
 )
 
 // Watch calls onChange (from a background goroutine) whenever the config
-// file or a user theme changes. Directories are watched rather than files
+// file (path, or the default one if empty) or a user theme changes. Directories are watched rather than files
 // because editors usually save by writing a new file and renaming it over
 // the old one. Events are debounced. The returned function stops watching.
-func Watch(onChange func()) (stop func(), err error) {
+func Watch(path string, onChange func()) (stop func(), err error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
-	dirs := append([]string{Dir()}, ThemeDirs()...)
+	if path == "" {
+		path = Path()
+	}
+	path, _ = filepath.Abs(path)
+	files := []string{path}
+	if p, err := filepath.EvalSymlinks(path); err == nil && p != path {
+		files = append(files, p) // a dotfiles link: the file it points to changes
+	}
+	dirs := []string{Dir()}
+	for _, f := range files {
+		dirs = append(dirs, filepath.Dir(f))
+	}
+	dirs = append(dirs, ThemeDirs()...)
 	watched := 0
 	for _, d := range dirs {
 		if w.Add(d) == nil {
@@ -41,7 +53,7 @@ func Watch(onChange func()) (stop func(), err error) {
 				if !ok {
 					return
 				}
-				if !relevant(ev.Name) {
+				if !relevant(ev.Name, files) {
 					continue
 				}
 				if ev.Op&fsnotify.Create != 0 && (ev.Name == Dir() || slices.Contains(ThemeDirs(), ev.Name)) {
@@ -60,8 +72,8 @@ func Watch(onChange func()) (stop func(), err error) {
 	return func() { close(done); w.Close() }, nil
 }
 
-func relevant(name string) bool {
-	if name == Dir() || name == Path() {
+func relevant(name string, files []string) bool {
+	if name == Dir() || slices.Contains(files, name) {
 		return true
 	}
 	for _, d := range ThemeDirs() {

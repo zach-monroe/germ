@@ -20,6 +20,8 @@ type Options struct {
 	Responder io.Writer
 	// Theme is the initial color scheme (default: theme.Default()).
 	Theme *theme.Theme
+	// FixedColors ignores programs' color changes (OSC 4/10/11/12).
+	FixedColors bool
 	// OnBell and OnTitle are called with the terminal lock held; they must
 	// not call back into the Terminal.
 	OnBell  func()
@@ -177,6 +179,7 @@ func New(cols, rows int, opts Options) *Terminal {
 	if t.colors.base == nil {
 		t.colors.base = theme.Default()
 	}
+	t.colors.fixed = opts.FixedColors
 	t.colors.recompute()
 	t.resetState()
 	return t

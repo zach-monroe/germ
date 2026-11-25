@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,26 @@ func TestResumeCommand(t *testing.T) {
 	}
 	if got := c.resumeCommand("aider"); got != "aider" {
 		t.Errorf("aider: %q", got)
+	}
+}
+
+func TestSortTabsByWindowIndex(t *testing.T) {
+	home := &tab{home: true}
+	mk := func(id, index string) *tab { return &tab{tmuxID: id, index: index} }
+	// @12 was made first but sits at index 1: tab 0 was closed and a new
+	// window (@16) took the free index. A window germ hasn't seen the
+	// index of yet goes last.
+	w12, w16, w17, w20 := mk("@12", "1"), mk("@16", "0"), mk("@17", "2"), mk("@20", "")
+	a := &App{tabs: []*tab{home, w12, w20, w16, w17}, cur: 1}
+	(&tmuxController{a: a}).sortTabs()
+	if want := []*tab{home, w16, w12, w17, w20}; !slices.Equal(a.tabs, want) {
+		var got []string
+		for _, x := range a.tabs {
+			got = append(got, x.tmuxID)
+		}
+		t.Errorf("order %v", got)
+	}
+	if a.tabs[a.cur] != w12 {
+		t.Error("the current tab changed")
 	}
 }

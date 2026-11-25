@@ -63,6 +63,10 @@ type Shell struct {
 	// installed, else xterm-256color. Set "xterm-256color" if you ssh to
 	// hosts without germ's terminfo.
 	Term string `toml:"term"`
+	// ProgramColors lets programs change the terminal's colors (OSC
+	// 4/10/11/12), as pywal and desktop theme scripts do. Off, the theme
+	// always shows.
+	ProgramColors bool `toml:"program_colors"`
 }
 
 // Tmux configures tmux control-mode integration.
@@ -216,6 +220,7 @@ func Default() Config {
 		Font:       Font{Family: "monospace", Size: 11},
 		Window:     Window{Padding: 4, Columns: 100, Rows: 30},
 		Scrollback: Scrollback{Lines: 10000},
+		Shell:      Shell{ProgramColors: true},
 		Tmux:       Tmux{Enabled: true, Restore: true},
 		Home: Home{Enabled: true, Focus: true,
 			Layout:     [][]string{{"clock", "weather", "agents"}, {"news:3", "stocks:2"}},

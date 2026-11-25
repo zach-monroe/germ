@@ -2,10 +2,13 @@ package app
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -531,7 +534,9 @@ func (c *tmuxController) refresh() {
 	})
 }
 
-// sortTabs orders tabs by tmux window ID (creation order).
+// sortTabs orders tabs like tmux does: by window index, the number each
+// tab shows (and what guests, tmux's own keys and move-window go by). A
+// window whose index isn't known yet goes last, then by ID.
 func (c *tmuxController) sortTabs() {
 	a := c.a
 	cur := a.tab()
@@ -539,20 +544,28 @@ func (c *tmuxController) sortTabs() {
 	if len(a.tabs) > 0 && a.tabs[0].home {
 		first = 1 // home stays first
 	}
-	for i := first + 1; i < len(a.tabs); i++ {
-		for j := i; j > first; j-- {
-			x, _ := parseTmuxID(a.tabs[j-1].tmuxID)
-			y, _ := parseTmuxID(a.tabs[j].tmuxID)
-			if x > y {
-				a.tabs[j-1], a.tabs[j] = a.tabs[j], a.tabs[j-1]
-			}
-		}
-	}
+	slices.SortStableFunc(a.tabs[first:], func(x, y *tab) int {
+		return cmp.Or(cmp.Compare(windowOrder(x.index), windowOrder(y.index)),
+			cmp.Compare(tmuxNum(x.tmuxID), tmuxNum(y.tmuxID)))
+	})
 	for i, t := range a.tabs {
 		if t == cur {
 			a.cur = i
 		}
 	}
+}
+
+// windowOrder is a tab's tmux window index for sorting; unknown sorts last.
+func windowOrder(index string) int {
+	if n, err := strconv.Atoi(index); err == nil {
+		return n
+	}
+	return math.MaxInt
+}
+
+func tmuxNum(id string) int {
+	n, _ := parseTmuxID(id)
+	return n
 }
 
 func (c *tmuxController) showWindow(id int) {
@@ -786,8 +799,19 @@ func cwdArg(cwd string) string {
 	return " -c " + tmuxQuote(cwd)
 }
 
+// newWindow opens a tab after the last one. tmux on its own takes the
+// lowest free index, so after closing tab 1 a new tab would land first.
 func (c *tmuxController) newWindow(cwd string) {
-	c.command("new-window"+cwdArg(cwd), nil)
+	c.command(newWindowCmd(c.remote == nil)+cwdArg(cwd), nil)
+}
+
+// newWindowCmd is new-window placed at the end. Guests can't name a target
+// (germ share refuses -t), and their windows go where tmux puts them.
+func newWindowCmd(host bool) string {
+	if host {
+		return "new-window -a -t '{end}'"
+	}
+	return "new-window"
 }
 
 func (c *tmuxController) splitPane(p *pane, dir splitDir, cwd string) {

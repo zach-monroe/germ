@@ -121,9 +121,10 @@ func (a *App) newTermNoReplies(p *pane, cols, rows int) *term.Terminal {
 func (a *App) makeTerm(p *pane, cols, rows int, resp io.Writer) *term.Terminal {
 	th, _ := a.cfg.ResolveTheme()
 	return term.New(cols, rows, term.Options{
-		Scrollback: a.cfg.Scrollback.Lines,
-		Theme:      th,
-		Responder:  resp,
+		Scrollback:  a.cfg.Scrollback.Lines,
+		Theme:       th,
+		FixedColors: !a.cfg.Shell.ProgramColors,
+		Responder:   resp,
 		OnTitle: func(s string) {
 			p.title.Store(&s)
 			glfw.PostEmptyEvent()

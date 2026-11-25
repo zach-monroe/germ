@@ -90,7 +90,7 @@ func TestWatch(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	os.MkdirAll(Dir(), 0o755)
 	changed := make(chan struct{}, 4)
-	stop, err := Watch(func() { changed <- struct{}{} })
+	stop, err := Watch("", func() { changed <- struct{}{} })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,5 +103,35 @@ func TestWatch(t *testing.T) {
 	case <-changed:
 	case <-time.After(2 * time.Second):
 		t.Fatal("no change notification")
+	}
+}
+
+// A config given with -config elsewhere, and one linked from a dotfiles
+// repo, reload when saved.
+func TestWatchPath(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, link := range []bool{false, true} {
+		dir := t.TempDir()
+		real := filepath.Join(dir, "germ.toml")
+		os.WriteFile(real, nil, 0o644)
+		path := real
+		if link {
+			path = filepath.Join(t.TempDir(), "config.toml")
+			os.Symlink(real, path)
+		}
+		changed := make(chan struct{}, 4)
+		stop, err := Watch(path, func() { changed <- struct{}{} })
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmp := real + ".tmp"
+		os.WriteFile(tmp, []byte(`theme = "dracula"`), 0o644)
+		os.Rename(tmp, real)
+		select {
+		case <-changed:
+		case <-time.After(2 * time.Second):
+			t.Errorf("link=%v: no change notification", link)
+		}
+		stop()
 	}
 }

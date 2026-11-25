@@ -10,7 +10,17 @@
   with a comment on every color, and switches to it: edit and save to see
   it live. `germ theme use NAME` picks one from a shell.
 - A themes folder created while germ runs is watched too.
+- **`[shell] program_colors = false`** keeps your theme when the shell
+  sets its own colors (pywal, desktop theme scripts): before, every new
+  tab took those colors while reattached tabs kept the theme.
+- A config given with `-config`, or linked from a dotfiles repo, reloads
+  when saved.
 - [docs/themes.md](docs/themes.md).
+
+### Tabs
+- Tabs are in tmux's order, the numbers they show, and a new tab goes
+  last. Before, after closing the first tab a new one took its number
+  but showed at the end, so tabs read 1, 0, 2.
 
 ## v0.6.0 (2026-11-25)
 

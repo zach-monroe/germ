@@ -10,7 +10,8 @@ import (
 
 // Dynamic colors: the effective palette is the theme plus any overrides
 // applications set with OSC 4/10/11/12. Overrides survive theme reloads
-// and are cleared by OSC 104/110/111/112 or a full reset.
+// and are cleared by OSC 104/110/111/112 or a full reset. With fixed set,
+// programs can still ask for colors but not change them.
 
 const (
 	dynFG = iota
@@ -24,6 +25,8 @@ type colorState struct {
 	pal  map[int]theme.RGB
 	dyn  [3]*theme.RGB
 	gen  uint64 // bumped on every change so renderers can rebuild
+	// fixed ignores programs' color changes: the theme always shows.
+	fixed bool
 }
 
 func (cs *colorState) recompute() {
@@ -58,6 +61,22 @@ func (t *Terminal) SetTheme(th *theme.Theme) {
 	t.markAllDirty()
 }
 
+// SetFixedColors makes the theme win over colors programs set (OSC
+// 4/10/11/12); turning it on drops any they already set.
+func (t *Terminal) SetFixedColors(on bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cs := &t.colors
+	if cs.fixed == on {
+		return
+	}
+	cs.fixed = on
+	if on && (cs.pal != nil || cs.dyn != [3]*theme.RGB{}) {
+		cs.reset()
+		t.markAllDirty()
+	}
+}
+
 // Colors returns the effective color scheme and a generation number that
 // changes whenever it does. Caller must hold the lock; the returned
 // pointer is valid until Unlock.
@@ -85,7 +104,7 @@ func (t *Terminal) oscColor(code int, rest string) {
 				t.respond(fmt.Sprintf("\x1b]4;%d;%s\x1b\\", idx, rgbSpec(cs.eff.Palette[idx])))
 				continue
 			}
-			if c, err := theme.ParseColor(parts[i+1]); err == nil {
+			if c, err := theme.ParseColor(parts[i+1]); err == nil && !cs.fixed {
 				if cs.pal == nil {
 					cs.pal = map[int]theme.RGB{}
 				}
@@ -104,7 +123,7 @@ func (t *Terminal) oscColor(code int, rest string) {
 				t.respond(fmt.Sprintf("\x1b]%d;%s\x1b\\", 10+which, rgbSpec(cur)))
 				continue
 			}
-			if c, err := theme.ParseColor(spec); err == nil {
+			if c, err := theme.ParseColor(spec); err == nil && !cs.fixed {
 				cs.dyn[which] = &c
 				changed = true
 			}

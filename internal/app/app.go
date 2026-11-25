@@ -260,7 +260,7 @@ func Run(opts Options) error {
 	a.startAgentTicker()
 	a.reportProblems(problems)
 	a.reportLastCrash()
-	if stop, err := config.Watch(func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {
+	if stop, err := config.Watch(a.opts.ConfigPath, func() { a.reload.Store(true); glfw.PostEmptyEvent() }); err == nil {
 		defer stop()
 	}
 
@@ -537,6 +537,7 @@ func (a *App) reloadConfig() {
 	a.bindings, _ = cfg.Bindings()
 	for _, p := range a.panes {
 		p.term.SetTheme(th)
+		p.term.SetFixedColors(!cfg.Shell.ProgramColors)
 	}
 
 	refit := false
