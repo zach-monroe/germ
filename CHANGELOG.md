@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (since v0.5.0)
+## v0.6.0 (2026-11-25)
 
 **Spread your germs.** Highly contagious coworking.
 
