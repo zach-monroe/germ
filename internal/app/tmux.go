@@ -39,6 +39,8 @@ type tmuxEvent struct {
 }
 
 type tmuxController struct {
+	restored     bool      // restore finished (or wasn't needed): snapshots may be saved
+	lastSnapshot time.Time
 	a       *App
 	wait    func() // waits for the tmux client to finish
 	stdin   io.WriteCloser
@@ -109,9 +111,11 @@ func (a *App) startTmux(session string) error {
 	if s := a.cfg.Tmux.Socket; s != "" {
 		sock = []string{"-L", s}
 	}
+	existing := listSessions(path, sock)
 	if session == "" {
-		session = pickSession(listSessions(path, sock))
+		session = pickSession(existing)
 	}
+	_, exists := existing[session]
 	args := append(sock, "-C", "new-session", "-A", "-s", session)
 	if len(a.opts.TmuxCommand) > 0 { // only used when the session is new
 		args = append(args, shellJoin(a.opts.TmuxCommand))
@@ -151,6 +155,11 @@ func (a *App) startTmux(session string) error {
 		}
 	}
 	c.begin()
+	if snap, ok := loadSnapshot(session); ok && !exists && a.cfg.Tmux.Restore {
+		c.restoreSession(snap)
+	} else {
+		c.restored = true
+	}
 	return nil
 }
 
@@ -419,6 +428,11 @@ func (c *tmuxController) notification(line string) {
 		c.mu.Lock()
 		c.done = true
 		c.mu.Unlock()
+		if !c.a.quitting && c.remote == nil && !shuttingDown() {
+			// The session ended (its last shell exited), not the machine:
+			// don't bring it back next time.
+			os.Remove(snapshotPath(c.session))
+		}
 		c.a.quitting = true
 		if c.remote != nil {
 			reason := c.remote.Reason()

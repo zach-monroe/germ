@@ -41,6 +41,7 @@ mode = "auto"          # "auto" injects prompt marks for fish; "off" disables
 enabled = true         # every window is a tmux session in control mode (tabs and splits become native)
 # session = "main"     # always use this session; default: a free germ, germ-2, ... per window
 # socket = "germ"      # tmux -L socket name (default server if unset)
+restore = true         # after a reboot, rebuild tabs, splits and directories (docs/tmux.md)
 
 [home]
 enabled = true          # the first tab is a dashboard of widgets (docs/widgets.md)

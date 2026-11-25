@@ -189,6 +189,9 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **17. Agent precision** | Agents report their own state: `germ setup agents` installs Claude Code hooks and Codex `notify` that call `germ ctl agent-event`, overriding screen heuristics; "finished" notifications; keyboard hints mode (Ctrl+Shift+E: label every URL, `file:line`, git hash, IP on screen; a letter opens, Shift+letter copies) | Badges and `wait_for` are exact for Claude Code, and you never reach for the mouse to open what an agent printed |
 | **18. Agent review & throughput** | Review tab for `germ agent` worktrees: diff with file list, merge / discard / send feedback to the agent in one key; throughput, latency and memory benchmarks against kitty and alacritty, then fixes | Three agents finish, and you review and merge each from one tab; a 100 MB log scrolls past without germ falling behind |
 | **19. Daily-driver core** | Native Wayland (GLFW 3.4) with fractional scaling and IME; opt-in ligatures (go-text shaping); synthetic italic/bold; DPI changes across monitors; crash log, `germ doctor`, config errors shown in the window; base16/iTerm2/Alacritty theme import | Crisp text on a 1.25× Wayland display, and a broken config tells you what's wrong |
+| **20. Survive a reboot** | Snapshot each tmux session's windows, layouts, directories and agents every 30 s; rebuild them when the session is created afresh; type agents' resume commands | Reboot, open germ: your tabs and splits are back in their directories, with `claude --continue` waiting in each agent pane |
+| **21. Command palette** | Ctrl+Shift+Space: fuzzy-searchable list of every action (with its key) | Every feature is findable without memorizing chords |
+| **22. Input latency** | Measure key-to-screen latency against kitty/ghostty; fix what's slow | germ is as quick to echo a key as the fastest terminal here |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -239,7 +242,10 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status (Phase 19, in progress)
+## Status (Phase 20)
+- Snapshots: `list-panes -s` every 30 s (agent tick) into $XDG_STATE_HOME/germ/sessions/<session>.json (window name/layout/active, pane cwd/agent/active), only once restore is done. Restore when startTmux creates a session that didn't exist: one command line per window (new-window -c, split-window -c, select-layout, select-pane {next}), kill the initial window, select the active one relative to `:^`; resume commands typed 1.5 s later by pane ID (typed earlier, shells echo them before the prompt). `%exit` not caused by germ deletes the snapshot unless systemd says the system is stopping or the login session is closing. e2e verified by hand (simulated reboot: kill -9 germ, kill-server, relaunch); `[tmux] restore`.
+
+## Status (Phase 19)
 - Native Wayland deferred: the user runs Xorg + i3, and go-gl's GLFW 3.4 bindings are pre-release (v0.1.0-pre.2).
 - Config problems (parse errors, unknown keys, bad theme, font load, tmux start failure) go to the tab bar status for 20 s and a desktop notification, at startup and on reload.
 - Crash log: `debug.SetCrashOutput` to a per-process temp in $XDG_STATE_HOME/germ, renamed to crash.log when its process is gone and non-empty; the next launch reports it once.

@@ -151,6 +151,10 @@ func (p *pane) noteOutput() { p.agent.lastOutput.Store(time.Now().UnixNano()) }
 // animating (working).
 func (a *App) agentTick(detect bool) (animating bool) {
 	now := time.Now()
+	if c := a.tmux; detect && c != nil && now.Sub(c.lastSnapshot) >= snapshotEvery {
+		c.lastSnapshot = now
+		c.saveSnapshot()
+	}
 	visible := a.visiblePanes()
 	for _, p := range a.panes {
 		ag := &p.agent

@@ -54,6 +54,20 @@ under `[tmux]`) to pick a session, `germ -no-tmux` for a plain shell, or
 `[tmux] enabled = false` to turn it off. Running a command (`germ htop`)
 skips tmux. If tmux isn't installed, germ falls back to a plain shell.
 
+### After a reboot
+
+tmux sessions live as long as the tmux server, so a reboot ends them.
+germ saves each session's tabs, splits and directories every 30 seconds
+(in `~/.local/state/germ/sessions/`). When it next creates that session
+from scratch, it rebuilds them: same tabs in the same order, same splits
+and sizes, each shell in its old directory. Panes that were running a
+coding agent get its resume command typed in, ready for Enter
+(`claude --continue`, `codex resume --last`, or `[agents] resume`).
+Running programs and shell history aren't restored.
+
+Ending a session yourself (exiting its last shell) forgets it.
+`[tmux] restore = false` turns this off.
+
 ### tmux key bindings
 
 Keys normally go straight to the pane (`send-keys`), which skips tmux's

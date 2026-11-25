@@ -74,6 +74,9 @@ type Tmux struct {
 	Session string `toml:"session"`
 	// Socket selects a tmux server socket name (tmux -L).
 	Socket string `toml:"socket"`
+	// Restore rebuilds a session's tabs, splits and directories (and types
+	// agents' resume commands) when it's created afresh after a reboot.
+	Restore bool `toml:"restore"`
 }
 
 // Home configures the home tab: a dashboard of widgets shown as the first
@@ -211,7 +214,7 @@ func Default() Config {
 		Font:       Font{Family: "monospace", Size: 11},
 		Window:     Window{Padding: 4, Columns: 100, Rows: 30},
 		Scrollback: Scrollback{Lines: 10000},
-		Tmux:       Tmux{Enabled: true},
+		Tmux:       Tmux{Enabled: true, Restore: true},
 		Home: Home{Enabled: true, Focus: true,
 			Layout:     [][]string{{"clock", "weather", "agents"}, {"news:3", "stocks:2"}},
 			RowHeights: []float64{2, 3}},
