@@ -182,6 +182,10 @@ func (r *agentRun) makeWorktree() error {
 	if _, err := gitOut(r.repo, "worktree", "add", "-b", r.branch, r.dir, r.base); err != nil {
 		return fmt.Errorf("git worktree add: %v", err)
 	}
+	// For germ review: what the agent was asked, and where it started.
+	gitOut(r.repo, "config", "branch."+r.branch+".germ-task", r.task)
+	gitOut(r.repo, "config", "branch."+r.branch+".germ-base", r.base)
+	gitOut(r.repo, "config", "branch."+r.branch+".germ-from", r.baseName)
 	fmt.Printf("\n%s✓%s worktree %s%s%s on branch %s%s%s (from %s)\n\n", green, reset, bold, r.dir, reset,
 		cyan, r.branch, reset, r.baseName)
 	return os.Chdir(r.dir)
@@ -355,19 +359,8 @@ func (r *agentRun) review() {
 }
 
 func (r *agentRun) merge() error {
-	if dirty, _ := gitOut(r.repo, "status", "--porcelain", "--untracked-files=no"); dirty != "" {
-		return fmt.Errorf("%s has uncommitted changes", r.repo)
-	}
-	if cur, _ := gitOut(r.repo, "rev-parse", "--abbrev-ref", "HEAD"); cur != r.baseName {
-		return fmt.Errorf("%s is now on %s, not %s", r.repo, cur, r.baseName)
-	}
-	msg := "Merge " + r.branch
-	if r.task != "" {
-		msg += ": " + r.task
-	}
-	if out, err := gitOut(r.repo, "merge", "--no-ff", "-m", msg, r.branch); err != nil {
-		gitOut(r.repo, "merge", "--abort")
-		return fmt.Errorf("%v %s", err, out)
+	if err := mergeBranch(r.repo, r.branch, r.baseName, r.task); err != nil {
+		return err
 	}
 	fmt.Printf("%s✓ merged %s into %s%s\n", green, r.branch, r.baseName, reset)
 	r.removeWorktree(false)
@@ -377,20 +370,52 @@ func (r *agentRun) merge() error {
 func (r *agentRun) removeWorktree(force bool) {
 	r.closeDiff()
 	os.Chdir(r.repo)
-	args := []string{"worktree", "remove", r.dir}
-	if force {
-		args = []string{"worktree", "remove", "--force", r.dir}
-	}
-	if _, err := gitOut(r.repo, args...); err != nil {
+	if err := removeWorktreeAt(r.repo, r.dir, r.branch, force); err != nil {
 		fmt.Printf("%s%v%s\n", red, err, reset)
 		return
+	}
+	fmt.Printf("removed %s\n", r.dir)
+}
+
+// mergeBranch merges an agent's branch into into (which must be checked
+// out, and clean, in the main repository) with a merge commit.
+func mergeBranch(repo, branch, into, task string) error {
+	if dirty, _ := gitOut(repo, "status", "--porcelain", "--untracked-files=no"); dirty != "" {
+		return fmt.Errorf("%s has uncommitted changes", repo)
+	}
+	if cur, _ := gitOut(repo, "rev-parse", "--abbrev-ref", "HEAD"); cur != into {
+		return fmt.Errorf("%s is now on %s, not %s", repo, cur, into)
+	}
+	msg := "Merge " + branch
+	if task != "" {
+		msg += ": " + task
+	}
+	if out, err := gitOut(repo, "merge", "--no-ff", "-m", msg, branch); err != nil {
+		gitOut(repo, "merge", "--abort")
+		return fmt.Errorf("%v %s", err, out)
+	}
+	return nil
+}
+
+// removeWorktreeAt deletes an agent's worktree and branch (force: even
+// with unmerged or uncommitted work).
+func removeWorktreeAt(repo, dir, branch string, force bool) error {
+	args := []string{"worktree", "remove", dir}
+	if force {
+		args = []string{"worktree", "remove", "--force", dir}
+	}
+	if _, err := gitOut(repo, args...); err != nil {
+		return err
 	}
 	del := "-d"
 	if force {
 		del = "-D"
 	}
-	gitOut(r.repo, "branch", del, r.branch)
-	fmt.Printf("removed %s\n", r.dir)
+	if _, err := gitOut(repo, "branch", del, branch); err != nil {
+		return err
+	}
+	gitOut(repo, "config", "--remove-section", "branch."+branch)
+	return nil
 }
 
 // readKey reads one key press without waiting for Enter.

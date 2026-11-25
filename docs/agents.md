@@ -130,6 +130,27 @@ resume = ["claude", "--continue"]      # used when launch starts with the same p
 # worktrees = "~/worktrees/{repo}"     # default: {repo}.worktrees beside the repo
 ```
 
+## Review agents: Ctrl+Shift+R
+
+With several agents on their own branches, **Ctrl+Shift+R** (or `germ
+review` in the repository) opens one pane listing every agent worktree:
+what it was asked to do, whether its agent is working, needs you, or is
+done (live, from the badges), its commits, and the files it changed. It
+refreshes every two seconds; you don't have to wait for agents to exit.
+
+| Key | |
+|---|---|
+| ↑ ↓ / j k | select |
+| Enter / `r` | review the full diff (including new files) in your git pager |
+| `f` | feedback: type a message, and it's sent to that agent (as if typed at its prompt) |
+| `o` | go to the agent's pane |
+| `c` | commit everything, with the task as the message |
+| `m` | merge into the branch it started from (commits uncommitted work and closes the agent's panes first, after asking), then remove the worktree and branch |
+| `d` | discard the worktree and branch (asks first) |
+| `q` | quit |
+
+Sending feedback needs `[control] allow_input` (on by default).
+
 ## Jump to code: Ctrl+click file:line
 
 Hold Ctrl over a file reference in any pane (`internal/app/x.go:45:3`,

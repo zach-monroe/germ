@@ -239,7 +239,10 @@ same window; the socket is 0600.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status (Phase 17, in progress)
+## Status (Phase 18, in progress)
+- `germ review` / Ctrl+Shift+R (`review_agents`): lists `germ/*` worktrees of the repo (from any of its worktrees), task/base/from from `branch.<b>.germ-*` git config (written by `germ agent`; merge-base fallback), commits, numstat, untracked, dirty; agent pane matched by cwd with live state and message. Enter diff in git's pager, f feedback (send_text), o focus, c commit, m merge (commit + close panes + merge --no-ff + remove), d discard. Polls stdin (no reader goroutine) so the pager/prompt get keys. `mergeBranch` / `removeWorktreeAt` shared with the post-exit menu.
+
+## Status (Phase 17)
 - Agent self-reporting: `agent_event` control command; `germ ctl agent-event` (claude: hook JSON on stdin; codex: notify JSON arg; or a plain state). Never prints to stdout, always exits 0, 2 s cap, only reports to the window owning its pane (requires GERM_SOCKET). ~9 ms per call.
 - `paneAgent.hook` overrides screen/output heuristics while the reporting foreground pgid lives; reported "working" lapses after 15 s without events or output (no Stop on Esc); OSC/bell notes ignored for hook-reporting agents (no duplicates); "finished" notifications (`[agents] notify_done`).
 - Hints mode (Ctrl+Shift+E, `hints` action): URLs, OSC 8 links, existing `file:line` refs, git hashes, IPs and host:port; labels drawn via `render.Highlight.Label`; newest output gets home-row keys; lowercase opens (host:port as http), uppercase copies. `urlMatches` / `resolveFile` shared with Ctrl+click.

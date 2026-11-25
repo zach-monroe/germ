@@ -476,6 +476,21 @@ func (a *App) renameTab(p *pane, name string) {
 // newAgent opens a tab running `germ agent` (see cmd/germ/agent.go) in the
 // current directory: it asks for a task, makes a git worktree, and starts
 // the agent there.
+// openReview opens a tab running `germ review` for the active pane's
+// repository.
+func (a *App) openReview() {
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cwd := ""
+	if p := a.workPane(); p != nil {
+		cwd = paneDir(p)
+	}
+	noop := func(*control.Response) {}
+	a.ctlOpen(control.Request{Where: "tab", Command: []string{self, "review"}, Focus: true, Cwd: cwd}, nil, noop, noop)
+}
+
 func (a *App) newAgent(task string) {
 	self, err := os.Executable()
 	if err != nil {
