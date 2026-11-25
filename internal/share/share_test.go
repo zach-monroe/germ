@@ -210,6 +210,17 @@ func TestHelmAndChat(t *testing.T) {
 		t.Fatal("alice typed after the host took the helm")
 	}
 
+	// The host hands bob the helm without his asking; the tab stays the
+	// host's, and guests can't hand it out.
+	alice.Act(Action{Op: OpHand, Window: win, Person: alice.Welcome.You})
+	h.Act(Action{Op: OpHand, Window: win, Person: bob.Welcome.You})
+	if st := h.State().Tab(win); st.Helm != bob.Welcome.You || st.Owner != 0 {
+		t.Fatalf("after hand: %+v", st)
+	}
+	bob.Write([]byte("send-keys -t %0 -l bob-handed\n"))
+	waitFor(t, "bob's typing", func() bool { return strings.Contains(pane(), "bob-handed") })
+	h.Act(Action{Op: OpTake, Window: win})
+
 	// A tab given to bob: he types there, and approves others' requests.
 	h.Act(Action{Op: OpGive, Window: win, Person: bob.Welcome.You})
 	bob.Write([]byte("send-keys -t %0 -l bobs-tab\n"))
@@ -567,4 +578,45 @@ func unescapeTmux(s string) []byte {
 		out = append(out, s[i])
 	}
 	return out
+}
+
+// The share pane is protected: a guest at the helm of its tab types into
+// the tab's other pane, and can't close it.
+func TestProtectedPane(t *testing.T) {
+	h, tmux, _ := testSession(t, "prot")
+	out, _ := tmux("split-window", "-d", "-P", "-F", "#{pane_id}", "-t", "prot", "cat")
+	h.Protect = strings.TrimSpace(out) // the share pane: %1; the shell: %0
+	tmux("select-pane", "-t", h.Protect)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go h.Run(ctx)
+	time.Sleep(200 * time.Millisecond)
+	g, err := Join(ctx, h.Link(), "alice", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	go io.Copy(io.Discard, g)
+	var win string
+	waitFor(t, "state", func() bool {
+		if st := g.State(); len(st.Tabs) == 1 {
+			win = st.Tabs[0].Window
+		}
+		return win != ""
+	})
+	h.Act(Action{Op: OpHand, Window: win, Person: g.Welcome.You})
+	capture := func(p string) string { out, _ := tmux("capture-pane", "-p", "-t", p); return out }
+	g.Write([]byte("send-keys -t " + h.Protect + " -l aimed-at-share\n"))
+	g.Write([]byte("send-keys -l no-target\n"))
+	waitFor(t, "typing in the other pane", func() bool {
+		return strings.Contains(capture("%0"), "aimed-at-share") && strings.Contains(capture("%0"), "no-target")
+	})
+	if strings.Contains(capture(h.Protect), "aimed") {
+		t.Fatal("typed into the share pane")
+	}
+	g.Write([]byte("kill-pane -t " + h.Protect + "\n"))
+	time.Sleep(500 * time.Millisecond)
+	if n, _ := tmux("list-panes", "-t", "prot"); strings.Count(n, "\n") != 2 {
+		t.Fatalf("panes after kill-pane:\n%s", n)
+	}
 }

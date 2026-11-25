@@ -132,7 +132,7 @@ type Action struct {
 	Text    string `json:"text,omitempty"`    // say
 	Window  string `json:"window,omitempty"`  // request, release, take, give, untake, view
 	Request uint32 `json:"request,omitempty"` // decide, join
-	Person  uint32 `json:"person,omitempty"`  // give, mute, unmute
+	Person  uint32 `json:"person,omitempty"`  // give, hand, mute, unmute
 	Allow   bool   `json:"allow,omitempty"`   // decide, join
 }
 
@@ -148,6 +148,7 @@ const (
 	// The host only:
 	OpTake   = "take"   // take the helm of Window
 	OpGive   = "give"   // make Person the owner (and holder) of Window
+	OpHand   = "hand"   // give Person the helm of Window (it stays the owner's tab)
 	OpUntake = "untake" // take Window back from its owner
 	OpMute   = "mute"
 	OpUnmute = "unmute"
@@ -166,6 +167,9 @@ type Update struct {
 	Chat    []ChatMsg     `json:"chat,omitempty"`  // messages after the window's last
 	Notice  string        `json:"notice,omitempty"`
 	Ended   bool          `json:"ended,omitempty"` // sharing stopped
+	// Pane is the tmux pane germ share runs in: the host's chat, link and
+	// questions are there (Ctrl+Shift+M goes to it).
+	Pane string `json:"pane,omitempty"`
 }
 
 // protocolVersion 3: one link, chat, and the helm (2: NaCl secretbox; 1

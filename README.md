@@ -15,10 +15,11 @@ built-in tmux and fish integration.
   prefix bindings work as usual, and sessions survive closing the window. Inside plain tmux, germ's `xterm-germ` terminfo enables true
   color, styled underlines, clipboard (OSC 52), cursor styles, and more.
 - **Coworking (highly contagious)**: Ctrl+Shift+P shares your session as a link,
-  end-to-end encrypted, and you approve each person who joins. Everyone
-  chats in a panel beside the terminal; typing is by turns: one person at
-  the helm of each tab, which you hand out and take back with one key, and
-  you can give a guest a tab of their own. Guests open the link in any
+  end-to-end encrypted, and you approve each person who joins. You run it
+  from one share pane: the link, who's here, the chat, who has the helm.
+  Typing is by turns: one person at the helm of each tab; guests ask by
+  typing and pressing Enter, and you hand it out and take it back with one
+  key, and you can give a guest a tab of their own. Guests open the link in any
   browser, or in germ for native tabs and splits.
   Free: served from your machine over Tailscale Funnel if you use
   Tailscale, else a free Cloudflare tunnel; no router ports opened. See [docs/coworking.md](docs/coworking.md).
@@ -98,6 +99,7 @@ germ widget weather  # run a home-screen widget on its own
 germ agent "fix the flaky test"   # agent on a fresh worktree + branch
 germ share          # share this tmux session (or Ctrl+Shift+P)
 germ join LINK      # join someone's shared session
+germ helm status    # who has the helm; germ helm give alice / take all
 germ ctl list        # script the window: list/read/send/open/wait panes
 germ mcp             # MCP server for coding agents (see docs/agents.md)
 ```
@@ -137,8 +139,8 @@ enabled = false   # plain shells by default instead of tmux
 | Ctrl+Shift+A | new agent on its own git worktree (see docs/agents.md) |
 | Ctrl+Shift+S | send the selection (or last output) to your agent pane |
 | Ctrl+Shift+P | share this session (invite link) |
-| Ctrl+Shift+M | the session chat (open and focus; Esc back to the terminal; again to close) |
-| Ctrl+Shift+O | the helm: take it back (host), or ask for it / hand it back (guest) |
+| Ctrl+Shift+M | the session chat: the share pane (host), or the chat panel (guest; Esc back to the terminal, again to close) |
+| Ctrl+Shift+O | the helm: take it back (host), or ask for it / hand it back (guest); Enter in a tab you can't type in does the same |
 | Ctrl+Shift+F | search the pane's scrollback (Enter older, Shift+Enter newer, Esc) |
 | Ctrl+Shift+Space | command palette: every action and its key, filtered as you type; also open the config, germ doctor, theme previews |
 | Ctrl+Shift+R | review agents: every agent worktree with its state and diff; review, send feedback, merge or discard |

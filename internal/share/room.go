@@ -319,6 +319,19 @@ func (h *Host) act(e *effects, by uint32, a Action) {
 		t.Owner, t.Helm = p.id, p.id
 		h.event(e, "%s gave %s to %s", h.nameOf(0), h.tabLabel(a.Window), h.nameOf(p.id))
 		e.state = true
+	case OpHand:
+		t, p := h.tabs[a.Window], h.people[a.Person]
+		if t == nil || p == nil || !isHost || t.Helm == p.id {
+			return
+		}
+		t.Helm = p.id
+		for _, r := range append([]*helmReq(nil), h.requests...) {
+			if r.From == p.id && r.Window == a.Window {
+				h.dropRequest(r.ID) // asked for it: answered
+			}
+		}
+		h.event(e, "%s gave %s the helm of %s", h.nameOf(0), h.nameOf(p.id), h.tabLabel(a.Window))
+		e.state = true
 	case OpUntake:
 		t := h.tabs[a.Window]
 		if t == nil || !isHost || (t.Owner == 0 && t.Helm == 0) {

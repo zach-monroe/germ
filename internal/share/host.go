@@ -33,6 +33,10 @@ type Host struct {
 	Session  string   // tmux session to share
 	TmuxArgs []string // e.g. ["-L", "socket"]; empty uses $TMUX / default
 	Name     string   // shown to guests, e.g. zach@laptop
+	// Protect is a tmux pane guests never type into, even with the helm
+	// of its tab: the share pane, where the host chats and decides.
+	// Typing aimed at it goes to the tab's other pane instead.
+	Protect string
 	// OnChange is called (from a background goroutine) when people come
 	// and go, or start and stop typing.
 	OnChange func([]Participant)
@@ -565,6 +569,14 @@ func (h *Host) input(g *hostGuest, data []byte) {
 				h.newWindowBy, h.newWindowAt = g.person.id, time.Now()
 				h.mu.Unlock()
 			}
+			if h.Protect != "" && class == cmdHelm {
+				if fixed, ok := h.protect(g, out, target); ok {
+					out = fixed
+				} else {
+					out = blockedCommand
+					break
+				}
+			}
 			if strings.HasPrefix(out, "send") {
 				h.noteTyping(g)
 			}
@@ -584,6 +596,55 @@ func (h *Host) input(g *hostGuest, data []byte) {
 			return
 		}
 	}
+}
+
+// protect keeps a guest's command off the protected pane: typing there
+// goes to the tab's other pane, and anything else that targets it is
+// refused (ok false).
+func (h *Host) protect(g *hostGuest, line, target string) (string, bool) {
+	pane := target
+	if !strings.HasPrefix(target, "%") {
+		t := target
+		if t == "" {
+			t = g.sessionID
+		}
+		pane = h.tmuxOutput("display", "-p", "-t", t, "#{pane_id}")
+	}
+	if pane != h.Protect {
+		return line, true
+	}
+	name, rest, _ := strings.Cut(line, " ")
+	if name != "send-keys" && name != "send" {
+		return "", false
+	}
+	other := h.otherPane(h.Protect)
+	if other == "" {
+		return "", false
+	}
+	if target != "" && strings.Contains(rest, target) {
+		return name + " " + strings.Replace(rest, target, other, 1), true
+	}
+	return name + " -t " + other + " " + rest, true
+}
+
+// otherPane is the pane in the same tab as pane that was used last ("" if
+// it's alone).
+func (h *Host) otherPane(pane string) string {
+	out := h.tmuxOutput("list-panes", "-t", pane, "-F", "#{pane_id} #{pane_last}")
+	first := ""
+	for _, l := range strings.Split(out, "\n") {
+		id, last, _ := strings.Cut(strings.TrimSpace(l), " ")
+		if id == "" || id == pane {
+			continue
+		}
+		if last == "1" {
+			return id
+		}
+		if first == "" {
+			first = id
+		}
+	}
+	return first
 }
 
 // targetWindow resolves a command's -t target to a window ID ("" if
@@ -1082,6 +1143,11 @@ func (h *Host) webInput(g *hostGuest, data []byte) {
 	if !h.hasHelm(g, win) {
 		h.noHelm(g, win)
 		return
+	}
+	if pane == h.Protect && h.Protect != "" {
+		if pane = h.otherPane(pane); pane == "" {
+			return
+		}
 	}
 	h.noteTyping(g)
 	for len(data) > 0 {

@@ -403,7 +403,11 @@ func (a *App) sendUser(b []byte) {
 		return
 	}
 	if why := a.helmBlocked(p); why != "" { // one person types at a time
-		a.chatToast(why, 4*time.Second)
+		if string(b) == "\r" { // Enter asks for it (guests) or takes it back (host)
+			a.helmKey()
+			return
+		}
+		a.chatToast(why, 6*time.Second)
 		return
 	}
 	if p.offset != 0 {

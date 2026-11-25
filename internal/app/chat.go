@@ -10,6 +10,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/zach-monroe/germ/internal/chatview"
 	"github.com/zach-monroe/germ/internal/control"
 	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/share"
@@ -26,7 +27,6 @@ import (
 const (
 	chatWidth     = 42               // columns, separator included
 	chatStale     = 60 * time.Second // forget a share we stop hearing from
-	chatGroupGap  = 5 * time.Minute  // a new header after this long
 	chatWaitLimit = 8 * time.Second  // share_wait answers empty after this
 )
 
@@ -36,6 +36,7 @@ type chatState struct {
 	guest      *share.Guest // we joined someone's session
 	session    string
 	link       string
+	sharePane  string // host: the tmux pane germ share runs in
 	lastUpdate time.Time
 	sendq      chan share.Action // guest: actions, sent in order
 
@@ -110,6 +111,15 @@ func (a *App) toggleChat() bool {
 		a.chatToast("chat is for shared sessions: Ctrl+Shift+P shares this one", 4*time.Second)
 		return true
 	}
+	if p := a.sharePane(); p != nil { // the host chats in the share pane
+		if c.open {
+			c.open, c.focused = false, false
+			a.chatLayout()
+		}
+		a.focusPane(p)
+		a.markRead()
+		return true
+	}
 	switch {
 	case !c.open:
 		c.open, c.focused = true, true
@@ -144,7 +154,27 @@ func (a *App) markRead() {
 
 // reading reports whether the user is looking at the chat right now.
 func (a *App) reading() bool {
-	return a.chat.visible() && a.focused && a.chat.scroll == 0
+	return a.focused && (a.chat.visible() && a.chat.scroll == 0 || a.inSharePane())
+}
+
+// sharePane is the pane germ share runs in, when this window is the
+// host's and shows it.
+func (a *App) sharePane() *pane {
+	c := a.chat
+	if !c.host || !c.active() || c.sharePane == "" {
+		return nil
+	}
+	p, err := a.resolvePane(c.sharePane)
+	if err != nil {
+		return nil
+	}
+	return p
+}
+
+// inSharePane reports whether the share pane is the pane being used.
+func (a *App) inSharePane() bool {
+	p := a.sharePane()
+	return p != nil && a.active() == p
 }
 
 // ---- updates -------------------------------------------------------------
@@ -164,6 +194,7 @@ func (a *App) shareUpdate(u *share.Update) (uint64, error) {
 		c.msgs, c.seen, c.unread, c.readSeq = nil, map[string]bool{}, 0, 0
 	}
 	c.host, c.guest, c.session, c.link, c.lastUpdate, c.you = true, nil, u.Session, u.Link, time.Now(), 0
+	c.sharePane = u.Pane
 	c.joins = u.Joins
 	a.chatPeople(u.People)
 	a.chatState(u.State)
@@ -274,9 +305,21 @@ func (a *App) chatPeople(ps []share.Participant) {
 
 func (a *App) chatState(s share.State) {
 	c := a.chat
+	old := c.state
 	c.state = s
 	if s.You != 0 {
 		c.you = s.You
+	}
+	if !c.host && len(old.Tabs) > 0 { // the helm came to us, or went
+		for _, t := range s.Tabs {
+			was := old.HelmOf(t.Window)
+			switch {
+			case t.Helm == c.you && was != c.you:
+				a.chatToast("⎈ you have the helm of "+a.chatTabName(t.Window)+": type away", 6*time.Second)
+			case was == c.you && t.Helm != c.you && old.Tab(t.Window) != nil:
+				a.chatToast("⎈ "+shortName(a.personName(t.Helm))+" has the helm of "+a.chatTabName(t.Window)+" now", 6*time.Second)
+			}
+		}
 	}
 	for _, r := range s.Requests {
 		mine := r.Approver == c.you || (c.host && r.Approver == 0)
@@ -340,8 +383,11 @@ func (a *App) mentioned(text string) bool {
 
 // chatAlert is something that needs the user: bell, notification, toast.
 func (a *App) chatAlert(text string) {
+	if a.sharePane() != nil && !a.inSharePane() {
+		text += " · Ctrl+Shift+M"
+	}
 	a.chatToast("» "+text, 10*time.Second)
-	if !a.focused || !a.chat.visible() {
+	if !a.focused || !(a.chat.visible() || a.inSharePane()) {
 		desktopNotify("germ", text)
 	}
 	a.win.RequestAttention()
@@ -479,7 +525,7 @@ func (a *App) chatCommand(line string) {
 	case "yes", "no":
 		a.chatDecide(cmd == "yes")
 	default:
-		help := "/helm (take or ask for it)  /yes /no  //text sends /text"
+		help := "/helm (ask for it, or hand it back)  /yes /no  //text sends /text"
 		if c.host {
 			help = "/give NAME  /branch NAME [task]  /takeback  /mute NAME  /unmute NAME  /save  " + help
 		}
@@ -613,37 +659,168 @@ func (a *App) personName(id uint32) string {
 // helmKey takes the helm of this tab (host), or asks for it or hands it
 // back (guests).
 func (a *App) helmKey() bool {
-	c := a.chat
-	if !c.active() {
+	if !a.chat.active() {
 		return false
 	}
-	win := a.chatWindow()
-	if win == "" {
-		return true
+	if win := a.chatWindow(); win != "" {
+		a.chatToast(a.helmAct(win), 4*time.Second)
 	}
+	return true
+}
+
+// helmAct is helmKey for the tab of tmux window win, returning what
+// happened.
+func (a *App) helmAct(win string) string {
+	c := a.chat
 	holder := c.state.HelmOf(win)
 	if c.host {
 		if holder == 0 {
-			a.chatToast("⎈ you have the helm here", 3*time.Second)
-			return true
+			return "⎈ you have the helm here"
 		}
 		a.chatAct(share.Action{Op: share.OpTake, Window: win})
-		a.chatToast("⎈ you took the helm back from "+shortName(a.personName(holder)), 4*time.Second)
-		return true
+		return "⎈ you took the helm back from " + shortName(a.personName(holder))
 	}
 	if holder == c.you {
 		a.chatAct(share.Action{Op: share.OpRelease, Window: win})
-		a.chatToast("⎈ you handed the helm back", 3*time.Second)
-		return true
+		return "⎈ you handed the helm back"
 	}
 	for _, r := range c.state.Requests {
 		if r.From == c.you && r.Window == win {
-			a.chatToast("⎈ still waiting for "+shortName(a.personName(r.Approver)), 3*time.Second)
-			return true
+			return "⎈ still waiting for " + shortName(a.personName(r.Approver))
 		}
 	}
 	a.chatAct(share.Action{Op: share.OpRequest, Window: win})
-	return true
+	decider := uint32(0) // the tab's owner decides, else the host
+	if t := c.state.Tab(win); t != nil {
+		decider = t.Owner
+	}
+	return "⎈ asked " + shortName(a.personName(decider)) + " for the helm…"
+}
+
+// ctlHelm is germ helm: the helm of p's tab (the active tab if p is nil).
+func (a *App) ctlHelm(p *pane, line string) (string, error) {
+	c := a.chat
+	if !c.active() {
+		return "", fmt.Errorf("this window isn't in a shared session")
+	}
+	win := a.chatWindow()
+	if p != nil {
+		if t := a.tabOf(p); t != nil && t.tmuxID != "" {
+			win = t.tmuxID
+		}
+	}
+	args := strings.Fields(line)
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	tabArg := func(i int) (string, error) {
+		if len(args) <= i {
+			if win == "" {
+				return "", fmt.Errorf("which tab? give its number")
+			}
+			return win, nil
+		}
+		for _, t := range c.state.Tabs {
+			if strings.TrimPrefix(args[i], "#") == fmt.Sprint(t.Index) {
+				return t.Window, nil
+			}
+		}
+		return "", fmt.Errorf("no tab %s", args[i])
+	}
+	host := func() error {
+		if !c.host {
+			return fmt.Errorf("only the host can do that")
+		}
+		return nil
+	}
+	switch sub {
+	case "":
+		if win == "" {
+			return "", fmt.Errorf("which tab? give its number")
+		}
+		return a.helmAct(win), nil
+	case "status", "who":
+		var b strings.Builder
+		for _, t := range c.state.Tabs {
+			who := shortName(a.personName(t.Helm))
+			if t.Helm == c.you {
+				who = "you"
+			}
+			fmt.Fprintf(&b, "%d %s: %s", t.Index, t.Name, who)
+			if t.Owner != 0 {
+				fmt.Fprintf(&b, " (%s's tab)", shortName(a.personName(t.Owner)))
+			}
+			b.WriteString("\n")
+		}
+		return strings.TrimSuffix(b.String(), "\n"), nil
+	case "ask":
+		if c.host {
+			return "", fmt.Errorf("you're the host: germ helm take takes it back")
+		}
+		w, err := tabArg(0)
+		if err != nil {
+			return "", err
+		}
+		if c.state.HelmOf(w) == c.you {
+			return "⎈ you have the helm here", nil
+		}
+		return a.helmAct(w), nil
+	case "back":
+		w, err := tabArg(0)
+		if err != nil {
+			return "", err
+		}
+		if c.host || c.state.HelmOf(w) != c.you {
+			return "", fmt.Errorf("you don't have the helm there")
+		}
+		return a.helmAct(w), nil
+	case "give", "hand":
+		if err := host(); err != nil {
+			return "", err
+		}
+		if len(args) == 0 {
+			return "", fmt.Errorf("usage: germ helm give NAME [TAB]")
+		}
+		id, ok := a.personNamed(args[0])
+		if !ok {
+			return "", fmt.Errorf("nobody called %s is in the session", args[0])
+		}
+		w, err := tabArg(1)
+		if err != nil {
+			return "", err
+		}
+		a.chatAct(share.Action{Op: share.OpHand, Window: w, Person: id})
+		return "⎈ gave " + shortName(a.personName(id)) + " the helm of " + a.chatTabName(w), nil
+	case "take":
+		if err := host(); err != nil {
+			return "", err
+		}
+		var wins []string
+		if len(args) > 0 && args[0] == "all" {
+			for _, t := range c.state.Tabs {
+				wins = append(wins, t.Window)
+			}
+		} else {
+			w, err := tabArg(0)
+			if err != nil {
+				return "", err
+			}
+			wins = []string{w}
+		}
+		n := 0
+		for _, w := range wins {
+			if c.state.HelmOf(w) != 0 {
+				a.chatAct(share.Action{Op: share.OpTake, Window: w})
+				n++
+			}
+		}
+		if n == 0 {
+			return "⎈ you already have the helm", nil
+		}
+		return fmt.Sprintf("⎈ took the helm back (%d tab%s)", n, map[bool]string{true: "s"}[n > 1]), nil
+	}
+	return "", fmt.Errorf("usage: germ helm [status|ask|back|give NAME [TAB]|take [TAB|all]]")
 }
 
 // helmBlocked says why we can't type in p ("" if we can): someone else
@@ -654,7 +831,7 @@ func (a *App) helmBlocked(p *pane) string {
 		return ""
 	}
 	t := a.tabOf(p)
-	if t == nil || t.tmuxID == "" {
+	if t == nil || t.tmuxID == "" || p == a.sharePane() { // the share pane is always the host's
 		return ""
 	}
 	holder := c.state.HelmOf(t.tmuxID)
@@ -663,9 +840,14 @@ func (a *App) helmBlocked(p *pane) string {
 	}
 	who := shortName(a.personName(holder))
 	if c.host {
-		return "⎈ " + who + " has the helm here · Ctrl+Shift+O takes it back"
+		return "⎈ " + who + " has the helm here · Enter takes it back"
 	}
-	return "⎈ " + who + " has the helm here · Ctrl+Shift+O asks for it"
+	for _, r := range c.state.Requests {
+		if r.From == c.you && r.Window == t.tmuxID {
+			return "⎈ waiting for " + shortName(a.personName(r.Approver)) + " to hand you the helm…"
+		}
+	}
+	return "⎈ " + who + " has the helm here · Enter asks for it"
 }
 
 // helmTag marks tabs someone other than the host types in: "⎈alice".
@@ -912,7 +1094,7 @@ func (a *App) chatSurface(th *theme.Theme) (*render.Surface, []render.Rect) {
 	}
 	if c.dirty {
 		c.dirty = false
-		out, links := renderChat(a.chatView(), cols, rows)
+		out, links := chatview.Render(a.chatView(), cols, rows)
 		c.rowLinks = links
 		c.term.Write([]byte(out))
 	}
@@ -926,35 +1108,18 @@ func (a *App) chatSurface(th *theme.Theme) (*render.Surface, []render.Rect) {
 	return c.surf, []render.Rect{sep}
 }
 
-// chatView is what renderChat draws.
-type chatView struct {
-	msgs     []share.ChatMsg
-	people   []share.Participant
-	you      uint32
-	host     bool
-	me       string // our short name, for mentions
-	input    []rune
-	cur      int
-	focused  bool
-	scroll   int
-	divider  uint64
-	decision string // a request we can answer
-	moreAsks int
-	typing   []string // people composing
-	myHelm   string   // what we hold, e.g. "⎈ you have the helm of tab 2"
-}
-
-func (a *App) chatView() chatView {
+// chatView is what the panel draws.
+func (a *App) chatView() chatview.View {
 	c := a.chat
-	v := chatView{msgs: c.msgs, people: c.people, you: c.you, host: c.host, input: c.input, cur: c.cur,
-		focused: c.focused, scroll: c.scroll, divider: c.divider}
+	v := chatview.View{Msgs: c.msgs, People: c.people, You: c.you, Host: c.host, Input: c.input, Cur: c.cur,
+		Focused: c.focused, Scroll: c.scroll, Divider: c.divider}
 	if c.host {
-		v.me = shortName(whoami())
+		v.Me = shortName(whoami())
 	} else {
-		v.me = shortName(c.names[c.you])
+		v.Me = shortName(c.names[c.you])
 	}
 	if label, _, ok := a.chatDecision(); ok {
-		v.decision = label
+		v.Decision = label
 		n := 0
 		for _, r := range c.state.Requests {
 			if r.Approver == c.you || c.host {
@@ -964,271 +1129,22 @@ func (a *App) chatView() chatView {
 		if c.host {
 			n += len(c.joins)
 		}
-		v.moreAsks = n - 1
+		v.MoreAsks = n - 1
 	}
 	for _, p := range c.people {
 		if p.Composing && !(p.ID == c.you && p.Host == c.host) {
-			v.typing = append(v.typing, shortName(p.Name))
+			v.Typing = append(v.Typing, shortName(p.Name))
 		}
 	}
 	if !c.host {
 		for _, t := range c.state.Tabs {
 			if t.Helm == c.you {
-				v.myHelm = fmt.Sprintf("⎈ yours: %s", a.chatTabName(t.Window))
+				v.MyHelm = fmt.Sprintf("⎈ yours: %s", a.chatTabName(t.Window))
 				break
 			}
 		}
 	}
 	return v
-}
-
-// renderChat draws the panel as terminal output, and returns each row's
-// plain text (for clicking links).
-func renderChat(v chatView, cols, rows int) (string, []string) {
-	var b strings.Builder
-	plain := make([]string, rows)
-	b.WriteString("\x1b[?25l\x1b[0m\x1b[H\x1b[2J")
-	row := func(r int, styled, text string) {
-		if r < 0 || r >= rows {
-			return
-		}
-		fmt.Fprintf(&b, "\x1b[%d;1H%s\x1b[0m", r+1, styled)
-		plain[r] = text
-	}
-	rule := "\x1b[2m" + strings.Repeat("─", cols)
-
-	// Header: who's here.
-	var names []string
-	for _, p := range v.people {
-		n := shortName(p.Name)
-		if p.Host {
-			n += "★"
-		}
-		names = append(names, n)
-	}
-	head := fmt.Sprintf(" chat · %d here", len(v.people))
-	row(0, "\x1b[1m"+fit(head, cols)+"\x1b[0;2m"+fit(" "+strings.Join(names, " "), cols-runewidth.StringWidth(head)), head)
-	row(1, rule, "")
-
-	// Footer, bottom up: the message box, a rule, typing / your helm, and
-	// a request to answer.
-	inLines, curRow, curCol := wrapInput(v.input, v.cur, cols-2)
-	if len(inLines) > 5 {
-		skip := max(0, min(curRow-4, len(inLines)-5))
-		inLines, curRow = inLines[skip:skip+5], curRow-skip
-	}
-	footer := len(inLines) + 2
-	if v.decision != "" {
-		footer += 2
-	}
-	y := rows - len(inLines)
-	for i, l := range inLines {
-		prompt := "  "
-		if i == 0 {
-			prompt = "\x1b[1;34m›\x1b[0m "
-		}
-		if len(v.input) == 0 {
-			hint := "Ctrl+Shift+M to chat"
-			if v.focused {
-				hint = "message · Enter sends · Esc back"
-			}
-			row(y+i, prompt+"\x1b[2m"+fit(hint, cols-2), "")
-		} else {
-			row(y+i, prompt+l, "  "+l)
-		}
-	}
-	status := ""
-	switch {
-	case len(v.typing) == 1:
-		status = "\x1b[2;3m" + fit(v.typing[0]+" is typing…", cols)
-	case len(v.typing) > 1:
-		status = "\x1b[2;3m" + fit(strings.Join(v.typing, ", ")+" are typing…", cols)
-	case v.myHelm != "":
-		status = "\x1b[32m" + fit(v.myHelm, cols)
-	}
-	row(y-1, rule, "")
-	row(y-2, status, "")
-	if v.decision != "" {
-		more := ""
-		if v.moreAsks > 0 {
-			more = fmt.Sprintf(" (+%d)", v.moreAsks)
-		}
-		row(y-4, "\x1b[1;33m"+fit("» "+v.decision+more, cols), "")
-		keys := "  y yes · n no"
-		if len(v.input) > 0 || !v.focused {
-			keys = "  /yes or /no (or y/n, box empty)"
-		}
-		row(y-3, "\x1b[33m"+fit(keys, cols), "")
-	}
-
-	// Messages fill the middle, newest at the bottom.
-	area := rows - 2 - footer
-	lines := chatLines(v, cols)
-	maxScroll := max(0, len(lines)-area)
-	scroll := min(v.scroll, maxScroll)
-	start := max(0, len(lines)-area-scroll)
-	shown := lines[start:min(len(lines), start+area)]
-	top := 2
-	if len(shown) < area {
-		top += area - len(shown) // stick to the bottom
-	}
-	for i, l := range shown {
-		row(top+i, l.styled, l.plain)
-	}
-	if scroll > 0 {
-		row(rows-footer-1, "\x1b[7m"+fit(fmt.Sprintf(" ↓ %d more · PgDn ", scroll), cols), "")
-	}
-	if v.focused {
-		fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[?25h", y+curRow+1, curCol+3)
-	}
-	return b.String(), plain
-}
-
-type chatLine struct{ styled, plain string }
-
-// nameColors are palette entries for people's names (by ID).
-var nameColors = []int{4, 5, 6, 2, 1}
-
-// chatLines lays out the messages: a header per run of one person's
-// messages, text indented under it, events dim.
-func chatLines(v chatView, cols int) []chatLine {
-	var out []chatLine
-	var prev *share.ChatMsg
-	dividerDone := v.divider == 0
-	for i := range v.msgs {
-		m := &v.msgs[i]
-		if !dividerDone && m.Seq > v.divider {
-			dividerDone = true
-			label := " new "
-			side := max(0, (cols-len(label))/2)
-			out = append(out, chatLine{"\x1b[31m" + strings.Repeat("─", side) + label + strings.Repeat("─", max(0, cols-side-len(label))), ""})
-			prev = nil
-		}
-		at := time.UnixMilli(m.At)
-		if m.Event {
-			for j, l := range wrapText(m.Text, cols-2) {
-				lead := "· "
-				if j > 0 {
-					lead = "  "
-				}
-				out = append(out, chatLine{"\x1b[2m" + lead + l, lead + l})
-			}
-			prev = nil
-			continue
-		}
-		if prev == nil || prev.From != m.From || prev.Host != m.Host || at.Sub(time.UnixMilli(prev.At)) > chatGroupGap {
-			name := shortName(m.Name)
-			color := "\x1b[1;3" + fmt.Sprint(nameColors[int(m.From)%len(nameColors)]) + "m"
-			if m.Host {
-				name += " ★"
-				color = "\x1b[1;33m"
-			}
-			when := " · " + at.Format("15:04")
-			out = append(out, chatLine{color + fit(name, cols-len(when)) + "\x1b[0;2m" + when, name + when})
-		}
-		mention := mentions(m.Text, v.me) && !(m.From == v.you && m.Host == v.host)
-		for _, l := range wrapText(m.Text, cols-2) {
-			lead := "  "
-			if mention {
-				lead = "\x1b[33m▌\x1b[0m "
-			}
-			out = append(out, chatLine{lead + l, "  " + l})
-		}
-		prev = m
-	}
-	return out
-}
-
-func mentions(text, me string) bool {
-	t := strings.ToLower(text)
-	if strings.Contains(t, "@here") {
-		return true
-	}
-	return me != "" && strings.Contains(t, "@"+strings.ToLower(me))
-}
-
-// wrapText wraps text to width columns, breaking at spaces where it can.
-// Control characters become spaces.
-func wrapText(text string, width int) []string {
-	width = max(width, 4)
-	var out []string
-	for _, para := range strings.Split(text, "\n") {
-		para = strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) {
-				return ' '
-			}
-			return r
-		}, para)
-		line, w := []rune{}, 0
-		lastSpace := -1
-		for _, r := range para {
-			rw := runewidth.RuneWidth(r)
-			if w+rw > width {
-				if lastSpace > 0 {
-					out = append(out, string(line[:lastSpace]))
-					line = append([]rune(nil), line[lastSpace+1:]...)
-				} else {
-					out = append(out, string(line))
-					line = nil
-				}
-				w = runewidth.StringWidth(string(line))
-				lastSpace = -1
-			}
-			if r == ' ' {
-				lastSpace = len(line)
-			}
-			line = append(line, r)
-			w += rw
-		}
-		out = append(out, string(line))
-	}
-	return out
-}
-
-// wrapInput wraps the message box, returning where the cursor is.
-func wrapInput(in []rune, cur, width int) (lines []string, curRow, curCol int) {
-	width = max(width, 4)
-	line, w := []rune{}, 0
-	for i, r := range in {
-		if i == cur {
-			curRow, curCol = len(lines), w
-		}
-		if r == '\n' {
-			lines = append(lines, string(line))
-			line, w = nil, 0
-			continue
-		}
-		rw := runewidth.RuneWidth(r)
-		if w+rw > width {
-			lines = append(lines, string(line))
-			line, w = nil, 0
-			if i == cur {
-				curRow, curCol = len(lines), 0
-			}
-		}
-		line = append(line, r)
-		w += rw
-	}
-	if cur >= len(in) {
-		curRow, curCol = len(lines), w
-		if w >= width {
-			lines = append(lines, string(line))
-			line, curRow, curCol = nil, curRow+1, 0
-		}
-	}
-	lines = append(lines, string(line))
-	return lines, curRow, curCol
-}
-
-// fit truncates s to width columns.
-func fit(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if runewidth.StringWidth(s) <= width {
-		return s
-	}
-	return runewidth.Truncate(s, width, "…")
 }
 
 func shortName(n string) string { return share.ShortName(n) }

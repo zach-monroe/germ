@@ -49,6 +49,12 @@ const (
 	// CmdShareGive gives Pane's tab to the person named Text, in the
 	// session this window is sharing (germ agent -for).
 	CmdShareGive = "share_give"
+	// CmdHelm works the helm of Pane's tab (the active tab without Pane)
+	// in the window's shared session: Text is "" (ask or hand back as a
+	// guest, take back as the host), "status", "ask", "back",
+	// "give NAME [TAB]" or "take [TAB|all]". The response's Text says
+	// what happened.
+	CmdHelm = "helm"
 )
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or

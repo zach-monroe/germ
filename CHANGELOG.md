@@ -21,6 +21,28 @@
   from a template switches germ along with everything else.
 - [docs/themes.md](docs/themes.md).
 
+### Coworking: one share pane
+- **The share pane is where you run a session**: the invite link, who's
+  here, who has the helm of each tab, the chat with a message box, and
+  questions to answer (joins, the helm) with y/n. Everything else is a
+  command typed in the box: `/copy`, `/newlink`, `/helm alice`, `/take
+  all`, `/give`, `/branch`, `/kick`, `/mute`, `/save`, `/stop` (`/help`).
+  Before, requests went to the window's chat panel when one was showing
+  and the share pane ignored y, so a host looking at the share pane
+  couldn't let anyone in. Ctrl+Shift+M (and Ctrl+Shift+P, once sharing)
+  goes to the share pane; it opens on the right.
+- **The helm is a key away**: a guest without the helm just starts typing,
+  and Enter asks for it; the host's Enter in a tab a guest holds takes it
+  back. `/helm alice` hands it over unasked. Guests hear when they get the
+  helm and when it goes.
+- **`germ helm`** from a shell: `status`, `give NAME [TAB]`, `take
+  [TAB|all]`, and for guests `ask` / `back`; plain `germ helm` is
+  Ctrl+Shift+O.
+- Guests never type into the share pane, even at the helm of its tab:
+  their typing goes to the tab's other pane.
+- germ:// links: hosting or joining from a temporary build (go run, a
+  test) no longer takes them over from the installed germ.
+
 ### Tabs
 - Tabs are in tmux's order, the numbers they show, and a new tab goes
   last. Before, after closing the first tab a new one took its number

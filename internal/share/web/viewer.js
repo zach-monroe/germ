@@ -80,10 +80,15 @@
   term.onData(function (d) {
     if (/^\x1b\[(<\d|M|I$|O$)/.test(d)) return; // mouse and focus reports
     if (!atHelm()) {
+      if (d === "\r" && state.viewing) { // Enter asks for the helm
+        if (myRequest()) toast("Still waiting for the helm…");
+        else { act({ op: "request", window: state.viewing }); toast("Asked for the helm…"); }
+        return;
+      }
       if (Date.now() - lastNoHelm > 4000) {
         lastNoHelm = Date.now();
         var t = tabOf(state.viewing);
-        toast((t ? nameOf(t.helm) : "the host") + " has the helm here. Request it to type.");
+        toast((t ? nameOf(t.helm) : "the host") + " has the helm here · Enter asks for it");
       }
       return;
     }
@@ -326,7 +331,8 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       var text = this.value.trim();
-      if (text) act({ op: "say", text: text });
+      if (text === "/helm") $("helm").onclick(); // ask for it, or hand it back
+      else if (text) act({ op: "say", text: text.replace(/^\/\//, "/") });
       this.value = "";
       return;
     }

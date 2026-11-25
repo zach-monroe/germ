@@ -44,6 +44,9 @@ func whoami() string {
 	return user
 }
 
+// logTo, when set, takes log lines (tunnels, reconnects) for the share pane.
+var logTo func(format string, a ...any)
+
 // runShare shares the current tmux session until interrupted.
 func runShare(args []string) int {
 	cfg := loadConfig()
@@ -62,6 +65,7 @@ func runShare(args []string) int {
 		}
 	}
 	var tmuxArgs []string
+	inSession := *session == "" // sharing the session this pane is in
 	if *session == "" {
 		if os.Getenv("TMUX") == "" {
 			fmt.Fprintln(os.Stderr, "germ share: run this inside germ's tmux mode (or pass -session NAME)")
@@ -79,7 +83,11 @@ func runShare(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	logf := func(format string, a ...any) {
+	logf := func(format string, a ...any) { // the share pane's log once it's up
+		if logTo != nil {
+			logTo(format, a...)
+			return
+		}
 		fmt.Printf("%s%s%s  %s\n", dim, time.Now().Format("15:04"), reset, fmt.Sprintf(format, a...))
 	}
 
@@ -116,7 +124,9 @@ func runShare(args []string) int {
 		h.Approval = "all"
 	}
 	h.TmuxArgs = tmuxArgs
-	h.Log = logf
+	if inSession { // guests don't type into this pane
+		h.Protect = os.Getenv("TMUX_PANE")
+	}
 	ctl, _ := control.Connect()
 	var ctlMu sync.Mutex // one call at a time on the connection
 	status := func(text string) {
@@ -126,55 +136,37 @@ func runShare(args []string) int {
 			ctlMu.Unlock()
 		}
 	}
-	// The window shows the chat and answers requests, if it's a germ that
-	// can (else this pane does it all).
+	// The window learns about the session (the tab bar, the helm, alerts)
+	// and sends what the host does there (Ctrl+Shift+O, the palette).
 	br := newShareBridge(h, *session, ctl)
-	asks := make(chan shareAsk, 16)
+	pane := newSharePane(h, br, ctl, *session, via, stop)
+	logTo = pane.log
+	h.Log = pane.log
 	h.OnRequest = func(r share.JoinRequest) {
-		asks <- shareAsk{join: &r}
+		pane.asked(fmt.Sprintf("join/%d", r.ID), r.Name+" wants to join")
 		br.changed()
 	}
 	h.OnHelmRequest = func(r share.HelmRequest) {
-		asks <- shareAsk{helm: &r}
+		pane.asked(fmt.Sprintf("helm/%d", r.ID), share.ShortName(r.Name)+" asks for the helm")
 		br.changed()
 	}
 	h.OnChat = func(m share.ChatMsg) {
-		printChat(m)
+		pane.chat(m)
 		br.changed()
 	}
-	h.OnState = func(share.State) { br.changed() }
-	lastPeople := ""
+	h.OnState = func(share.State) { pane.changed(); br.changed() }
 	h.OnChange = func(ps []share.Participant) {
 		status(presence(ps))
-		var ids []string
-		for _, p := range ps {
-			ids = append(ids, fmt.Sprint(p.ID))
-		}
-		if k := strings.Join(ids, ","); k != lastPeople { // joins and leaves, not typing
-			lastPeople = k
-			printPeople(ps)
-		}
+		pane.changed()
 		br.changed()
 	}
 	ensureURLHandler(true)
-
-	printLinks := func() {
-		l := h.Link()
-		fmt.Printf("%sInvite link%s (on your clipboard):\n  %s%s%s\n", bold+green, reset, cyan, l, reset)
-		fmt.Printf("%sAnyone with it can watch and chat. Typing takes the helm, which you hand out.%s\n\n", dim, reset)
-		copyOSC52(l.String())
+	copyOSC52(h.Link().String())
+	who := "you let each person in"
+	if h.Approval == "none" {
+		who = "anyone with it can join"
 	}
-	fmt.Printf("%s◆ you're contagious%s · tmux session %q %s\n", bold+blue, reset, *session, via)
-	fmt.Printf("%sAnyone with the link catches it in their browser (or in germ). Nothing to install.%s\n\n", dim, reset)
-	printLinks()
-	help := func() {
-		if br.window() {
-			fmt.Printf("%sChat and requests are in your germ window too: Ctrl+Shift+M chats, Ctrl+Shift+O takes the helm back.%s\n", dim, reset)
-		}
-		fmt.Printf("  %sc%s copy link  %s1-9%s remove someone  %sr%s new link  %ss%s save the chat  %sq%s stop sharing\n\n",
-			bold, reset, bold, reset, bold, reset, bold, reset, bold, reset)
-	}
-	help()
+	pane.log("The invite link is on your clipboard: %s, everyone can watch and chat, and you hand out the helm to type. Chat here; /help lists commands.", who)
 
 	status("◉ contagious")
 	go func() { // keep the status alive (it expires if we die)
@@ -216,160 +208,11 @@ func runShare(args []string) int {
 			wait = min(wait*2, 30*time.Second)
 		}
 	}()
-	keys := make(chan byte)
-	go func() {
-		for {
-			keys <- readKey()
-		}
-	}()
-	var asking []shareAsk // waiting for y/n, oldest first
-	ask := func() {
-		for len(asking) > 0 && !asking[0].pending(h) {
-			asking = asking[1:] // answered in the window, or gone
-		}
-		if len(asking) == 0 {
-			return
-		}
-		q := asking[0].question(h)
-		fmt.Printf("\a\n%s» %s [y/N]%s ", bold+yel, q, reset)
-		status("◉ contagious · " + q)
-		if !br.window() {
-			go notify(q)
-		}
-	}
-	prune := time.NewTicker(time.Second)
-	defer prune.Stop()
-	finish := func(err error) int {
-		br.end()
-		return finishShare(ctl, err)
-	}
-	for {
-		select {
-		case err := <-done:
-			return finish(err)
-		case r := <-asks:
-			if br.window() {
-				continue // asked in the window (the chat panel)
-			}
-			asking = append(asking, r)
-			if len(asking) == 1 {
-				ask()
-			}
-		case <-prune.C:
-			if len(asking) > 0 && !asking[0].pending(h) {
-				fmt.Printf("%s(answered)%s\n", dim, reset)
-				asking = asking[1:]
-				status(presence(h.Participants()))
-				ask()
-			}
-		case k := <-keys:
-			if len(asking) > 0 && (k == 'y' || k == 'n' || k == 'Y' || k == 'N' || k == '\r') {
-				r := asking[0]
-				asking = asking[1:]
-				allow := k == 'y' || k == 'Y'
-				if allow {
-					fmt.Println("yes")
-				} else {
-					fmt.Println("no")
-				}
-				if !r.answer(h, allow) {
-					fmt.Printf("%s(already answered, or they'd gone)%s\n", dim, reset)
-				}
-				status(presence(h.Participants()))
-				ask()
-				continue
-			}
-			switch {
-			case k == 'q' || k == 3 || k == 4:
-				stop()
-				return finish(<-done)
-			case k == 'c':
-				copyOSC52(h.Link().String())
-				fmt.Println("copied the invite link")
-			case k == 's':
-				saveChat(h, br)
-			case k == 'r':
-				if err := h.RotateLinks(); err == nil {
-					fmt.Printf("%snew link (the old one no longer works; people already here stay):%s\n\n", bold, reset)
-					printLinks()
-					br.changed()
-				}
-			case k >= '1' && k <= '9':
-				guests := h.Participants()[1:]
-				n := int(k - '1')
-				if n >= len(guests) {
-					fmt.Printf("%sno person %c (press a number from the list)%s\n", dim, k, reset)
-					continue
-				}
-				g := guests[n]
-				fmt.Printf("Remove %s%s%s? [y/N] ", bold, g.Name, reset)
-				if <-keys != 'y' {
-					fmt.Println("no")
-					continue
-				}
-				fmt.Println("yes")
-				h.Remove(g.ID)
-				fmt.Printf("Also make a new link so they can't rejoin? [y/N] ")
-				if <-keys == 'y' {
-					fmt.Println("yes")
-					if h.RotateLinks() == nil {
-						printLinks()
-						br.changed()
-					}
-				} else {
-					fmt.Println("no")
-				}
-			case k == '?' || k == 'h':
-				help()
-			}
-		}
-	}
-}
-
-// shareAsk is a question for the host: someone wants to join, or wants
-// the helm.
-type shareAsk struct {
-	join *share.JoinRequest
-	helm *share.HelmRequest
-}
-
-func (q shareAsk) pending(h *share.Host) bool {
-	if q.join != nil {
-		for _, r := range h.JoinRequests() {
-			if r.ID == q.join.ID {
-				return true
-			}
-		}
-		return false
-	}
-	for _, r := range h.State().Requests {
-		if r.ID == q.helm.ID {
-			return true
-		}
-	}
-	return false
-}
-
-func (q shareAsk) question(h *share.Host) string {
-	if q.join != nil {
-		where := ""
-		if q.join.Web {
-			where = " (browser)"
-		}
-		return fmt.Sprintf("%s%s wants to join. Let them in?", q.join.Name, where)
-	}
-	return fmt.Sprintf("%s wants the helm of %s. Hand it over?", q.helm.Name, tabName(h.State(), q.helm.Window))
-}
-
-func (q shareAsk) answer(h *share.Host, allow bool) bool {
-	if !q.pending(h) {
-		return false
-	}
-	if q.join != nil {
-		return h.Decide(q.join.ID, allow)
-	}
-	h.Act(share.Action{Op: share.OpDecide, Request: q.helm.ID, Allow: allow})
-	return true
+	pane.run(ctx)
+	logTo = nil
+	err = <-done
+	br.end()
+	return finishShare(ctl, err)
 }
 
 // tabName is "tab 2 (zsh)".
@@ -383,31 +226,19 @@ func tabName(st share.State, window string) string {
 	return "a tab"
 }
 
-// printChat logs a chat message in the share pane.
-func printChat(m share.ChatMsg) {
-	at := time.UnixMilli(m.At).Format("15:04")
-	if m.Event {
-		fmt.Printf("%s%s  · %s%s\n", dim, at, m.Text, reset)
-		return
-	}
-	name := share.ShortName(m.Name)
-	lines := strings.Split(m.Text, "\n")
-	fmt.Printf("%s%s%s  %s%s:%s %s\n", dim, at, reset, bold+cyan, name, reset, lines[0])
-	for _, l := range lines[1:] {
-		fmt.Printf("       %s\n", l)
-	}
-}
-
-func saveChat(h *share.Host, br *shareBridge) {
+// saveChat saves the chat to a file, tells the window, and returns what
+// happened.
+func saveChat(h *share.Host, br *shareBridge) string {
 	path, err := h.SaveChat()
 	if err != nil {
-		fmt.Println("couldn't save the chat:", err)
-		br.notice("couldn't save the chat: " + err.Error())
-		return
+		msg := "couldn't save the chat: " + err.Error()
+		br.notice(msg)
+		return msg
 	}
 	h.Event("%s saved the chat", share.ShortName(h.Name))
-	fmt.Printf("chat saved to %s\n", tildePath(path))
-	br.notice("chat saved to " + tildePath(path))
+	msg := "chat saved to " + tildePath(path)
+	br.notice(msg)
+	return msg
 }
 
 // shareBridge keeps the host's germ window up to date with the session
@@ -481,7 +312,8 @@ func (b *shareBridge) push(ended bool) {
 	b.notices = nil
 	b.mu.Unlock()
 	u := &share.Update{Session: b.session, Link: b.h.Link().String(), People: b.h.Participants(),
-		State: b.h.State(), Joins: b.h.JoinRequests(), Ended: ended, Notice: strings.Join(notices, "; ")}
+		State: b.h.State(), Joins: b.h.JoinRequests(), Ended: ended, Notice: strings.Join(notices, "; "),
+		Pane: os.Getenv("TMUX_PANE")}
 	for _, m := range b.h.Chat() {
 		if m.Seq > since {
 			u.Chat = append(u.Chat, m)
@@ -551,23 +383,6 @@ func finishShare(ctl *control.Client, err error) int {
 	}
 	fmt.Println("stopped sharing · all clear")
 	return 0
-}
-
-// printPeople lists guests with the numbers used to remove them.
-func printPeople(ps []share.Participant) {
-	if len(ps) <= 1 {
-		fmt.Printf("%s  nobody's caught it yet%s\n", dim, reset)
-		return
-	}
-	var b strings.Builder
-	for i, p := range ps[1:] {
-		typing := ""
-		if p.Typing {
-			typing = " ✎"
-		}
-		fmt.Fprintf(&b, "  %s%d%s %s%s", bold, i+1, reset, p.Name, typing)
-	}
-	fmt.Println(b.String())
 }
 
 func presence(ps []share.Participant) string {

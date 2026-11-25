@@ -7,21 +7,62 @@ pair programming and for watching or steering coding agents together.
 
 ## Share
 
-In germ's tmux mode (the default), press **Ctrl+Shift+P**. A pane opens
-with your invite link, already on your clipboard. Anyone with it can
-watch and chat; typing is by turns (see "The helm" below).
+In germ's tmux mode (the default), press **Ctrl+Shift+P**. The share pane
+opens on the right with your invite link, already on your clipboard.
+Anyone with it can ask to join; you let each person in, everyone can
+watch and chat, and typing is by turns (see "The helm" below).
 
-The tab bar shows `◉ contagious · alice ✎, bob` while people are connected
-(✎: typing right now). The share pane lists who's here, numbered, and logs
-the session: joins, the chat, who has the helm. In the share pane:
+The share pane is where you run the session, all in one place:
 
-| Key | |
+```
+◆ contagious · session "work" through Tailscale Funnel
+https://box.tail1234.ts.net/j/ROOM#KEY
+here: 1 alice ✎  2 bob (browser)
+⎈ 0 zsh: alice · 1 server: you · 2 tests: bob (bob's tab)
+──────────────────────────────────────────
+· alice joined
+alice · 14:02
+  pushed the fix
+» bob asks for the helm of tab 1 (server)  y yes · n no
+──────────────────────────────────────────
+› message · /help for commands
+```
+
+- **Who's here**, numbered, with ✎ on whoever is typing in the terminal.
+- **Who has the helm** of each tab. The underlined tab is the one you're
+  on: commands that take a tab act on it unless you give a number.
+- **The chat and the session's log**: joins, leaves, who got the helm.
+- **Questions to answer**: someone wants to join, or wants the helm.
+  **y** / **n** answers, with the message box empty.
+- **The message box**: type and press **Enter** to chat, or type a command:
+
+| Command | |
 |---|---|
-| `c` | copy the invite link |
-| `1`-`9` | remove that person (and optionally make a new link so they can't rejoin) |
-| `r` | make a new link: the old one stops working, people already here stay |
-| `s` | save the chat to a file |
-| `q` (or Ctrl+C) | stop sharing and disconnect everyone |
+| `/copy` | copy the invite link |
+| `/newlink` | make a new link: the old one stops working, people already here stay |
+| `/helm NAME [TAB]` | hand NAME the helm |
+| `/take [TAB\|all]` | take the helm back |
+| `/give NAME [TAB]` | make it NAME's tab (see "Giving someone a tab") |
+| `/takeback [TAB]` | take a given tab back |
+| `/branch NAME [task]` | a tab on a new branch for NAME |
+| `/kick NAME` | remove someone (`/newlink` too, so they can't come back) |
+| `/mute NAME`, `/unmute NAME` | mute someone in chat |
+| `/save` | save the chat to a file |
+| `/yes`, `/no` | answer the question shown |
+| `/stop` (or Ctrl+C) | stop sharing and disconnect everyone |
+
+NAME is a name or its number from the list; TAB is a tab's number.
+**Up** brings back what you sent, **PgUp/PgDn** scroll.
+
+**Ctrl+Shift+M** takes you to the share pane from anywhere in the window
+(Ctrl+Shift+P too, once you're sharing). The tab bar shows
+`◉ contagious · alice ✎, bob`, and new messages and questions appear
+there too (`» bob wants to join · Ctrl+Shift+M`), with a desktop
+notification if you're looking elsewhere.
+
+Guests see the share pane (it's part of your session), but never type
+into it, even at the helm of its tab: their typing goes to the tab's other
+pane.
 
 If your connection to the relay drops, `germ share` reconnects by itself,
 and guests reconnect too.
@@ -31,59 +72,76 @@ You can also run `germ share` in any pane of a germ tmux session, or
 
 ## The chat
 
-**Ctrl+Shift+M** opens the chat: a panel on the right of your germ
-window (the terminal makes room for it). Everyone in the session is in
-one channel, guests in a browser included, and sees the same messages in
-the same order, each with who sent it and when.
+Everyone in the session is in one channel, guests in a browser included,
+and sees the same messages in the same order, each with who sent it and
+when. You chat in the share pane; guests with germ chat in a panel on
+the right of their window (**Ctrl+Shift+M**), and browser guests beside
+the terminal.
 
-- While the panel is focused, your keys go to the message box, not the
-  terminal (its cursor turns hollow). **Enter** sends, **Shift+Enter**
-  starts a new line, **Up** brings back what you sent, **PgUp/PgDn**
-  scroll. **Esc** goes back to the terminal with the panel still open;
-  Ctrl+Shift+M again closes it.
+- In the guest's panel, your keys go to the message box, not the terminal
+  (its cursor turns hollow). **Enter** sends, **Shift+Enter** starts a new
+  line, **Up** brings back what you sent, **PgUp/PgDn** scroll. **Esc**
+  goes back to the terminal with the panel still open; Ctrl+Shift+M again
+  closes it.
 - Closed, new messages show in the tab bar (`alice: pushed the fix`, then
   `2 new`).
 - `@alice` or `@here` highlights the message for them and sends a desktop
   notification.
 - Joins, leaves and who got the helm show as dim one-line notices, so the
   chat doubles as a log of who drove when.
-- Nothing is saved unless you ask: `s` in the share pane, `/save` in the
-  chat, or the palette. Chats go to `~/.local/share/germ/chats/`.
-- The host can mute someone in chat (`/mute alice`, `/unmute alice`, or
-  the palette). Messages are limited to 4 KB and a few per second.
-- Type `/help` in the chat for its commands. To send a message that starts
-  with `/`, start it with `//`.
+- Nothing is saved unless you ask: `/save` in the share pane, or the
+  palette. Chats go to `~/.local/share/germ/chats/`.
+- Messages are limited to 4 KB and a few per second. To send a message
+  that starts with `/`, start it with `//`.
 
 ## The helm
 
 One person types in a tab at a time: whoever has its **helm**. At first
 that's you, the host, in every tab.
 
-- **A guest asks** with **Ctrl+Shift+O** (or **Request the helm** in the
-  browser). You get a notification and a bell, and the request shows in
-  your chat panel: **y** hands it over, **n** says no (with the message box
-  empty; or `/yes`, `/no`). The share pane asks too, if no germ window is
-  showing the chat.
+- **A guest just starts typing.** Their keys don't go through, and germ
+  says `⎈ zach has the helm here · Enter asks for it`; **Enter** asks.
+  (Or **Ctrl+Shift+O**, `/helm` in the chat, **Request the helm** in the
+  browser, or `germ helm` in a shell.) You get a notification and the
+  question in the share pane: **y** hands it over, **n** says no.
+- **You can hand it over unasked**: `/helm alice` in the share pane, or
+  `germ helm give alice`.
 - **While a guest has the helm**, only their keystrokes reach that tab,
-  and yours don't (germ tells you who has it). The tab bar marks the tab
-  `⎈alice`.
-- **Ctrl+Shift+O takes it back** at once, from anyone. It's yours: a
+  and yours don't: germ says `⎈ alice has the helm here · Enter takes it
+  back`. The tab bar marks the tab `⎈alice`.
+- **Taking it back is one key**: **Enter** in that tab, **Ctrl+Shift+O**
+  anywhere in it, or `/take` (`/take all` for every tab). It's yours: a
   guest can't refuse or hold on to it.
-- A guest hands it back with Ctrl+Shift+O (or **Hand back the helm**).
+- A guest hands it back with Ctrl+Shift+O, `/helm` in the chat, or
+  **Hand back the helm**. germ tells them when they get it, and when it
+  goes.
 
 Without the helm, a guest can still look at every tab, scroll, select
 and copy, and chat.
+
+### From a shell: germ helm
+
+```sh
+germ helm                   # ask for it or hand it back (guests); take it back (host)
+germ helm status            # who has the helm of each tab
+germ helm give alice [TAB]  # hand alice the helm (host)
+germ helm take [TAB|all]    # take it back (host)
+germ helm ask / back [TAB]  # guests
+```
+
+It acts on the tab the shell is in (or the window's current tab), in the
+germ window it runs in: handy in scripts, and for coding agents.
 
 ### Giving someone a tab
 
 Say alice is building a feature: give her its tab, and she can work there
 while you work in yours.
 
-- **Ctrl+Shift+Space** (the palette) → **Give this tab to alice**, or type
-  `/give alice` in the chat, while looking at the tab.
+- `/give alice` in the share pane (the tab you're on, or `/give alice 2`),
+  or **Ctrl+Shift+Space** (the palette) → **Give this tab to alice**.
 - alice owns the tab and has its helm. Others ask *her* for it, not you.
-- **Take this tab back** (the palette, or `/takeback`) returns it to you.
-  Ctrl+Shift+O still takes the helm at any moment.
+- `/takeback` (or **Take this tab back** in the palette) returns it to
+  you. Ctrl+Shift+O still takes the helm at any moment.
 - If alice's connection drops, the tab waits for her (she gets it back
   when she reconnects). If she's gone for good, it comes back to you after
   90 seconds.
@@ -96,9 +154,9 @@ helm.
 For real work, give them a branch too, the way `germ agent` gives one to
 a coding agent:
 
-- **Ctrl+Shift+Space** → **New tab for alice on its own branch**, or
-  `/branch alice fix the login page` in the chat, from a pane in your
-  project.
+- `/branch alice fix the login page` in the share pane (the branch starts
+  from the directory of the tab you're on), or **Ctrl+Shift+Space** →
+  **New tab for alice on its own branch** from a pane in your project.
 - germ makes a git worktree on a new branch (`germ/alice-fix-the-login-page`),
   opens a tab there with a shell and a live diff beside it, and gives the
   tab to alice. Her changes stay on her branch; your checkout is untouched.
@@ -117,8 +175,9 @@ germ join 'https://relay.example.com/j/ROOM#KEY'
 ```
 
 A germ window opens on the shared session, with `⇄ zach, alice ✎` in the
-tab bar. Closing the window leaves the session. **Ctrl+Shift+M** chats,
-**Ctrl+Shift+O** asks for the helm of the tab you're looking at.
+tab bar. Closing the window leaves the session. **Ctrl+Shift+M** chats;
+to type, start typing and press **Enter** to ask for the helm (or
+**Ctrl+Shift+O**).
 
 **Following**: you start out following the host: when they switch tabs, so
 do you. Switch tabs yourself to look around on your own (the host's view
@@ -183,8 +242,8 @@ the page isn't https.
 ## Letting people in
 
 By default you approve every guest. When someone opens your link, germ
-rings the bell, sends a desktop notification, and asks in your chat panel
-(and the share pane): `alex (browser) wants to join` (**y**/**n**).
+sends a desktop notification and asks in the share pane:
+`» alex (browser) wants to join  y yes · n no`.
 
 Their browser says "Waiting for the host to let you in…". So a link that
 ends up somewhere it shouldn't is useless without your OK. If a guest's
@@ -222,8 +281,8 @@ bytes it can't read; no accounts, nothing on disk.
   plain-http direct links too.
 - **The link is the key, and you're the door.** A link carries the key,
   but by default you approve each person who uses it. Each `germ share`
-  makes a new link, and old ones stop working (`r` in the share pane makes
-  a new one mid-session).
+  makes a new link, and old ones stop working (`/newlink` in the share
+  pane makes a new one mid-session).
 - **Your machine only serves your share.** germ's built-in relay accepts
   one session, and only `germ share` (holding a secret token) can be its
   host. Joins are rate-limited.
@@ -234,7 +293,8 @@ bytes it can't read; no accounts, nothing on disk.
   everything else never (tmux's key bindings and command prompt
   included, and format strings that would run shell commands, `#(...)`).
   Browser guests' keystrokes are typed into the pane by `germ share`
-  itself (`send-keys`), never through tmux's key tables.
+  itself (`send-keys`), never through tmux's key tables. No guest types
+  into the share pane, helm or not.
 - **Nobody can speak for someone else.** Chat messages go through your
   `germ share`, which stamps who sent each one by the connection it came
   on, and numbers them, so everyone sees the same order.
@@ -258,6 +318,8 @@ bytes it can't read; no accounts, nothing on disk.
 change yours), and tunnels it, so the guest's germ runs the same tmux
 control-mode client as your own window. The chat, the tabs and the helm
 travel in the same encrypted tunnel; your germ window gets them from
-`germ share` over its control socket. Code: `internal/share` (relay, host,
-guest, protocol, `room.go` for the chat and the helm), `cmd/germ-relay`,
-and `internal/app/chat.go` (the panel).
+`germ share` over its control socket (for the tab bar, the helm, and
+Ctrl+Shift+O). Code: `internal/share` (relay, host, guest, protocol,
+`room.go` for the chat and the helm), `cmd/germ-relay`,
+`cmd/germ/sharepane.go` (the share pane), `internal/app/chat.go` (the
+guest's panel) and `internal/chatview` (drawing the chat, for both).

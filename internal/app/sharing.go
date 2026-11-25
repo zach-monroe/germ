@@ -103,12 +103,16 @@ func (a *App) shareSession() {
 		go desktopNotify("germ", "Sharing needs germ's tmux mode ([tmux] enabled = true).")
 		return
 	}
+	if p := a.sharePane(); p != nil { // already sharing: go to it
+		a.focusPane(p)
+		return
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return
 	}
 	noop := func(*control.Response) {}
-	a.ctlOpen(control.Request{Where: "down", Size: 30, Command: []string{self, "share"}},
+	a.ctlOpen(control.Request{Where: "right", Size: 40, Command: []string{self, "share"}},
 		a.workPane(), noop, noop)
 }
 

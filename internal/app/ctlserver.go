@@ -170,6 +170,16 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		return
 	}
 
+	if req.Cmd == control.CmdHelm {
+		p, _ := a.resolvePane(req.Pane) // from outside the window: the active tab
+		text, err := a.ctlHelm(p, req.Text)
+		if err != nil {
+			reply(ctlErr("%v", err))
+			return
+		}
+		ok(&control.Response{Text: text})
+		return
+	}
 	p, err := a.resolvePane(req.Pane)
 	if err != nil && (req.Cmd != control.CmdOpenPane || req.Pane != "") {
 		reply(ctlErr("%v", err))
