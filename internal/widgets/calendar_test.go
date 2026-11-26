@@ -91,6 +91,9 @@ const testICS = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" +
 
 func TestCalendarFeed(t *testing.T) {
 	ny := mustLoc(t, "America/New_York")
+	old := time.Local // all-day events start at local midnight
+	time.Local = ny
+	defer func() { time.Local = old }()
 	evs, err := parseICal(testICS)
 	if err != nil {
 		t.Fatal(err)

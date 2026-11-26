@@ -321,9 +321,16 @@ func expandRRule(start time.Time, rule string, to time.Time) []time.Time {
 	count := atoiOr(r["COUNT"], 0)
 	var until time.Time
 	if u := r["UNTIL"]; u != "" {
-		until, _ = icalTime(u, map[string]string{})
-		if len(u) == 8 { // a date: through the end of that day
-			until = until.AddDate(0, 0, 1).Add(-time.Second)
+		// Without a Z it's in the start's zone (RFC 5545), not ours.
+		switch {
+		case strings.HasSuffix(u, "Z"):
+			until, _ = icalTime(u, map[string]string{})
+		case len(u) == 8: // a date: through the end of that day
+			if d, err := time.ParseInLocation("20060102", u, start.Location()); err == nil {
+				until = d.AddDate(0, 0, 1).Add(-time.Second)
+			}
+		default:
+			until, _ = time.ParseInLocation("20060102T150405", u, start.Location())
 		}
 	}
 	var days []byDay
