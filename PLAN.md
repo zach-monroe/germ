@@ -193,7 +193,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **21. Command palette** ✅ | Ctrl+Shift+Space: fuzzy-searchable list of every action (with its key) | Every feature is findable without memorizing chords |
 | **22. Input latency** ✅ | Measure key-to-screen latency against kitty/ghostty; fix what's slow | germ is as quick to echo a key as the fastest terminal here |
 | **23. Coworking v3: chat and the helm** ✅ | One invite link; a session chat (docked panel in germ, side panel in the browser); typing by turns: one person at the helm per tab, guests request it, the host (or the tab's owner) approves, Ctrl+Shift+O always takes it back; tabs assigned to a guest | You give alice the feature tab and she works there while you work in yours; bob asks for the helm in chat and you hand it over with one key |
-| **24. More widgets** 🚧 | Widget clicks (`germ-widget:`, `germ-open:`); system, ports, PRs, worktrees, coworking, calendar (iCal URL), todo (markdown checklist, click to toggle) | The home tab shows your dev servers, PRs and next meeting, and you tick off todos by clicking |
+| **24. More widgets** ✅ | Widget clicks (`germ-widget:`, `germ-open:`); system, ports, PRs, worktrees, coworking, calendar (iCal URL), todo (markdown checklist, click to toggle) | The home tab shows your dev servers, PRs and next meeting, and you tick off todos by clicking |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -298,6 +298,8 @@ throttled.
 
 ## Status (Phase 24)
 - Widget clicks: `germ-widget:TOKEN` / `germ-open:DIR` OSC 8 links are accepted only by terminals with `term.Options.ActionLinks` (widget panes; `AllowActionLinks`), so shell output can't plant them; `openURL` ignores them. Built-ins implement `widgets.Clicker` (clicks arrive on `RunInProcess`'s clicks channel, then redraw); live programs get `TOKEN\n` on stdin with echo off (`pty.Session.NoEcho`, via SyscallConn so reads stay interruptible); interval programs rerun at once with `GERM_WIDGET_CLICK`. `germ-open:` → `newTabIn(dir)`. e2e: scripts/e2e/widgets.sh.
+- New built-ins (all in-process): `system` (/proc, /sys), `ports` (/proc/net/tcp{,6} → socket inode → topmost owning pid → ppid walk to a pane's `pid`), `prs` (one `gh api graphql` with two searches), `worktrees` (`internal/worktrees`, shared with `germ review`; repos from panes' cwds), `coworking` (`share_status`), `calendar` (`ical.go`: a small RFC 5545 reader with RRULE/EXDATE/RECURRENCE-ID/TZID), `todo` (markdown checklist, `Clicker`, line-hash tokens so stale clicks are no-ops, atomic save through symlinks). `list_panes` gained `pid`, `window`, `tab_label`.
+- Known pre-existing failure (also on v0.7.0): share.sh "right-click alice in the panel: hand her the helm".
 
 ## Status (themes, after v0.6.0)
 - Palette lists bundled and installed themes (`theme.Installed`); selecting previews (`paletteItem.preview`), Enter keeps (`config.SetTheme`: rewrites only the top-level `theme =` line, keeps comments, follows symlinks), Esc/close restores the theme and the status it covered.
