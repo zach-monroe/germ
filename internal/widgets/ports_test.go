@@ -153,7 +153,7 @@ func TestPortsUpdate(t *testing.T) {
 }
 
 func TestTruncateLeft(t *testing.T) {
-	if got := truncateLeft("/tmp/abc/myapp", 8); got != "…b/myapp" {
+	if got := truncateLeft("/tmp/abc/myapp", 8); got != "…c/myapp" {
 		t.Errorf("truncateLeft = %q", got)
 	}
 	if got := truncateLeft("~/app", 8); got != "~/app" {
