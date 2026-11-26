@@ -163,6 +163,14 @@ xdotool type --delay 15 '/give bob'; xdotool key Return; sleep 1; outpanel
 check "the host gave bob the tab" sh -c "$SL | grep -q 'gave tab 0 (.*) to bob'"
 typein "$BW" bobs-tab
 check "bob types in his tab" sh -c "tmux -L $SOCK capture-pane -p -t %0 | grep -qx bobs-tab"
+# What the coworking widget reads.
+SHST=$($CTL json '{"cmd":"share_status"}')
+check "share_status: hosting, with alice and bob" sh -c "echo '$SHST' | python3 -c '
+import json,sys; s=json.load(sys.stdin)[\"share_status\"]
+names={p[\"name\"].split(\"@\")[0] for p in s[\"people\"]}
+assert s[\"host\"] and {\"alice\",\"bob\"} <= names, s
+assert any(t.get(\"owner\") for t in s[\"tabs\"]), s
+assert \"link\" not in json.dumps(s), \"invite link leaked\"'"
 [ -n "$SHOTS" ] && { xdotool windowraise "$BW"; sleep 0.3; import -window root "$SHOTS/bob.png"; }
 
 # A tab on its own branch for alice: /branch makes a worktree in the

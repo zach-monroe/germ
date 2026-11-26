@@ -20,6 +20,10 @@
 - **`worktrees` widget**: every agent worktree of the repositories open
   in your tabs, with its task, what it changed and what its agent is
   doing. Click one to go to its agent, or to open a tab there.
+- **`coworking` widget**: the sessions your windows share or have joined:
+  who's there and typing, who has the helm of which tab, who's waiting to
+  join or asking for the helm, and unread chat. `germ ctl json
+  '{"cmd":"share_status"}'` reports the same (without the invite link).
 - The agents widget names tabs by the number the tab bar shows (tmux's
   window index), not their position. `list_panes` reports it as
   `tab_label`, and each pane's `pid` and `window`.

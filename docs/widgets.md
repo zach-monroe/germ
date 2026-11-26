@@ -28,6 +28,7 @@ Saving the config rebuilds the home tab right away.
 | `weather` | conditions, art, 5-day forecast ([Open-Meteo](https://open-meteo.com)) | `location = "Denver"` (default: from your IP), `units = "celsius"` |
 | `news` | top story with summary + headlines, rotating pages (RSS/Atom) | `feeds = ["https://hnrss.org/frontpage", ...]` |
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
+| `coworking` | sessions you share or joined: who's there (typing, in a browser), who has the helm of which tab, join and helm requests waiting on you, unread chat ([coworking.md](coworking.md)) | |
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `ports` | TCP ports your processes listen on, the server's name, and the tab that started it; `*` = reachable from the network. Click the port to open it, the tab to go there | `ignore = ["spotify"]`, `all = true` (other users' ports too) |
 | `prs` | your open pull requests with check status (✓ ✗ ●), draft / approved / changes requested, and PRs waiting for your review. Click to open. Uses the GitHub CLI (`gh auth login`) | `filter = "org:acme"` (added to both searches) |

@@ -1315,3 +1315,22 @@ func whoami() string {
 	}
 	return user
 }
+
+// shareStatus summarizes the window's shared session, or nil.
+func (a *App) shareStatus() *control.ShareStatus {
+	c := a.chat
+	if !c.active() {
+		return nil
+	}
+	st := &control.ShareStatus{Host: c.host && c.guest == nil, Session: c.session, Via: c.via, You: c.you,
+		People: c.people, Tabs: c.state.Tabs, Current: c.state.Current, Requests: c.state.Requests,
+		Joins: c.joins, Unread: c.unread}
+	for i := len(c.msgs) - 1; i >= 0; i-- {
+		if !c.msgs[i].Event {
+			m := c.msgs[i]
+			st.Last = &m
+			break
+		}
+	}
+	return st
+}

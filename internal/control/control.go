@@ -63,7 +63,26 @@ const (
 	// CmdChat reads the window's session chat as text (no Text), or sends
 	// Text to it as if typed in the chat box (a message or a /command).
 	CmdChat = "chat"
+	// CmdShareStatus says who's in the window's shared session, if any
+	// (Response.ShareStatus; nil when it isn't in one).
+	CmdShareStatus = "share_status"
 )
+
+// ShareStatus summarizes a window's shared session (the coworking widget).
+// It leaves out the invite link.
+type ShareStatus struct {
+	Host     bool                `json:"host"` // this window hosts it (else joined it)
+	Session  string              `json:"session"`
+	Via      string              `json:"via,omitempty"`
+	You      uint32              `json:"you"`
+	People   []share.Participant `json:"people"`
+	Tabs     []share.Tab         `json:"tabs"`
+	Current  string              `json:"current,omitempty"` // the host's tab
+	Requests []share.HelmRequest `json:"requests,omitempty"`
+	Joins    []share.JoinRequest `json:"joins,omitempty"`
+	Unread   int                 `json:"unread,omitempty"`
+	Last     *share.ChatMsg      `json:"last,omitempty"` // the newest chat message
+}
 
 // Request is a control command. Pane refers to a pane by germ ID ("3") or
 // tmux pane ID ("%5").
@@ -129,6 +148,8 @@ type Response struct {
 	// the host did.
 	Seq     uint64         `json:"seq,omitempty"`
 	Actions []share.Action `json:"actions,omitempty"`
+	// share_status
+	ShareStatus *ShareStatus `json:"share_status,omitempty"`
 }
 
 // Dir is where germ windows put their sockets.

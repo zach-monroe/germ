@@ -179,6 +179,9 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 		a.shareSession()
 		ok(&control.Response{})
 		return
+	case control.CmdShareStatus:
+		ok(&control.Response{ShareStatus: a.shareStatus()})
+		return
 	case control.CmdChat:
 		if !a.chat.active() {
 			reply(ctlErr("this window isn't in a shared session"))
