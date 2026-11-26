@@ -83,6 +83,14 @@ makes widgets easy to share: one file to copy.
   `\e[?25l`.
 - **Links**: print OSC 8 hyperlinks (`\e]8;;URL\e\\text\e]8;;\e\\`) and
   clicking the text opens the URL.
+- **Clicks**: a link to `germ-widget:TOKEN` sends `TOKEN` back to your
+  widget when clicked. A live widget reads it as a line on stdin (germ
+  turns echo off for you). An interval widget is rerun at once with
+  `GERM_WIDGET_CLICK=TOKEN`. Percent-encode anything unusual in the token.
+- **Open a tab**: a link to `germ-open:/some/dir` opens a new tab there
+  (`~/` works; percent-encode spaces).
+- These two only work in widgets. In a normal pane germ ignores them, so
+  `cat`-ing a file can't plant one.
 - Widgets don't receive keyboard input (yet).
 
 A complete live widget in shell:
@@ -95,4 +103,15 @@ while :; do
   printf '\033[?2026h\033[H\033[1;34m ⏻ uptime\033[0m\n\n  %s\033[J\033[?2026l' "$(uptime -p)"
   sleep 60
 done
+```
+
+A clickable live widget: a counter you bump by clicking it.
+
+```sh
+#!/bin/bash
+# ~/.config/germ/widgets/counter
+n=0
+draw() { printf '\033[?25l\033[H\033[J \033]8;;germ-widget:inc\033\\[ +1 ]\033]8;;\033\\  %d' "$n"; }
+draw
+while read -r tok; do [ "$tok" = inc ] && n=$((n + 1)); draw; done
 ```

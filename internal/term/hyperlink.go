@@ -18,19 +18,18 @@ type hyperlinks struct {
 var allowedSchemes = []string{"http://", "https://", "mailto:", "file://", "ftp://", "sftp://", "ssh://", "man:",
 	"germ-pane:"} // germ-pane:PID/PANE focuses a pane (agents widget)
 
+// actionSchemes are allowed only with Options.ActionLinks (widget panes):
+// germ-widget:TOKEN sends a click back to the widget, germ-open:DIR opens a
+// tab in a directory.
+var actionSchemes = []string{"germ-widget:", "germ-open:"}
+
 func (t *Terminal) oscHyperlink(rest string) {
 	params, uri, ok := strings.Cut(rest, ";")
 	if !ok || uri == "" {
 		t.cur.Pen.Link = 0
 		return
 	}
-	allowed := false
-	for _, s := range allowedSchemes {
-		if len(uri) >= len(s) && strings.EqualFold(uri[:len(s)], s) {
-			allowed = true
-			break
-		}
-	}
+	allowed := hasScheme(uri, allowedSchemes) || t.opts.ActionLinks && hasScheme(uri, actionSchemes)
 	if !allowed || len(uri) > 4096 {
 		t.cur.Pen.Link = 0
 		return
@@ -67,4 +66,20 @@ func (t *Terminal) LinkURL(id uint16) string {
 		return t.links.uris[id]
 	}
 	return ""
+}
+
+func hasScheme(uri string, schemes []string) bool {
+	for _, s := range schemes {
+		if len(uri) >= len(s) && strings.EqualFold(uri[:len(s)], s) {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowActionLinks turns on Options.ActionLinks (germ-widget:, germ-open:).
+func (t *Terminal) AllowActionLinks() {
+	t.mu.Lock()
+	t.opts.ActionLinks = true
+	t.mu.Unlock()
 }

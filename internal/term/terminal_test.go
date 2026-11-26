@@ -638,6 +638,31 @@ func TestHyperlinks(t *testing.T) {
 	}
 }
 
+func TestActionLinksOnlyWhenAllowed(t *testing.T) {
+	const out = "\x1b]8;;germ-widget:tick\x1b\\a\x1b]8;;\x1b\\ \x1b]8;;germ-open:/tmp\x1b\\b\x1b]8;;\x1b\\"
+	for _, allow := range []bool{false, true} {
+		term := New(10, 1, Options{ActionLinks: allow})
+		term.Write([]byte(out))
+		term.Lock()
+		l := term.LineAt(term.AbsRow(0, 0))
+		got := [2]string{term.LinkURL(l.Cells[0].Link), term.LinkURL(l.Cells[2].Link)}
+		term.Unlock()
+		want := [2]string{}
+		if allow {
+			want = [2]string{"germ-widget:tick", "germ-open:/tmp"}
+		}
+		if l.Cells[0].Link == 0 {
+			got[0] = ""
+		}
+		if l.Cells[2].Link == 0 {
+			got[1] = ""
+		}
+		if got != want {
+			t.Errorf("ActionLinks=%v: links %q, want %q", allow, got, want)
+		}
+	}
+}
+
 func TestCombining(t *testing.T) {
 	term := New(20, 2, Options{})
 	// e + acute composes; q + tilde has no precomposed form and becomes a

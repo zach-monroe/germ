@@ -144,6 +144,45 @@ type widgetBackend struct {
 	// dormant (built-ins and interval programs; long-running programs
 	// keep streaming).
 	shown *widgets.Shown
+
+	// Clicks on germ-widget: links. Built-ins read clicks; live programs
+	// get each token as a line of input; interval programs are rerun at
+	// once with it in GERM_WIDGET_CLICK.
+	clicks  chan string
+	clicked string // for the next interval run
+}
+
+// click delivers a germ-widget: link's token to the widget.
+func (b *widgetBackend) click(token string) {
+	token = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, token)
+	if token == "" {
+		return
+	}
+	if b.inproc {
+		select {
+		case b.clicks <- token:
+		default:
+		}
+		return
+	}
+	b.mu.Lock()
+	if b.every > 0 {
+		b.clicked = token
+	} else if b.sess != nil {
+		b.sess.Write([]byte(token + "\n"))
+	}
+	b.mu.Unlock()
+	if b.every > 0 {
+		select {
+		case b.poke <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (b *widgetBackend) Write([]byte) {}
@@ -189,8 +228,10 @@ func (b *widgetBackend) isStopped() bool {
 func (a *App) newWidgetPane(name string) *pane {
 	p := a.addPane()
 	p.term = a.newTermNoReplies(p, 1, 1)
+	p.term.AllowActionLinks()
 	p.title.Store(&name)
-	b := &widgetBackend{a: a, p: p, cols: 1, rows: 1, poke: make(chan struct{}, 1), shown: widgets.NewShown(false)}
+	b := &widgetBackend{a: a, p: p, cols: 1, rows: 1, poke: make(chan struct{}, 1),
+		shown: widgets.NewShown(false), clicks: make(chan string, 8)}
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	p.be = b
 	w, err := a.cfg.Widget(name)
@@ -276,10 +317,18 @@ func (b *widgetBackend) show(data []byte) {
 func (b *widgetBackend) runOnce() ([]byte, error) {
 	b.mu.Lock()
 	cols, rows := b.cols, b.rows
+	env := b.env
+	if b.clicked != "" {
+		env = append(append([]string(nil), env...), "GERM_WIDGET_CLICK="+b.clicked)
+		b.clicked = ""
+	}
 	b.mu.Unlock()
-	sess, err := pty.StartIn("", b.argv, uint16(max(cols, 1)), uint16(max(rows, 1)), b.env...)
+	sess, err := pty.StartIn("", b.argv, uint16(max(cols, 1)), uint16(max(rows, 1)), env...)
 	if err != nil {
 		return nil, err
+	}
+	if b.every <= 0 {
+		_ = sess.NoEcho() // clicks arrive as input; don't print them
 	}
 	b.mu.Lock()
 	b.sess = sess
@@ -426,7 +475,7 @@ func (b *widgetBackend) runInProcess(ctx context.Context, name string, opts widg
 		b.p.term.Write(p)
 		b.a.wake()
 	})
-	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke, b.shown); err != nil {
+	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke, b.shown, b.clicks); err != nil {
 		b.show([]byte("\x1b[31m" + err.Error() + "\x1b[0m"))
 	}
 }

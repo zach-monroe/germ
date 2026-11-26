@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Home screen
+- **Widgets can take clicks**: a widget's link to `germ-widget:TOKEN`
+  sends the token back to it (a script reads it on stdin; an interval
+  widget is rerun with `GERM_WIDGET_CLICK`), and `germ-open:DIR` opens a
+  tab in that directory. Only widgets can use these links: printed in a
+  normal pane, germ ignores them. See docs/widgets.md.
+
 ## v0.7.0 (2026-11-25)
 
 ### Themes

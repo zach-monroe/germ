@@ -193,6 +193,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **21. Command palette** ✅ | Ctrl+Shift+Space: fuzzy-searchable list of every action (with its key) | Every feature is findable without memorizing chords |
 | **22. Input latency** ✅ | Measure key-to-screen latency against kitty/ghostty; fix what's slow | germ is as quick to echo a key as the fastest terminal here |
 | **23. Coworking v3: chat and the helm** ✅ | One invite link; a session chat (docked panel in germ, side panel in the browser); typing by turns: one person at the helm per tab, guests request it, the host (or the tab's owner) approves, Ctrl+Shift+O always takes it back; tabs assigned to a guest | You give alice the feature tab and she works there while you work in yours; bob asks for the helm in chat and you hand it over with one key |
+| **24. More widgets** 🚧 | Widget clicks (`germ-widget:`, `germ-open:`); system, ports, PRs, worktrees, coworking, calendar (iCal URL), todo (markdown checklist, click to toggle) | The home tab shows your dev servers, PRs and next meeting, and you tick off todos by clicking |
 
 ### Testing approach
 - `internal/vt` and `internal/term` are pure Go with no GL, so we can feed byte streams in and assert on the grid. These tests are the safety net.
@@ -294,6 +295,9 @@ throttled.
 2. **tmux control mode is a must-have.** Phases 6 (tabs/splits) and 7 (control mode) are committed. The terminal state is built from the start so that a single window can hold many `term.Terminal` instances.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
+
+## Status (Phase 24)
+- Widget clicks: `germ-widget:TOKEN` / `germ-open:DIR` OSC 8 links are accepted only by terminals with `term.Options.ActionLinks` (widget panes; `AllowActionLinks`), so shell output can't plant them; `openURL` ignores them. Built-ins implement `widgets.Clicker` (clicks arrive on `RunInProcess`'s clicks channel, then redraw); live programs get `TOKEN\n` on stdin with echo off (`pty.Session.NoEcho`, via SyscallConn so reads stay interruptible); interval programs rerun at once with `GERM_WIDGET_CLICK`. `germ-open:` → `newTabIn(dir)`. e2e: scripts/e2e/widgets.sh.
 
 ## Status (themes, after v0.6.0)
 - Palette lists bundled and installed themes (`theme.Installed`); selecting previews (`paletteItem.preview`), Enter keeps (`config.SetTheme`: rewrites only the top-level `theme =` line, keeps comments, follows symlinks), Esc/close restores the theme and the status it covered.

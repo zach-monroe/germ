@@ -41,6 +41,15 @@ type Widget interface {
 	Tick() time.Duration
 }
 
+// Clicker is a widget that takes clicks: it draws click(token) links, and
+// a click on one calls Click with its token, then redraws.
+type Clicker interface {
+	Click(ctx context.Context, token string)
+}
+
+// click is a link that sends token back to the widget when clicked.
+func click(token, text string) string { return link("germ-widget:"+token, text) }
+
 var builtins = map[string]func(Options) Widget{
 	"clock":   newClock,
 	"weather": newWeather,
@@ -77,7 +86,7 @@ func Run(name string) error {
 			}
 		}
 	}()
-	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize, nil)
+	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize, nil, nil)
 }
 
 // Shown says whether a widget is on screen. A hidden widget is dormant: it
@@ -157,9 +166,10 @@ func (s *Shown) waitDue(ctx context.Context, last time.Time, every time.Duration
 // RunInProcess runs a built-in widget, drawing frames to out, until ctx
 // ends. size reports the widget's box; a value on resize redraws. germ
 // runs its home-screen widgets this way, without a process each, and
-// hides them (shown) while the home tab isn't on screen.
+// hides them (shown) while the home tab isn't on screen. Tokens on clicks
+// go to the widget's Click method, if it has one.
 func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
-	size func() (cols, rows int), resize <-chan struct{}, shown *Shown) error {
+	size func() (cols, rows int), resize <-chan struct{}, shown *Shown, clicks <-chan string) error {
 	mk, ok := builtins[name]
 	if !ok {
 		return fmt.Errorf("unknown widget %q (built-in: %s)", name, strings.Join(Names(), ", "))
@@ -209,6 +219,10 @@ func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
 		case <-tick:
 		case lastErr = <-updated:
 		case <-changed: // shown again: redraw (a clock's time moved on)
+		case tok := <-clicks:
+			if c, ok := w.(Clicker); ok {
+				c.Click(ctx, tok)
+			}
 		case <-ctx.Done():
 			return nil
 		}

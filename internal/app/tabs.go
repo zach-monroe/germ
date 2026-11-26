@@ -197,16 +197,19 @@ func (a *App) newPaneCommand() []string {
 	return a.opts.Command
 }
 
-func (a *App) actionNewTab() {
+func (a *App) actionNewTab() { a.newTabIn(a.activeCwd()) }
+
+// newTabIn opens a tab whose shell starts in dir.
+func (a *App) newTabIn(dir string) {
 	if a.tmux != nil {
-		a.tmux.newWindow(a.activeCwd())
+		a.tmux.newWindow(dir)
 		return
 	}
 	area := a.content()
 	if len(a.tabs) == 1 && a.gridRows > 2 {
 		area.H-- // the tab bar appears
 	}
-	p, err := a.newLocalPane(a.newPaneCommand(), a.activeCwd(), area.W, area.H)
+	p, err := a.newLocalPane(a.newPaneCommand(), dir, area.W, area.H)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "germ:", err)
 		return

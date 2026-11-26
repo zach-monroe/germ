@@ -63,3 +63,22 @@ func TestWriteInput(t *testing.T) {
 		t.Fatalf("output %q missing got:abc", out)
 	}
 }
+
+func TestNoEcho(t *testing.T) {
+	s, err := Start([]string{"/bin/sh", "-c", "read x; echo got-$x"}, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.NoEcho(); err != nil {
+		t.Fatal(err)
+	}
+	s.Write([]byte("secret\n"))
+	out := readAll(t, s)
+	if !strings.Contains(out, "got-secret") {
+		t.Fatalf("output %q missing got-secret", out)
+	}
+	if strings.Count(out, "secret") != 1 {
+		t.Errorf("input was echoed: %q", out)
+	}
+}

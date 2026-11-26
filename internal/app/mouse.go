@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -310,8 +311,11 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 		// motion, and the screen may have changed since (a widget redraws,
 		// the agents list reorders, or you came back to this tab).
 		a.updateLinkHover()
-		_, widget := p.be.(*widgetBackend)
+		wb, widget := p.be.(*widgetBackend)
 		if (widget || mods&glfw.ModControl != 0) && p.linkURL != "" {
+			if widget && a.widgetAction(wb, p.linkURL) {
+				return
+			}
 			openURL(p.linkURL)
 			return
 		}
@@ -675,12 +679,38 @@ func resolveFile(s string, m []int, dir string) *fileRef {
 	return ref
 }
 
+// widgetAction handles a widget's germ-widget: and germ-open: links (only
+// widget terminals accept them); false for any other link.
+func (a *App) widgetAction(b *widgetBackend, link string) bool {
+	if tok, ok := strings.CutPrefix(link, "germ-widget:"); ok {
+		if t, err := url.PathUnescape(tok); err == nil {
+			tok = t
+		}
+		b.click(tok)
+		return true
+	}
+	if dir, ok := strings.CutPrefix(link, "germ-open:"); ok {
+		if d, err := url.PathUnescape(dir); err == nil {
+			dir = d
+		}
+		dir = expandHome(dir)
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			a.newTabIn(dir)
+		}
+		return true
+	}
+	return false
+}
+
 // openURL opens a link with $BROWSER if set, else xdg-open. germ-pane:
 // links focus a pane in a germ window instead.
 func openURL(url string) {
 	if ref, ok := strings.CutPrefix(url, "germ-pane:"); ok {
 		go focusRemotePane(ref)
 		return
+	}
+	if strings.HasPrefix(url, "germ-widget:") || strings.HasPrefix(url, "germ-open:") {
+		return // widget actions: only a click on the widget does them
 	}
 	argv := []string{"xdg-open"}
 	if b := strings.Fields(os.Getenv("BROWSER")); len(b) > 0 {

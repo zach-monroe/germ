@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	cpty "github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 // Session is a running child process and the master side of its PTY.
@@ -39,6 +40,28 @@ func StartIn(dir string, argv []string, cols, rows uint16, extraEnv ...string) (
 		return nil, fmt.Errorf("pty: start %q: %w", argv[0], err)
 	}
 	return &Session{f: f, cmd: cmd}, nil
+}
+
+// NoEcho turns off the terminal's echo, so input written to the child
+// isn't printed back (germ sends widget programs their clicks this way).
+func (s *Session) NoEcho() error {
+	// Not s.f.Fd(): that makes the file blocking, so Close wouldn't
+	// interrupt a Read.
+	rc, err := s.f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var ierr error
+	if err := rc.Control(func(fd uintptr) {
+		var t *unix.Termios
+		if t, ierr = unix.IoctlGetTermios(int(fd), unix.TCGETS); ierr == nil {
+			t.Lflag &^= unix.ECHO | unix.ECHONL
+			ierr = unix.IoctlSetTermios(int(fd), unix.TCSETS, t)
+		}
+	}); err != nil {
+		return err
+	}
+	return ierr
 }
 
 // Read reads child output from the PTY master.

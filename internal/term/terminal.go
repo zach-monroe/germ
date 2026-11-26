@@ -38,6 +38,10 @@ type Options struct {
 	// none, 1 = normal, 2 = error, 3 = indeterminate, 4 = paused. Called
 	// with the lock held.
 	OnProgress func(state, percent int)
+	// ActionLinks accepts germ-widget: and germ-open: hyperlinks, which act
+	// inside germ instead of opening something. Only home-tab widgets set
+	// it: in a shell pane, printing a file could plant one.
+	ActionLinks bool
 }
 
 // MouseMode is the active mouse reporting mode.
