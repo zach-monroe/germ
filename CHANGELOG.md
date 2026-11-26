@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0 (2026-11-26)
 
 ### Home screen
 - **Widgets can take clicks**: a widget's link to `germ-widget:TOKEN`
