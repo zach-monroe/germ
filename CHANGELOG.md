@@ -8,6 +8,8 @@
   widget is rerun with `GERM_WIDGET_CLICK`), and `germ-open:DIR` opens a
   tab in that directory. Only widgets can use these links: printed in a
   normal pane, germ ignores them. See docs/widgets.md.
+- **`system` widget**: CPU and network sparklines, memory, disk and
+  battery meters, load and uptime, read from /proc (no process).
 
 ## v0.7.0 (2026-11-25)
 

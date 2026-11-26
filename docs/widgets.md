@@ -30,6 +30,7 @@ Saving the config rebuilds the home tab right away.
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `stocks` | price, daily change, intraday sparkline (Yahoo Finance) | `symbols = ["AAPL", "NVDA", "BTC-USD"]` |
+| `system` | CPU and network sparklines, memory, disk and battery meters, load, uptime | `disks = ["/", "~"]` (default: `/`, plus your home if it's a separate filesystem) |
 
 None need API keys. Built-ins run inside germ (no process each); try one
 on its own with `germ widget clock`.
