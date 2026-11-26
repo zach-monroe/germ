@@ -136,6 +136,8 @@ check "germ helm take all" sh -c "$GHELM status | grep -q '^0 .*: you'"
 HERE=$($CTL chat | grep -n '^here:' | head -1)
 HROW=${HERE%%:*}; HTEXT=${HERE#*:}; PRE=${HTEXT%%alice*}
 PANEL0=$((GCOLS - (GCOLS/2 < 52 ? GCOLS/2 : 52) + 1)) # the panel's first column (it takes min(52, half) columns)
+# Clicks go to the window on top there, and alice's window covers the host's.
+xdotool windowraise "$HW"; xdotool windowfocus --sync "$HW"; sleep 0.3
 xdotool mousemove --window "$HW" $(( (PANEL0 + ${#PRE} + 1) * CW + CW/2 )) $(( HROW * CH + CH/2 )); xdotool click 3; sleep 0.5
 [ -n "$SHOTS" ] && import -window root "$SHOTS/host-person-menu.png"
 xdotool mousemove --window "$HW" $(( 10 * CW )) $(( 2 * CH + CH/2 )); xdotool click 1; sleep 1
