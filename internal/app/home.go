@@ -122,7 +122,7 @@ func expandHome(p string) string {
 	return p
 }
 
-// widgetBackend runs a widget program and ignores keyboard input.
+// widgetBackend runs a widget. Built-ins get the keys typed into them.
 type widgetBackend struct {
 	a     *App
 	p     *pane
@@ -150,6 +150,8 @@ type widgetBackend struct {
 	// once with it in GERM_WIDGET_CLICK.
 	clicks  chan string
 	clicked string // for the next interval run
+	// Keys typed into the focused widget (built-ins only).
+	keys chan []byte
 }
 
 // click delivers a germ-widget: link's token to the widget.
@@ -185,9 +187,18 @@ func (b *widgetBackend) click(token string) {
 	}
 }
 
-func (b *widgetBackend) Write([]byte) {}
-func (b *widgetBackend) Cwd() string  { return "" }
-func (b *widgetBackend) Pid() int     { return 0 }
+// Write passes typing on to a built-in widget (programs don't get it).
+func (b *widgetBackend) Write(p []byte) {
+	if !b.inproc || len(p) == 0 {
+		return
+	}
+	select {
+	case b.keys <- append([]byte(nil), p...):
+	default: // the widget is busy: drop it rather than block the UI
+	}
+}
+func (b *widgetBackend) Cwd() string { return "" }
+func (b *widgetBackend) Pid() int    { return 0 }
 
 func (b *widgetBackend) Resize(cols, rows int) {
 	b.mu.Lock()
@@ -231,7 +242,7 @@ func (a *App) newWidgetPane(name string) *pane {
 	p.term.AllowActionLinks()
 	p.title.Store(&name)
 	b := &widgetBackend{a: a, p: p, cols: 1, rows: 1, poke: make(chan struct{}, 1),
-		shown: widgets.NewShown(false), clicks: make(chan string, 8)}
+		shown: widgets.NewShown(false), clicks: make(chan string, 8), keys: make(chan []byte, 64)}
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	p.be = b
 	w, err := a.cfg.Widget(name)
@@ -475,7 +486,7 @@ func (b *widgetBackend) runInProcess(ctx context.Context, name string, opts widg
 		b.p.term.Write(p)
 		b.a.wake()
 	})
-	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke, b.shown, b.clicks); err != nil {
+	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke, b.shown, b.clicks, b.keys); err != nil {
 		b.show([]byte("\x1b[31m" + err.Error() + "\x1b[0m"))
 	}
 }

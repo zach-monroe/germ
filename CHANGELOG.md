@@ -31,7 +31,8 @@
 - **`todo` widget**: a markdown checklist (`~/todo.md` by default); click
   an item to tick it off. It saves the file (atomically, through a
   symlink), and a click on a line that changed since it was drawn does
-  nothing.
+  nothing. Add items from the widget: click **+ add** (or click it and
+  type), Enter saves each after the last item, Esc stops.
 - config.example.toml lists every widget and its options, with a dev
   dashboard layout to copy: `layout` picks which widgets run.
 - The agents widget names tabs by the number the tab bar shows (tmux's

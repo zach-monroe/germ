@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,5 +115,99 @@ func TestTodoCreate(t *testing.T) {
 	td.Click(context.Background(), "create")
 	if b, _ := os.ReadFile(path); string(b) != "- [ ] mine\n" {
 		t.Errorf("create overwrote: %q", b)
+	}
+}
+
+func TestTodoAdd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "todo.md")
+	body := "# Todo\n\n* [ ] first\n  * [ ] sub\n\nnotes at the end\n"
+	os.WriteFile(path, []byte(body), 0o644)
+	td := &todo{path: path}
+	ctx := context.Background()
+	td.Update(ctx)
+
+	// "+ add" in the title starts it.
+	td.Click(ctx, tokenFor(t, td.Draw(50, 10, nil), "+ add"))
+	if !td.adding {
+		t.Fatal("+ add didn't start adding")
+	}
+	for _, k := range []string{"b", "u", "y", " ", "e", "g", "x", "\x7f", "g", "s", "\x1b[D", "\r"} {
+		td.Type(ctx, []byte(k))
+	}
+	b, _ := os.ReadFile(path)
+	if want := "# Todo\n\n* [ ] first\n  * [ ] sub\n* [ ] buy eggs\n\nnotes at the end\n"; string(b) != want {
+		t.Errorf("after adding:\n%q", b)
+	}
+	if !td.adding || len(td.draft) != 0 {
+		t.Error("should stay adding with an empty draft")
+	}
+	if out := strings.Join(td.Draw(50, 10, nil), "\n"); !strings.Contains(out, "buy eggs") || !strings.Contains(out, "esc stops") {
+		t.Errorf("draw:\n%s", out)
+	}
+
+	// A paste of two lines adds both; Ctrl+W and Ctrl+U edit.
+	td.Type(ctx, []byte("one\ntwo\r"))
+	td.Type(ctx, []byte("three four"))
+	td.Type(ctx, []byte{0x17})
+	td.Type(ctx, []byte("five"))
+	td.Type(ctx, []byte("\r"))
+	td.Type(ctx, []byte("junk"))
+	td.Type(ctx, []byte{0x15})
+	td.Type(ctx, []byte("\r")) // empty: done
+	if td.adding {
+		t.Error("Enter on an empty line should stop")
+	}
+	b, _ = os.ReadFile(path)
+	if !strings.Contains(string(b), "* [ ] buy eggs\n* [ ] one\n* [ ] two\n* [ ] three five\n\nnotes") || strings.Contains(string(b), "junk") {
+		t.Errorf("after paste:\n%s", b)
+	}
+
+	// Typing starts adding; Esc drops the draft.
+	td.Type(ctx, []byte("x"))
+	td.Type(ctx, []byte("\x1b"))
+	if td.adding || len(td.draft) != 0 {
+		t.Error("Esc should stop and drop the draft")
+	}
+	// Arrows and Backspace alone don't start it.
+	td.Type(ctx, []byte("\x1b[A"))
+	td.Type(ctx, []byte("\x7f"))
+	if td.adding {
+		t.Error("non-text keys started adding")
+	}
+}
+
+func TestTodoAddNewFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes", "todo.md")
+	td := &todo{path: path}
+	ctx := context.Background()
+	td.Update(ctx)
+	td.Type(ctx, []byte("water plants\r"))
+	b, err := os.ReadFile(path)
+	if err != nil || string(b) != "# Todo\n\n- [ ] water plants\n" {
+		t.Errorf("new file: %q %v", b, err)
+	}
+	// After plain text, the item gets a blank line before it.
+	os.WriteFile(path, []byte("just notes\n"), 0o644)
+	td.Type(ctx, []byte("a\r"))
+	if b, _ := os.ReadFile(path); string(b) != "just notes\n\n- [ ] a\n" {
+		t.Errorf("after notes: %q", b)
+	}
+}
+
+func TestTodoAddScrolls(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "todo.md")
+	var sb strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&sb, "- [ ] item %d\n", i)
+	}
+	os.WriteFile(path, []byte(sb.String()), 0o644)
+	td := &todo{path: path}
+	ctx := context.Background()
+	td.Update(ctx)
+	td.Type(ctx, []byte("new"))
+	lines := td.Draw(40, 8, nil)
+	out := strings.Join(lines, "\n")
+	if len(lines) > 8 || !strings.Contains(out, "item 19") || !strings.Contains(out, "new") || strings.Contains(out, "item 0\x1b") {
+		t.Errorf("while adding, the end of the list and the input show:\n%s", out)
 	}
 }

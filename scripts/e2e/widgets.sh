@@ -94,4 +94,9 @@ n=$(grep -c '^- \[x\]' "$TMP/todo.md" || true)
 clickat $((WIDTH / 2)) $((HEIGHT - 15)) # the todo box's last row: an item
 n=$(grep -c '^- \[x\]' "$TMP/todo.md" || true)
 [ "$n" = 0 ] && echo "ok   clicking it again unticked it" || { echo "FAIL todo untick: $n ticked"; fail=1; }
+# The click focused the todo box: typing adds an item, Enter saves it.
+xdotool type --delay 40 "buy eggs"; xdotool key Return; sleep 0.7
+tail -1 "$TMP/todo.md" | grep -qx -- '- \[ \] buy eggs' && echo "ok   typing in the todo box added an item" || { echo "FAIL todo add: $(tail -1 "$TMP/todo.md")"; fail=1; }
+xdotool type --delay 40 "nope"; xdotool key Escape; xdotool key Return; xdotool key Return; sleep 0.7
+! grep -q nope "$TMP/todo.md" && echo "ok   Esc dropped the draft" || { echo "FAIL Esc saved the draft"; fail=1; }
 exit $fail

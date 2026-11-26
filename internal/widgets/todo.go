@@ -17,6 +17,8 @@ import (
 
 // todo shows a markdown checklist and ticks items off when you click
 // them, saving the file: edit it in any editor, sync it however you like.
+// Click "+ add" (or click the widget and just type) to add one: Enter
+// saves it after the last item, Esc stops.
 // Lines like "- [ ] task" are items ("- [x]" done), "# Heading" lines are
 // headings, everything else is left out (and left alone). Options:
 // file = "~/todo.md", done = "show" | "hide".
@@ -29,6 +31,9 @@ type todo struct {
 	mtime time.Time
 	size  int64
 	err   error
+
+	adding bool   // typing a new item
+	draft  []rune // what's typed so far
 }
 
 // checkbox matches a task line: indent, bullet, box, text.
@@ -86,6 +91,10 @@ func lineToken(i int, line string) string {
 func (t *todo) Click(_ context.Context, token string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if token == "add" {
+		t.adding = true
+		return
+	}
 	if token == "create" {
 		if _, err := os.Stat(t.path); errors.Is(err, fs.ErrNotExist) {
 			os.MkdirAll(filepath.Dir(t.path), 0o755)
@@ -128,7 +137,15 @@ func (t *todo) Click(_ context.Context, token string) {
 // keeping its permissions.
 func (t *todo) save() error {
 	path, err := filepath.EvalSymlinks(t.path)
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
+		if _, lerr := os.Lstat(t.path); !errors.Is(lerr, fs.ErrNotExist) {
+			return err // a dangling symlink: don't replace it
+		}
+		path = t.path // a new file
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 	mode := fs.FileMode(0o644)
@@ -152,6 +169,100 @@ func (t *todo) save() error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// Type edits the new item: text, Backspace, Ctrl+U (clear), Ctrl+W
+// (a word), Enter (save it; Enter on nothing stops), Esc (stop). Typing
+// while not adding starts adding.
+func (t *todo) Type(_ context.Context, b []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s := string(b)
+	if s == "\x1b" {
+		t.adding, t.draft = false, nil
+		return
+	}
+	if strings.HasPrefix(s, "\x1b") {
+		return // arrows, function keys, Alt+…: nothing to do
+	}
+	if !t.adding {
+		if r := []rune(s); len(r) == 0 || (r[0] < 0x20 && r[0] != '\r') || r[0] == 0x7f {
+			return
+		}
+		t.adding = true
+		if s == "\r" {
+			return // Enter starts adding
+		}
+	}
+	for _, r := range s {
+		switch {
+		case r == '\r' || r == '\n':
+			text := strings.TrimSpace(string(t.draft))
+			t.draft = nil
+			if text == "" {
+				if r == '\r' && len(s) == 1 {
+					t.adding = false // Enter on an empty line: done
+				}
+				continue
+			}
+			if err := t.add(text); err != nil {
+				t.err = err
+			}
+		case r == 0x7f || r == '\b':
+			if len(t.draft) > 0 {
+				t.draft = t.draft[:len(t.draft)-1]
+			}
+		case r == 0x15: // Ctrl+U
+			t.draft = nil
+		case r == 0x17: // Ctrl+W
+			d := strings.TrimRight(string(t.draft), " ")
+			t.draft = []rune(d[:strings.LastIndex(d, " ")+1])
+		case r == '\t':
+			t.draft = append(t.draft, ' ')
+		case r >= 0x20:
+			t.draft = append(t.draft, r)
+		}
+	}
+}
+
+// add puts "- [ ] text" after the last item (in its style), or at the
+// end, and saves. Caller holds t.mu.
+func (t *todo) add(text string) error {
+	if err := t.reload(true); err != nil {
+		return err
+	}
+	at, bullet := -1, ""
+	for i := len(t.lines) - 1; i >= 0 && bullet == ""; i-- {
+		m := checkbox.FindStringSubmatch(t.lines[i])
+		if m == nil {
+			continue
+		}
+		if at < 0 {
+			at = i + 1 // after the last item
+		}
+		if m[1] == "" { // the last top-level item's bullet
+			bullet = m[2]
+		}
+	}
+	if at < 0 {
+		at = len(t.lines)
+	}
+	if !strings.ContainsAny(bullet, "-*+") {
+		bullet = "-" // none, or numbered
+	}
+	item := bullet + " [ ] " + text
+	switch {
+	case t.lines == nil: // no file yet
+		t.lines = []string{"# Todo", "", item}
+	case at == len(t.lines) && strings.TrimSpace(t.lines[at-1]) != "" && !checkbox.MatchString(t.lines[at-1]):
+		t.lines = append(t.lines, "", item) // after other text: a blank line first
+	default:
+		t.lines = append(t.lines[:at], append([]string{item}, t.lines[at:]...)...)
+	}
+	if err := t.save(); err != nil {
+		return err
+	}
+	return t.reload(true)
 }
 
 func (t *todo) Draw(w, h int, err error) []string {
@@ -189,7 +300,21 @@ func (t *todo) Draw(w, h int, err error) []string {
 			info = "all done ✓"
 		}
 	}
+	if t.adding {
+		info = "enter adds · esc stops"
+	} else if info != "" {
+		info += "  " + reset + click("add", cyan+"+ add"+reset)
+	}
 	lines := []string{title(w, "☐", "todo", info), ""}
+	// The new item being typed, with a cursor, shown after the list.
+	var input string
+	if t.adding {
+		pre := "  ☐ "
+		input = pre + truncateLeft(string(t.draft), max(1, w-width(pre)-2)) + "\x1b[7m \x1b[27m"
+	}
+	if t.lines == nil && t.err == nil && t.adding {
+		return fill(append(lines, input), h, errLine(err, w))
+	}
 	if t.lines == nil && t.err == nil {
 		lines = append(lines, dim+"  No "+shortDir(t.path)+" yet."+reset)
 		if h > 4 {
@@ -210,11 +335,21 @@ func (t *todo) Draw(w, h int, err error) []string {
 		}
 		shown = append(shown, it)
 	}
-	if len(shown) == 0 {
-		lines = append(lines, dim+"  Nothing to do. Add \"- [ ] …\" lines to"+reset, dim+"  "+shortDir(t.path)+reset)
+	if len(shown) == 0 && !t.adding {
+		lines = append(lines, dim+"  Nothing to do. Click here and type"+reset, dim+"  to add one."+reset)
 		return fill(lines[:min(len(lines), h)], h, errLine(err, w))
 	}
-	limit := h - boolInt(err != nil)
+	limit := h - boolInt(err != nil) - boolInt(t.adding)
+	// While typing, show the end of the list, where the new item goes.
+	if t.adding {
+		rows := 0
+		start := len(shown)
+		for start > 0 && rows+1+boolInt(shown[start-1].heading && start-1 > 0) <= limit-len(lines) {
+			start--
+			rows += 1 + boolInt(shown[start].heading && start > 0)
+		}
+		shown = shown[start:]
+	}
 	for k, it := range shown {
 		if len(lines) >= limit {
 			break
@@ -236,6 +371,9 @@ func (t *todo) Draw(w, h int, err error) []string {
 		row += strings.Repeat(" ", max(0, w-width(row))) // the whole row takes the click
 		row = click(lineToken(it.i, t.lines[it.i]), row)
 		lines = append(lines, row)
+	}
+	if t.adding {
+		lines = append(lines, input)
 	}
 	return fill(lines, h, errLine(err, w))
 }

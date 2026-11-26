@@ -47,6 +47,14 @@ type Clicker interface {
 	Click(ctx context.Context, token string)
 }
 
+// Typer is a widget that takes typing: while its box is focused, each
+// key (or paste) arrives as the bytes a terminal would send: text as is,
+// "\r" Enter, "\x7f" Backspace, "\x1b" Escape, "\x1b[A" arrows and so on.
+// It's redrawn after each.
+type Typer interface {
+	Type(ctx context.Context, b []byte)
+}
+
 // click is a link that sends token back to the widget when clicked.
 func click(token, text string) string { return link("germ-widget:"+token, text) }
 
@@ -93,7 +101,7 @@ func Run(name string) error {
 			}
 		}
 	}()
-	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize, nil, nil)
+	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize, nil, nil, nil)
 }
 
 // Shown says whether a widget is on screen. A hidden widget is dormant: it
@@ -174,9 +182,10 @@ func (s *Shown) waitDue(ctx context.Context, last time.Time, every time.Duration
 // ends. size reports the widget's box; a value on resize redraws. germ
 // runs its home-screen widgets this way, without a process each, and
 // hides them (shown) while the home tab isn't on screen. Tokens on clicks
-// go to the widget's Click method, if it has one.
+// go to the widget's Click method, if it has one, and keys typed into it
+// to its Type method.
 func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
-	size func() (cols, rows int), resize <-chan struct{}, shown *Shown, clicks <-chan string) error {
+	size func() (cols, rows int), resize <-chan struct{}, shown *Shown, clicks <-chan string, keys <-chan []byte) error {
 	mk, ok := builtins[name]
 	if !ok {
 		return fmt.Errorf("unknown widget %q (built-in: %s)", name, strings.Join(Names(), ", "))
@@ -229,6 +238,10 @@ func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
 		case tok := <-clicks:
 			if c, ok := w.(Clicker); ok {
 				c.Click(ctx, tok)
+			}
+		case b := <-keys:
+			if t, ok := w.(Typer); ok {
+				t.Type(ctx, b)
 			}
 		case <-ctx.Done():
 			return nil

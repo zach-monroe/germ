@@ -43,7 +43,7 @@ row_heights = [2, 3, 3]
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
 | `calendar` | your next events with a countdown, today's all-day events, and a join link for Meet / Zoom / Teams calls; from iCal feeds, no account | `urls = ["https://…/basic.ics"]` (feeds or `.ics` files), `days = 2`, `format = "12h"` |
 | `coworking` | sessions you share or joined: who's there (typing, in a browser), who has the helm of which tab, join and helm requests waiting on you, unread chat ([coworking.md](coworking.md)) | |
-| `todo` | a markdown checklist (`- [ ] task`); click an item to tick it off (saved to the file, so edit it anywhere) | `file = "~/todo.md"`, `done = "hide"` |
+| `todo` | a markdown checklist (`- [ ] task`); click an item to tick it off; click **+ add** (or click the box and just type) to add one, Enter saves it, Esc stops (all saved to the file, so edit it anywhere) | `file = "~/todo.md"`, `done = "hide"` |
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `ports` | TCP ports your processes listen on, the server's name, and the tab that started it; `*` = reachable from the network. Click the port to open it, the tab to go there | `ignore = ["spotify"]`, `all = true` (other users' ports too) |
 | `prs` | your open pull requests with check status (✓ ✗ ●), draft / approved / changes requested, and PRs waiting for your review. Click to open. Uses the GitHub CLI (`gh auth login`) | `filter = "org:acme"` (added to both searches) |
@@ -119,7 +119,8 @@ makes widgets easy to share: one file to copy.
   (`~/` works; percent-encode spaces).
 - These two only work in widgets. In a normal pane germ ignores them, so
   `cat`-ing a file can't plant one.
-- Widgets don't receive keyboard input (yet).
+- Your own widgets don't receive keyboard input (yet); built-ins can
+  (the todo widget takes new items that way).
 
 A complete live widget in shell:
 

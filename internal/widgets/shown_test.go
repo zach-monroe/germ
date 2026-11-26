@@ -53,7 +53,7 @@ func TestHiddenWidgetIsDormant(t *testing.T) {
 	defer cancel()
 	shown := NewShown(false)
 	size := func() (int, int) { return 10, 2 }
-	go RunInProcess(ctx, "test-fake", nil, &syncBuf{}, size, make(chan struct{}), shown, nil)
+	go RunInProcess(ctx, "test-fake", nil, &syncBuf{}, size, make(chan struct{}), shown, nil, nil)
 
 	time.Sleep(150 * time.Millisecond) // many periods
 	if u, d := f.updates.Load(), f.draws.Load(); u != 0 || d != 0 {
@@ -84,7 +84,7 @@ func TestShownAgainSkipsFreshFetch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	shown := NewShown(true)
-	go RunInProcess(ctx, "test-fake", nil, &syncBuf{}, func() (int, int) { return 10, 2 }, make(chan struct{}), shown, nil)
+	go RunInProcess(ctx, "test-fake", nil, &syncBuf{}, func() (int, int) { return 10, 2 }, make(chan struct{}), shown, nil, nil)
 	eventually(t, "the first fetch", func() bool { return f.updates.Load() == 1 })
 
 	shown.Set(false)
@@ -124,7 +124,7 @@ func TestClickReachesWidgetAndRedraws(t *testing.T) {
 	defer cancel()
 	out := &syncBuf{}
 	clicks := make(chan string, 1)
-	go RunInProcess(ctx, "test-click", nil, out, func() (int, int) { return 20, 1 }, make(chan struct{}), nil, clicks)
+	go RunInProcess(ctx, "test-click", nil, out, func() (int, int) { return 20, 1 }, make(chan struct{}), nil, clicks, nil)
 	clicks <- "toggle:3"
 	eventually(t, "redraw after click", func() bool {
 		out.mu.Lock()
