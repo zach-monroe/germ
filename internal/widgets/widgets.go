@@ -58,6 +58,7 @@ var builtins = map[string]func(Options) Widget{
 	"agents":  newAgents,
 	"git":     newGit,
 	"system":  newSystem,
+	"ports":   newPorts,
 }
 
 // Names lists the built-in widgets.

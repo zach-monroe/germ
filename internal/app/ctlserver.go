@@ -304,7 +304,7 @@ func (a *App) paneInfo(p *pane) control.PaneInfo {
 	}
 	for i, t := range a.tabs {
 		if t.panes[p.id] != nil {
-			info.Tab, info.TabTitle = i, t.title()
+			info.Tab, info.TabTitle, info.TabLabel = i, t.title(), a.tabNumber(i)
 			info.Active = t.active == p
 			if i == a.cur {
 				for _, v := range t.visible() {
@@ -314,6 +314,7 @@ func (a *App) paneInfo(p *pane) control.PaneInfo {
 		}
 	}
 	if pid := p.be.Pid(); pid > 0 {
+		info.Pid = pid
 		if fg := foregroundPgid(pid); fg > 0 {
 			info.Command = procArgs(fg)[0]
 		}

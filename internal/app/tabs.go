@@ -381,6 +381,19 @@ func (a *App) removePane(p *pane) {
 
 // ---- tab bar -------------------------------------------------------------------
 
+// tabNumber is the number the tab bar shows for tab i: tmux's window
+// index (matching its select-window keys), else its position, counting
+// work tabs from 1 (home is ⌂).
+func (a *App) tabNumber(i int) string {
+	if t := a.tabs[i]; t.index != "" {
+		return t.index
+	}
+	if a.tabs[0].home {
+		return strconv.Itoa(i)
+	}
+	return strconv.Itoa(i + 1)
+}
+
 // tabSpan is where tab index is in the bar; close is the column of its ×
 // (-1: none).
 type tabSpan struct{ start, end, index, close int }
@@ -416,15 +429,7 @@ func (a *App) tabBarLine(th *theme.Theme) (*term.Line, []tabSpan) {
 	maxW := max(8, min(30, cols/max(1, len(a.tabs))))
 	now := time.Now()
 	for i, t := range a.tabs {
-		pos := i + 1
-		if a.tabs[0].home {
-			pos = i // home is ⌂; work tabs count from 1
-		}
-		num := strconv.Itoa(pos)
-		if t.index != "" {
-			num = t.index // match tmux's select-window keys
-		}
-		head := " " + num + " "
+		head := " " + a.tabNumber(i) + " "
 		badge := a.agentBadge(t, now)
 		if r := badgeRune(badge, now); r != 0 {
 			head += string(r) + " "

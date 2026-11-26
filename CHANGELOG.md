@@ -10,6 +10,13 @@
   normal pane, germ ignores them. See docs/widgets.md.
 - **`system` widget**: CPU and network sparklines, memory, disk and
   battery meters, load and uptime, read from /proc (no process).
+- **`ports` widget**: the TCP ports your processes listen on, named by
+  server (`vite`, `postgres`, `http.server`) and the tab that started it.
+  Click the port to open it in the browser, the tab to go there. `*` marks
+  ports reachable from the network.
+- The agents widget names tabs by the number the tab bar shows (tmux's
+  window index), not their position. `list_panes` reports it as
+  `tab_label`, and each pane's `pid`.
 
 ## v0.7.0 (2026-11-25)
 

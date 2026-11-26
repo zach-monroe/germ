@@ -29,6 +29,7 @@ Saving the config rebuilds the home tab right away.
 | `news` | top story with summary + headlines, rotating pages (RSS/Atom) | `feeds = ["https://hnrss.org/frontpage", ...]` |
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
+| `ports` | TCP ports your processes listen on, the server's name, and the tab that started it; `*` = reachable from the network. Click the port to open it, the tab to go there | `ignore = ["spotify"]`, `all = true` (other users' ports too) |
 | `stocks` | price, daily change, intraday sparkline (Yahoo Finance) | `symbols = ["AAPL", "NVDA", "BTC-USD"]` |
 | `system` | CPU and network sparklines, memory, disk and battery meters, load, uptime | `disks = ["/", "~"]` (default: `/`, plus your home if it's a separate filesystem) |
 

@@ -106,7 +106,7 @@ func (a *agents) Draw(w, h int, err error) []string {
 		default:
 			mark, state = dim+"·", dim+"idle"
 		}
-		where := fmt.Sprintf("tab %d", r.Tab)
+		where := "tab " + tabLabel(r.PaneInfo)
 		if r.session != "" {
 			where = r.session + ":" + where
 		}
