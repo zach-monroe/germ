@@ -18,7 +18,20 @@ layout = [                      # rows, top to bottom
 row_heights = [2, 3]            # relative row heights
 ```
 
-Saving the config rebuilds the home tab right away.
+Only the widgets named in `layout` run, so `layout` is where you pick
+them: any built-in below, or your own. Saving the config rebuilds the
+home tab right away. A dev dashboard, say:
+
+```toml
+layout = [
+  ["clock", "calendar:2", "system:2"],
+  ["agents:2", "worktrees:2", "ports:2"],
+  ["prs:3", "todo:2", "coworking:2"],
+]
+row_heights = [2, 3, 3]
+```
+
+[config.example.toml](../config.example.toml) lists every widget's options.
 
 ## Built-in widgets
 
@@ -30,6 +43,7 @@ Saving the config rebuilds the home tab right away.
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
 | `calendar` | your next events with a countdown, today's all-day events, and a join link for Meet / Zoom / Teams calls; from iCal feeds, no account | `urls = ["https://…/basic.ics"]` (feeds or `.ics` files), `days = 2`, `format = "12h"` |
 | `coworking` | sessions you share or joined: who's there (typing, in a browser), who has the helm of which tab, join and helm requests waiting on you, unread chat ([coworking.md](coworking.md)) | |
+| `todo` | a markdown checklist (`- [ ] task`); click an item to tick it off (saved to the file, so edit it anywhere) | `file = "~/todo.md"`, `done = "hide"` |
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `ports` | TCP ports your processes listen on, the server's name, and the tab that started it; `*` = reachable from the network. Click the port to open it, the tab to go there | `ignore = ["spotify"]`, `all = true` (other users' ports too) |
 | `prs` | your open pull requests with check status (✓ ✗ ●), draft / approved / changes requested, and PRs waiting for your review. Click to open. Uses the GitHub CLI (`gh auth login`) | `filter = "org:acme"` (added to both searches) |

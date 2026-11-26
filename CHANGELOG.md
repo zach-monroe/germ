@@ -28,6 +28,12 @@
   address (Google, Outlook, Fastmail, iCloud; no account), with a countdown
   and a join link for video calls. Recurring events, exceptions and time
   zones are handled.
+- **`todo` widget**: a markdown checklist (`~/todo.md` by default); click
+  an item to tick it off. It saves the file (atomically, through a
+  symlink), and a click on a line that changed since it was drawn does
+  nothing.
+- config.example.toml lists every widget and its options, with a dev
+  dashboard layout to copy: `layout` picks which widgets run.
 - The agents widget names tabs by the number the tab bar shows (tmux's
   window index), not their position. `list_panes` reports it as
   `tab_label`, and each pane's `pid` and `window`.

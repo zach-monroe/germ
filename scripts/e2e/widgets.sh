@@ -49,7 +49,7 @@ enabled = false
 [home]
 enabled = true
 focus_on_start = true
-layout = [["live", "interval"], ["opener"]]
+layout = [["live", "interval"], ["opener"], ["todo"]]
 [widgets.live]
 command = "$TMP/live"
 [widgets.interval]
@@ -57,7 +57,11 @@ command = "$TMP/interval"
 interval = "1h"
 [widgets.opener]
 command = "$TMP/opener"
+[widgets.todo]
+file = "$TMP/todo.md"
 TOML
+# Enough items that a click anywhere in the todo box lands on one.
+for i in $(seq 40); do echo "- [ ] item $i"; done > "$TMP/todo.md"
 
 "$GERM" -config "$TMP/config.toml" 2>"$TMP/germ.err" &
 GPID=$!
@@ -73,13 +77,21 @@ check() { # name file expected
 	else echo "FAIL $1: got '$(cat "$2" 2>/dev/null)', want '$3'"; fail=1; fi
 }
 
-clickat $((WIDTH / 4)) $((HEIGHT / 4))
+clickat $((WIDTH / 4)) $((HEIGHT / 6))
 check "live widget got its token" "$TMP/live.got" "live:one"
-clickat $((WIDTH * 3 / 4)) $((HEIGHT / 4))
+clickat $((WIDTH * 3 / 4)) $((HEIGHT / 6))
 check "interval widget rerun with GERM_WIDGET_CLICK" "$TMP/interval.got" "iv"
 
-clickat $((WIDTH / 2)) $((HEIGHT * 3 / 4))
+clickat $((WIDTH / 2)) $((HEIGHT / 2))
 sleep 1
 if "$GERM" ctl json '{"cmd":"list_panes"}' | grep -q "opened here"; then echo "ok   germ-open: opened a tab there"
 else echo "FAIL germ-open: no pane in '$TMP/opened here'"; "$GERM" ctl json '{"cmd":"list_panes"}'; fail=1; fi
+
+xdotool key ctrl+shift+grave; sleep 0.7 # germ-open moved us to the new tab: back home
+clickat $((WIDTH / 2)) $((HEIGHT - 15)) # the todo box's last row: an item
+n=$(grep -c '^- \[x\]' "$TMP/todo.md" || true)
+[ "$n" = 1 ] && echo "ok   clicking a todo ticked it in the file" || { echo "FAIL todo: $n ticked"; fail=1; }
+clickat $((WIDTH / 2)) $((HEIGHT - 15)) # the todo box's last row: an item
+n=$(grep -c '^- \[x\]' "$TMP/todo.md" || true)
+[ "$n" = 0 ] && echo "ok   clicking it again unticked it" || { echo "FAIL todo untick: $n ticked"; fail=1; }
 exit $fail

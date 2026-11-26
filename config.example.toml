@@ -49,12 +49,22 @@ restore = true         # after a reboot, rebuild tabs, splits and directories (d
 [home]
 enabled = true          # the first tab is a dashboard of widgets (docs/widgets.md)
 focus_on_start = true
-layout = [["clock", "weather", "agents"], ["news:3", "stocks:2"]]   # rows; ":N" = relative width
-row_heights = [2, 3]
+# Pick your widgets: only the ones named here run. Each inner list is a
+# row, top to bottom; "name:N" gives a widget N times the width.
+# Built-in: clock, weather, news, stocks, agents, git, system, ports, prs,
+#           worktrees, coworking, calendar, todo
+# plus your own (a [widgets.NAME] command, or ~/.config/germ/widgets/NAME).
+layout = [["clock", "weather", "agents"], ["news:3", "stocks:2"]]
+row_heights = [2, 3]    # relative row heights, one per row
+# A dev dashboard instead:
+# layout = [["clock", "calendar:2", "system:2"], ["agents:2", "worktrees:2", "ports:2"], ["prs:3", "todo:2", "coworking:2"]]
+# row_heights = [2, 3, 3]
 
 # Widget options; any key besides command/interval reaches the widget as
-# GERM_WIDGET_<KEY>. Custom widgets: set command, or drop an executable in
-# ~/.config/germ/widgets/NAME.
+# GERM_WIDGET_<KEY>. All optional.
+# [widgets.clock]
+# format = "12h"
+# seconds = false
 # [widgets.weather]
 # location = "Denver"    # default: from your IP address
 # units = "celsius"
@@ -62,18 +72,30 @@ row_heights = [2, 3]
 # symbols = ["AAPL", "NVDA", "BTC-USD"]
 # [widgets.news]
 # feeds = ["https://hnrss.org/frontpage"]
-# [widgets.calendar]
-# urls = ["https://calendar.google.com/calendar/ical/.../basic.ics"]   # your secret iCal address
-# days = 2
-# [widgets.ports]
-# ignore = ["spotify", "steam"]
-# [widgets.prs]          # needs the GitHub CLI: gh auth login
-# filter = "org:acme"
+# [widgets.git]
+# base = "main"
+# dir = "~/code/project"
 # [widgets.system]
-# disks = ["/", "~"]
+# disks = ["/", "~"]     # default: /, plus your home if it's another filesystem
+# [widgets.ports]
+# ignore = ["spotify", "steam"]   # process names to leave out
+# all = false            # true: other users' ports too
+# [widgets.prs]          # needs the GitHub CLI: gh auth login
+# filter = "org:acme"    # added to both searches
+# [widgets.worktrees]
+# repos = ["~/code/app"] # besides the repos open in your tabs
+# [widgets.calendar]
+# urls = ["https://calendar.google.com/calendar/ical/.../basic.ics"]   # your secret iCal address(es), or .ics files
+# days = 2
+# format = "12h"
 # [widgets.todo]
-# command = "cat ~/todo.txt"
-# interval = "30s"
+# file = "~/todo.md"     # "- [ ] task" lines; click to tick them off
+# done = "show"          # or "hide"
+
+# Your own widgets: any program. Name it in layout, then:
+# [widgets.notes]
+# command = "cat ~/notes.txt"
+# interval = "30s"       # rerun every 30 s (leave out for a program that keeps running)
 
 [agents]
 # Processes treated as coding agents (tab badges, agents widget, notifications).

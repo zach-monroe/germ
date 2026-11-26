@@ -63,6 +63,7 @@ var builtins = map[string]func(Options) Widget{
 	"worktrees": newWorktrees,
 	"coworking": newCoworking,
 	"calendar":  newCalendar,
+	"todo":      newTodo,
 }
 
 // Names lists the built-in widgets.
