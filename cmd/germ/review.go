@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/worktrees"
 )
 
 // `germ review` (Ctrl+Shift+R) lists every agent worktree of the current
@@ -21,27 +21,8 @@ import (
 // agent is doing and what it changed, and lets you review, send feedback
 // to, commit, merge, or discard each one from a single pane.
 
-type reviewItem struct {
-	dir, branch, task string
-	person            string // a guest's branch (germ agent -for)
-	base, from        string // start commit, branch it came from
-	ahead             int
-	commits           []string // "abc1234 subject", newest first
-	files             []fileStat
-	untracked         []string
-	dirty             int
-	added, removed    int
-	agent             *control.PaneInfo // the agent's pane, if running
-	panes             []control.PaneInfo
-}
-
-type fileStat struct {
-	path           string
-	added, removed int
-}
-
 func runReview(args []string) int {
-	repo, err := mainRepo(".")
+	repo, err := worktrees.MainRepo(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "germ review:", err)
 		return 1
@@ -59,97 +40,11 @@ func runReview(args []string) int {
 	return 0
 }
 
-// mainRepo finds the main checkout of the repository dir is in (also
-// from inside one of its worktrees).
-func mainRepo(dir string) (string, error) {
-	common, err := gitOut(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return "", errors.New("not in a git repository")
-	}
-	if filepath.Base(common) != ".git" {
-		return "", errors.New("bare repositories aren't supported")
-	}
-	return filepath.Dir(common), nil
-}
-
-// loadReview gathers the agent worktrees and their state.
-func loadReview(repo string, panes []control.PaneInfo) []reviewItem {
-	out, _ := gitOut(repo, "worktree", "list", "--porcelain")
-	var items []reviewItem
-	var cur reviewItem
-	flush := func() {
-		if strings.HasPrefix(cur.branch, "germ/") && cur.dir != "" {
-			items = append(items, cur)
-		}
-		cur = reviewItem{}
-	}
-	for _, l := range strings.Split(out, "\n") {
-		switch {
-		case strings.HasPrefix(l, "worktree "):
-			flush()
-			cur.dir = strings.TrimPrefix(l, "worktree ")
-		case strings.HasPrefix(l, "branch refs/heads/"):
-			cur.branch = strings.TrimPrefix(l, "branch refs/heads/")
-		}
-	}
-	flush()
-	for i := range items {
-		it := &items[i]
-		cfg := func(k string) string { v, _ := gitOut(repo, "config", "branch."+it.branch+"."+k); return v }
-		it.task, it.base, it.from = cfg("germ-task"), cfg("germ-base"), cfg("germ-from")
-		it.person = cfg("germ-for")
-		if it.from == "" {
-			it.from, _ = gitOut(repo, "rev-parse", "--abbrev-ref", "HEAD")
-		}
-		if it.base == "" {
-			it.base, _ = gitOut(repo, "merge-base", it.from, it.branch)
-		}
-		if it.task == "" {
-			it.task = strings.ReplaceAll(strings.TrimPrefix(it.branch, "germ/"), "-", " ")
-		}
-		if n, err := gitOut(it.dir, "rev-list", "--count", it.base+"..HEAD"); err == nil {
-			it.ahead, _ = strconv.Atoi(n)
-		}
-		if log, _ := gitOut(it.dir, "log", "--format=%h %s", it.base+"..HEAD"); log != "" {
-			it.commits = strings.Split(log, "\n")
-		}
-		if num, _ := gitOut(it.dir, "diff", "--numstat", it.base); num != "" {
-			for _, l := range strings.Split(num, "\n") {
-				f := strings.SplitN(l, "\t", 3)
-				if len(f) < 3 {
-					continue
-				}
-				a, _ := strconv.Atoi(f[0]) // "-" for binary files
-				r, _ := strconv.Atoi(f[1])
-				it.files = append(it.files, fileStat{f[2], a, r})
-				it.added += a
-				it.removed += r
-			}
-		}
-		if u, _ := gitOut(it.dir, "ls-files", "--others", "--exclude-standard"); u != "" {
-			it.untracked = strings.Split(u, "\n")
-		}
-		if st, _ := gitOut(it.dir, "status", "--porcelain"); st != "" {
-			it.dirty = len(strings.Split(st, "\n"))
-		}
-		for _, p := range panes {
-			if p.Cwd == it.dir || strings.HasPrefix(p.Cwd, it.dir+"/") {
-				it.panes = append(it.panes, p)
-				if p.Agent != "" && it.agent == nil {
-					pp := p
-					it.agent = &pp
-				}
-			}
-		}
-	}
-	return items
-}
-
 type reviewer struct {
 	repo   string
 	ctl    *control.Client
 	self   string
-	items  []reviewItem
+	items  []worktrees.Item
 	sel    int
 	status string
 	tty    *unix.Termios
@@ -162,7 +57,7 @@ func (rv *reviewer) refresh() {
 			panes = resp.Panes
 		}
 	}
-	rv.items = loadReview(rv.repo, panes)
+	rv.items = worktrees.Load(rv.repo, panes)
 	rv.sel = max(0, min(rv.sel, len(rv.items)-1))
 }
 
@@ -341,49 +236,49 @@ func (rv *reviewer) draw() {
 		if i == rv.sel {
 			mark = bold + blue + "▸ " + reset
 		}
-		change := fmt.Sprintf("%s+%d%s %s-%d%s", green, it.added, reset, red, it.removed, reset)
-		if len(it.untracked) > 0 {
-			change += fmt.Sprintf(" %s%d new%s", yel, len(it.untracked), reset)
+		change := fmt.Sprintf("%s+%d%s %s-%d%s", green, it.Added, reset, red, it.Removed, reset)
+		if len(it.Untracked) > 0 {
+			change += fmt.Sprintf(" %s%d new%s", yel, len(it.Untracked), reset)
 		}
-		name := it.task
-		if it.person != "" {
-			name = it.person + ": " + name
+		name := it.Task
+		if it.Person != "" {
+			name = it.Person + ": " + name
 		}
 		if r := []rune(name); len(r) > 40 {
 			name = string(r[:39]) + "…"
 		}
-		commits := fmt.Sprintf("%d commits", it.ahead)
-		if it.ahead == 1 {
+		commits := fmt.Sprintf("%d commits", it.Ahead)
+		if it.Ahead == 1 {
 			commits = "1 commit"
 		}
-		add(fmt.Sprintf("%s%s%s%s  %s  %s  %s", mark, bold, pad(name, 40), reset, pad(stateBadge(it.agent), 20), pad(commits, 10), change))
+		add(fmt.Sprintf("%s%s%s%s  %s  %s  %s", mark, bold, pad(name, 40), reset, pad(stateBadge(it.Agent), 20), pad(commits, 10), change))
 	}
 	if len(rv.items) > 0 {
 		it := rv.items[rv.sel]
 		add("")
-		add(fmt.Sprintf("  %s%s%s → %s   %s%s%s", cyan, it.branch, reset, it.from, dim, tildePath(it.dir), reset))
-		if it.agent != nil && it.agent.Message != "" {
-			add(fmt.Sprintf("  %s“%s”%s", yel, it.agent.Message, reset))
+		add(fmt.Sprintf("  %s%s%s → %s   %s%s%s", cyan, it.Branch, reset, it.From, dim, tildePath(it.Dir), reset))
+		if it.Agent != nil && it.Agent.Message != "" {
+			add(fmt.Sprintf("  %s“%s”%s", yel, it.Agent.Message, reset))
 		}
-		if it.dirty > 0 {
-			add(fmt.Sprintf("  %s%d uncommitted changes%s", yel, it.dirty, reset))
+		if it.Dirty > 0 {
+			add(fmt.Sprintf("  %s%d uncommitted changes%s", yel, it.Dirty, reset))
 		}
-		for i, c := range it.commits {
+		for i, c := range it.Commits {
 			if i == 5 {
-				add(fmt.Sprintf("  %s… %d more commits%s", dim, len(it.commits)-5, reset))
+				add(fmt.Sprintf("  %s… %d more commits%s", dim, len(it.Commits)-5, reset))
 				break
 			}
 			add("  " + dim + c[:min(len(c), 7)] + reset + c[min(len(c), 7):])
 		}
 		room := rows - len(lines) - 3
-		for i, f := range it.files {
-			if i >= room-1 && len(it.files) > room {
-				add(fmt.Sprintf("  %s… %d more files%s", dim, len(it.files)-i, reset))
+		for i, f := range it.Files {
+			if i >= room-1 && len(it.Files) > room {
+				add(fmt.Sprintf("  %s… %d more files%s", dim, len(it.Files)-i, reset))
 				break
 			}
-			add(fmt.Sprintf("  %s+%-4d%s %s-%-4d%s %s", green, f.added, reset, red, f.removed, reset, f.path))
+			add(fmt.Sprintf("  %s+%-4d%s %s-%-4d%s %s", green, f.Added, reset, red, f.Removed, reset, f.Path))
 		}
-		for _, u := range it.untracked {
+		for _, u := range it.Untracked {
 			if len(lines) >= rows-3 {
 				break
 			}
@@ -415,43 +310,43 @@ func (rv *reviewer) ask(q string) bool {
 	return k == "y" || k == "Y"
 }
 
-func (rv *reviewer) showDiff(it reviewItem) {
+func (rv *reviewer) showDiff(it worktrees.Item) {
 	rv.cooked()
 	defer rv.raw()
-	pager, _ := gitOut(it.dir, "var", "GIT_PAGER")
+	pager, _ := gitOut(it.Dir, "var", "GIT_PAGER")
 	if pager == "" {
 		pager = "less -R"
 	}
 	script := `git -c color.ui=always diff "$1"; git ls-files -z --others --exclude-standard | ` +
 		`xargs -0 -r -n1 git -c color.ui=always diff --no-index /dev/null; true`
-	cmd := exec.Command("/bin/sh", "-c", "{ "+script+"; } 2>&1 | "+pager, "sh", it.base)
-	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = it.dir, os.Stdin, os.Stdout, os.Stderr
+	cmd := exec.Command("/bin/sh", "-c", "{ "+script+"; } 2>&1 | "+pager, "sh", it.Base)
+	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = it.Dir, os.Stdin, os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), "LESS=FRX")
 	cmd.Run()
 }
 
-func (rv *reviewer) feedback(it reviewItem) {
-	if it.person != "" {
-		rv.status = yel + "This is " + it.person + "'s branch: tell them in the chat (Ctrl+Shift+M)." + reset
+func (rv *reviewer) feedback(it worktrees.Item) {
+	if it.Person != "" {
+		rv.status = yel + "This is " + it.Person + "'s branch: tell them in the chat (Ctrl+Shift+M)." + reset
 		return
 	}
-	if it.agent == nil {
+	if it.Agent == nil {
 		rv.status = yel + "No agent is running in this worktree (o opens it, or start one there)." + reset
 		return
 	}
-	text := rv.readLine(fmt.Sprintf("Tell %s: ", it.agent.Agent))
+	text := rv.readLine(fmt.Sprintf("Tell %s: ", it.Agent.Agent))
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	ref := strconv.Itoa(it.agent.ID)
-	if it.agent.Tmux != "" {
-		ref = it.agent.Tmux
+	ref := strconv.Itoa(it.Agent.ID)
+	if it.Agent.Tmux != "" {
+		ref = it.Agent.Tmux
 	}
 	if _, err := rv.ctl.Call(control.Request{Cmd: control.CmdSendText, Pane: ref, Text: text, Enter: true}); err != nil {
 		rv.status = red + err.Error() + reset
 		return
 	}
-	rv.status = green + "sent to " + it.agent.Agent + reset
+	rv.status = green + "sent to " + it.Agent.Agent + reset
 }
 
 // readLine reads a line of text on the status row.
@@ -484,14 +379,14 @@ func (rv *reviewer) readLine(prompt string) string {
 	}
 }
 
-func (rv *reviewer) goTo(it reviewItem) {
-	if rv.ctl == nil || len(it.panes) == 0 {
+func (rv *reviewer) goTo(it worktrees.Item) {
+	if rv.ctl == nil || len(it.Panes) == 0 {
 		rv.status = yel + "Nothing open in this worktree." + reset
 		return
 	}
-	p := it.panes[0]
-	if it.agent != nil {
-		p = *it.agent
+	p := it.Panes[0]
+	if it.Agent != nil {
+		p = *it.Agent
 	}
 	ref := strconv.Itoa(p.ID)
 	if p.Tmux != "" {
@@ -500,8 +395,8 @@ func (rv *reviewer) goTo(it reviewItem) {
 	rv.ctl.Call(control.Request{Cmd: control.CmdFocusPane, Pane: ref})
 }
 
-func (rv *reviewer) commit(it reviewItem) {
-	if it.dirty == 0 {
+func (rv *reviewer) commit(it worktrees.Item) {
+	if it.Dirty == 0 {
 		rv.status = dim + "Nothing to commit." + reset
 		return
 	}
@@ -509,25 +404,25 @@ func (rv *reviewer) commit(it reviewItem) {
 		rv.status = red + err.Error() + reset
 		return
 	}
-	rv.status = green + "committed: " + it.task + reset
+	rv.status = green + "committed: " + it.Task + reset
 }
 
-func commitAll(it reviewItem) error {
-	if _, err := gitOut(it.dir, "add", "-A"); err != nil {
+func commitAll(it worktrees.Item) error {
+	if _, err := gitOut(it.Dir, "add", "-A"); err != nil {
 		return err
 	}
-	if out, err := gitOut(it.dir, "commit", "-q", "-m", it.task); err != nil {
+	if out, err := gitOut(it.Dir, "commit", "-q", "-m", it.Task); err != nil {
 		return fmt.Errorf("commit failed: %v %s", err, out)
 	}
 	return nil
 }
 
 // stopPanes closes the panes open in the worktree (the agent, its diff).
-func (rv *reviewer) stopPanes(it reviewItem) {
+func (rv *reviewer) stopPanes(it worktrees.Item) {
 	if rv.ctl == nil {
 		return
 	}
-	for _, p := range it.panes {
+	for _, p := range it.Panes {
 		ref := strconv.Itoa(p.ID)
 		if p.Tmux != "" {
 			ref = p.Tmux
@@ -540,19 +435,19 @@ func (rv *reviewer) stopPanes(it reviewItem) {
 	time.Sleep(300 * time.Millisecond) // let the processes exit before git touches the files
 }
 
-func (rv *reviewer) merge(it reviewItem) {
-	if it.ahead == 0 && it.dirty == 0 {
+func (rv *reviewer) merge(it worktrees.Item) {
+	if it.Ahead == 0 && it.Dirty == 0 {
 		rv.status = dim + "No changes to merge (d discards it)." + reset
 		return
 	}
 	var extra []string
-	if it.dirty > 0 {
-		extra = append(extra, fmt.Sprintf("commit %d uncommitted changes", it.dirty))
+	if it.Dirty > 0 {
+		extra = append(extra, fmt.Sprintf("commit %d uncommitted changes", it.Dirty))
 	}
-	if len(it.panes) > 0 {
+	if len(it.Panes) > 0 {
 		extra = append(extra, "close the agent's panes")
 	}
-	q := fmt.Sprintf("Merge %s into %s", it.branch, it.from)
+	q := fmt.Sprintf("Merge %s into %s", it.Branch, it.From)
 	if len(extra) > 0 {
 		q += " (" + strings.Join(extra, ", ") + ")"
 	}
@@ -561,26 +456,26 @@ func (rv *reviewer) merge(it reviewItem) {
 		return
 	}
 	rv.stopPanes(it)
-	if it.dirty > 0 {
+	if it.Dirty > 0 {
 		if err := commitAll(it); err != nil {
 			rv.status = red + err.Error() + reset
 			return
 		}
 	}
-	if err := mergeBranch(rv.repo, it.branch, it.from, it.task); err != nil {
+	if err := mergeBranch(rv.repo, it.Branch, it.From, it.Task); err != nil {
 		rv.status = red + "merge failed: " + err.Error() + reset
 		return
 	}
-	if err := removeWorktreeAt(rv.repo, it.dir, it.branch, false); err != nil {
+	if err := removeWorktreeAt(rv.repo, it.Dir, it.Branch, false); err != nil {
 		rv.status = yel + "merged, but couldn't remove the worktree: " + err.Error() + reset
 		return
 	}
-	rv.status = green + "✓ merged " + it.branch + " into " + it.from + reset
+	rv.status = green + "✓ merged " + it.Branch + " into " + it.From + reset
 }
 
-func (rv *reviewer) discard(it reviewItem) {
-	q := fmt.Sprintf("Delete %s and its worktree, losing its changes", it.branch)
-	if len(it.panes) > 0 {
+func (rv *reviewer) discard(it worktrees.Item) {
+	q := fmt.Sprintf("Delete %s and its worktree, losing its changes", it.Branch)
+	if len(it.Panes) > 0 {
 		q += " (closes the agent's panes)"
 	}
 	if !rv.ask(q + "?") {
@@ -588,9 +483,9 @@ func (rv *reviewer) discard(it reviewItem) {
 		return
 	}
 	rv.stopPanes(it)
-	if err := removeWorktreeAt(rv.repo, it.dir, it.branch, true); err != nil {
+	if err := removeWorktreeAt(rv.repo, it.Dir, it.Branch, true); err != nil {
 		rv.status = red + err.Error() + reset
 		return
 	}
-	rv.status = "discarded " + it.branch
+	rv.status = "discarded " + it.Branch
 }

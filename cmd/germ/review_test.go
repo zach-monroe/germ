@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/worktrees"
 )
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -56,23 +57,23 @@ func TestReviewLoadMergeDiscard(t *testing.T) {
 	// Not an agent worktree: ignored.
 	git(t, repo, "worktree", "add", "-q", "-b", "feature", filepath.Join(root, "wt", "feature"), base)
 
-	if got, err := mainRepo(fix); err != nil || got != repo {
+	if got, err := worktrees.MainRepo(fix); err != nil || got != repo {
 		t.Fatalf("mainRepo from worktree: %q %v", got, err)
 	}
 
 	panes := []control.PaneInfo{{ID: 3, Cwd: fix, Agent: "claude", State: "done"}, {ID: 4, Cwd: fix}}
-	items := loadReview(repo, panes)
+	items := worktrees.Load(repo, panes)
 	if len(items) != 2 {
 		t.Fatalf("got %d items", len(items))
 	}
 	it := items[0]
-	if it.task != "fix the parser" || it.ahead != 1 || it.added != 2 || len(it.untracked) != 1 || it.dirty != 1 {
+	if it.Task != "fix the parser" || it.Ahead != 1 || it.Added != 2 || len(it.Untracked) != 1 || it.Dirty != 1 {
 		t.Errorf("fix item: %+v", it)
 	}
-	if it.agent == nil || it.agent.ID != 3 || len(it.panes) != 2 {
-		t.Errorf("panes: agent %+v, %d panes", it.agent, len(it.panes))
+	if it.Agent == nil || it.Agent.ID != 3 || len(it.Panes) != 2 {
+		t.Errorf("panes: agent %+v, %d panes", it.Agent, len(it.Panes))
 	}
-	if items[1].task != "try thing" || items[1].agent != nil {
+	if items[1].Task != "try thing" || items[1].Agent != nil {
 		t.Errorf("junk item: %+v", items[1])
 	}
 
@@ -80,10 +81,10 @@ func TestReviewLoadMergeDiscard(t *testing.T) {
 	if err := commitAll(it); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeBranch(repo, it.branch, it.from, it.task); err != nil {
+	if err := mergeBranch(repo, it.Branch, it.From, it.Task); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeWorktreeAt(repo, it.dir, it.branch, false); err != nil {
+	if err := removeWorktreeAt(repo, it.Dir, it.Branch, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "b.go")); err != nil {
@@ -99,7 +100,7 @@ func TestReviewLoadMergeDiscard(t *testing.T) {
 	if err := removeWorktreeAt(repo, junk, "germ/try-thing", true); err != nil {
 		t.Fatal(err)
 	}
-	if items := loadReview(repo, nil); len(items) != 0 {
+	if items := worktrees.Load(repo, nil); len(items) != 0 {
 		t.Errorf("%d items left", len(items))
 	}
 }

@@ -17,9 +17,12 @@
 - **`prs` widget**: your open pull requests with their checks and review
   state, and the ones waiting for your review, through the GitHub CLI
   (no token in germ's config). Click one to open it.
+- **`worktrees` widget**: every agent worktree of the repositories open
+  in your tabs, with its task, what it changed and what its agent is
+  doing. Click one to go to its agent, or to open a tab there.
 - The agents widget names tabs by the number the tab bar shows (tmux's
   window index), not their position. `list_panes` reports it as
-  `tab_label`, and each pane's `pid`.
+  `tab_label`, and each pane's `pid` and `window`.
 
 ## v0.7.0 (2026-11-25)
 

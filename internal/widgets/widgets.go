@@ -51,15 +51,16 @@ type Clicker interface {
 func click(token, text string) string { return link("germ-widget:"+token, text) }
 
 var builtins = map[string]func(Options) Widget{
-	"clock":   newClock,
-	"weather": newWeather,
-	"news":    newNews,
-	"stocks":  newStocks,
-	"agents":  newAgents,
-	"git":     newGit,
-	"system":  newSystem,
-	"ports":   newPorts,
-	"prs":     newPRs,
+	"clock":     newClock,
+	"weather":   newWeather,
+	"news":      newNews,
+	"stocks":    newStocks,
+	"agents":    newAgents,
+	"git":       newGit,
+	"system":    newSystem,
+	"ports":     newPorts,
+	"prs":       newPRs,
+	"worktrees": newWorktrees,
 }
 
 // Names lists the built-in widgets.

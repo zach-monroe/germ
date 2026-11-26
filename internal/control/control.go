@@ -100,6 +100,7 @@ type PaneInfo struct {
 	Cwd      string `json:"cwd,omitempty"`
 	Command  string `json:"command,omitempty"`  // foreground process
 	Pid      int    `json:"pid,omitempty"`      // the pane's top process (its shell), on this machine
+	Window   int    `json:"window,omitempty"`   // the germ window's process ID (as in germ-pane: links)
 	Agent    string `json:"agent,omitempty"`    // detected coding agent
 	State    string `json:"state,omitempty"`    // agent state: idle, working, done, waiting
 	Message  string `json:"message,omitempty"`  // last notification

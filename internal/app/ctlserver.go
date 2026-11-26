@@ -295,7 +295,7 @@ func (a *App) resolvePane(ref string) (*pane, error) {
 func (a *App) paneInfo(p *pane) control.PaneInfo {
 	now := time.Now()
 	info := control.PaneInfo{ID: p.id, Title: p.titleString(), Agent: p.agent.name,
-		State: p.state(now).String(), Message: p.agent.message}
+		State: p.state(now).String(), Message: p.agent.message, Window: os.Getpid()}
 	if !p.agent.since.IsZero() && p.agent.name != "" {
 		info.StateMs = now.Sub(p.agent.since).Milliseconds()
 	}

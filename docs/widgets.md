@@ -31,6 +31,7 @@ Saving the config rebuilds the home tab right away.
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `ports` | TCP ports your processes listen on, the server's name, and the tab that started it; `*` = reachable from the network. Click the port to open it, the tab to go there | `ignore = ["spotify"]`, `all = true` (other users' ports too) |
 | `prs` | your open pull requests with check status (✓ ✗ ●), draft / approved / changes requested, and PRs waiting for your review. Click to open. Uses the GitHub CLI (`gh auth login`) | `filter = "org:acme"` (added to both searches) |
+| `worktrees` | agent worktrees (`germ agent`, Ctrl+Shift+A) of the repos open in your tabs: task, +/- lines, commits, uncommitted files, what the agent is doing. Click to go to the agent, or open a tab there | `repos = ["~/code/app"]` (also look in these) |
 | `stocks` | price, daily change, intraday sparkline (Yahoo Finance) | `symbols = ["AAPL", "NVDA", "BTC-USD"]` |
 | `system` | CPU and network sparklines, memory, disk and battery meters, load, uptime | `disks = ["/", "~"]` (default: `/`, plus your home if it's a separate filesystem) |
 
