@@ -24,6 +24,10 @@
   who's there and typing, who has the helm of which tab, who's waiting to
   join or asking for the helm, and unread chat. `germ ctl json
   '{"cmd":"share_status"}'` reports the same (without the invite link).
+- **`calendar` widget**: your next events from your calendar's iCal
+  address (Google, Outlook, Fastmail, iCloud; no account), with a countdown
+  and a join link for video calls. Recurring events, exceptions and time
+  zones are handled.
 - The agents widget names tabs by the number the tab bar shows (tmux's
   window index), not their position. `list_panes` reports it as
   `tab_label`, and each pane's `pid` and `window`.

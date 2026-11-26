@@ -28,6 +28,7 @@ Saving the config rebuilds the home tab right away.
 | `weather` | conditions, art, 5-day forecast ([Open-Meteo](https://open-meteo.com)) | `location = "Denver"` (default: from your IP), `units = "celsius"` |
 | `news` | top story with summary + headlines, rotating pages (RSS/Atom) | `feeds = ["https://hnrss.org/frontpage", ...]` |
 | `agents` | coding agents in every germ window and what they're doing ([agents.md](agents.md)) | |
+| `calendar` | your next events with a countdown, today's all-day events, and a join link for Meet / Zoom / Teams calls; from iCal feeds, no account | `urls = ["https://…/basic.ics"]` (feeds or `.ics` files), `days = 2`, `format = "12h"` |
 | `coworking` | sessions you share or joined: who's there (typing, in a browser), who has the helm of which tab, join and helm requests waiting on you, unread chat ([coworking.md](coworking.md)) | |
 | `git` | changes since a commit: files with +/- bars, commits | `base = "main"`, `dir = "~/code/project"` |
 | `ports` | TCP ports your processes listen on, the server's name, and the tab that started it; `*` = reachable from the network. Click the port to open it, the tab to go there | `ignore = ["spotify"]`, `all = true` (other users' ports too) |
@@ -42,6 +43,14 @@ on its own with `germ widget clock`.
 **Click to open**: news headlines open the article, stock rows their quote
 page, and the weather a detailed forecast map, in your browser (`$BROWSER`,
 else `xdg-open`). Widgets don't take typing, so no Ctrl is needed.
+
+**Calendar feeds**: every calendar app gives you a private iCal address.
+Google Calendar: Settings → your calendar → "Secret address in iCal
+format". Outlook: Settings → Calendar → Shared calendars → Publish a
+calendar → ICS. Fastmail and iCloud: share the calendar and copy its
+link. The address is a password to your calendar, so germ never shows it
+(errors name only the host). Recurring events, exceptions and time zones
+are handled; feeds refresh every 10 minutes.
 
 ## Writing your own widget
 

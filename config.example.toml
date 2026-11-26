@@ -62,6 +62,9 @@ row_heights = [2, 3]
 # symbols = ["AAPL", "NVDA", "BTC-USD"]
 # [widgets.news]
 # feeds = ["https://hnrss.org/frontpage"]
+# [widgets.calendar]
+# urls = ["https://calendar.google.com/calendar/ical/.../basic.ics"]   # your secret iCal address
+# days = 2
 # [widgets.ports]
 # ignore = ["spotify", "steam"]
 # [widgets.prs]          # needs the GitHub CLI: gh auth login
