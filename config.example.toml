@@ -64,6 +64,8 @@ row_heights = [2, 3]
 # feeds = ["https://hnrss.org/frontpage"]
 # [widgets.ports]
 # ignore = ["spotify", "steam"]
+# [widgets.prs]          # needs the GitHub CLI: gh auth login
+# filter = "org:acme"
 # [widgets.system]
 # disks = ["/", "~"]
 # [widgets.todo]

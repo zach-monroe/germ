@@ -14,6 +14,9 @@
   server (`vite`, `postgres`, `http.server`) and the tab that started it.
   Click the port to open it in the browser, the tab to go there. `*` marks
   ports reachable from the network.
+- **`prs` widget**: your open pull requests with their checks and review
+  state, and the ones waiting for your review, through the GitHub CLI
+  (no token in germ's config). Click one to open it.
 - The agents widget names tabs by the number the tab bar shows (tmux's
   window index), not their position. `list_panes` reports it as
   `tab_label`, and each pane's `pid`.
