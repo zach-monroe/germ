@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.0 (2026-11-25)
 
 ### Themes
 - **Live previews in the palette**: Ctrl+Shift+Space, "theme", lists every
@@ -72,6 +72,18 @@
   last. Before, after closing the first tab a new one took its number
   but showed at the end, so tabs read 1, 0, 2.
 
+### Performance
+- **The home screen sleeps while you're elsewhere**: its widgets don't
+  fetch, tick or redraw until you show it, then redraw at once and refresh
+  only data that's due (a hidden home tab went from ~0.7% to 0% CPU idle).
+  Interval widget programs pause too; long-running ones keep streaming.
+- Control sockets left by killed or crashed windows are deleted (the
+  agents widget was trying hundreds of them every second).
+
+### Fixes
+- Clicking an agent in the agents widget often did nothing (or opened the
+  wrong one) if the pointer hadn't moved since the screen changed.
+
 ## v0.6.0 (2026-11-25)
 
 **Spread your germs.** Highly contagious coworking.
@@ -130,16 +142,8 @@
   mode on par with or ahead of kitty + tmux (tmux is the ceiling).
 - Key-to-screen latency: ~5 ms median (kitty ~55 ms, ghostty ~45 ms).
 - `scripts/bench/throughput.sh` and `scripts/bench/latency.sh` to re-run.
-- **The home screen sleeps while you're elsewhere**: its widgets don't
-  fetch, tick or redraw until you show it, then redraw at once and refresh
-  only data that's due (a hidden home tab went from ~0.7% to 0% CPU idle).
-  Interval widget programs pause too; long-running ones keep streaming.
-- Control sockets left by killed or crashed windows are deleted (the
-  agents widget was trying hundreds of them every second).
 
 ### Fixes
 - `germ -tmux -shell PROGRAM` ignored the program.
-- Clicking an agent in the agents widget often did nothing (or opened the
-  wrong one) if the pointer hadn't moved since the screen changed.
 - The share tests leaked a tmux server on every run.
 - The cursor could draw over the search bar.
