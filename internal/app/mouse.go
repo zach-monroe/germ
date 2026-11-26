@@ -236,6 +236,14 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 	if !ok {
 		return
 	}
+	if action == glfw.Press {
+		// Ask where the pointer is: if it hasn't moved since the window
+		// appeared under it, no motion event has told us.
+		x, y := a.win.GetCursorPos()
+		r := a.fbRatio()
+		a.mouse.px, a.mouse.py = x*r, y*r
+		a.mouse.gx, a.mouse.gy = a.gridAt(a.mouse.px, a.mouse.py)
+	}
 	if a.mouse.sep != nil && action == glfw.Release {
 		a.endSepDrag()
 		return
@@ -298,6 +306,10 @@ func (a *App) onMouseButton(_ *glfw.Window, b glfw.MouseButton, action glfw.Acti
 
 	switch {
 	case btn == input.ButtonLeft && action == glfw.Press:
+		// What's under the pointer now: the hover state is from the last
+		// motion, and the screen may have changed since (a widget redraws,
+		// the agents list reorders, or you came back to this tab).
+		a.updateLinkHover()
 		_, widget := p.be.(*widgetBackend)
 		if (widget || mods&glfw.ModControl != 0) && p.linkURL != "" {
 			openURL(p.linkURL)

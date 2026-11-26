@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -76,14 +77,89 @@ func Run(name string) error {
 			}
 		}
 	}()
-	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize)
+	return RunInProcess(context.Background(), name, envOptions(), os.Stdout, ttySize, resize, nil)
+}
+
+// Shown says whether a widget is on screen. A hidden widget is dormant: it
+// doesn't refresh its data, tick or draw. Shown again, it draws its last
+// state at once and refreshes its data if that's due. A nil *Shown is
+// always shown.
+type Shown struct {
+	mu      sync.Mutex
+	on      bool
+	changed chan struct{} // closed when on changes
+}
+
+// NewShown returns a Shown that starts on or off.
+func NewShown(on bool) *Shown { return &Shown{on: on, changed: make(chan struct{})} }
+
+// Set shows or hides the widget.
+func (s *Shown) Set(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.on != on {
+		s.on = on
+		close(s.changed)
+		s.changed = make(chan struct{})
+	}
+}
+
+// Get reports whether the widget is shown, and a channel closed when that
+// changes.
+func (s *Shown) Get() (bool, <-chan struct{}) {
+	if s == nil {
+		return true, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.on, s.changed
+}
+
+// WaitShown blocks until the widget is shown; false if ctx ends first.
+func (s *Shown) WaitShown(ctx context.Context) bool {
+	for {
+		on, changed := s.Get()
+		if on {
+			return true
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
+// waitDue blocks until the widget is shown and data fetched at last is
+// every old (at once if last is zero); false if ctx ends first.
+func (s *Shown) waitDue(ctx context.Context, last time.Time, every time.Duration) bool {
+	for {
+		if !s.WaitShown(ctx) {
+			return false
+		}
+		wait := time.Until(last.Add(every))
+		if last.IsZero() || wait <= 0 {
+			return true
+		}
+		_, changed := s.Get()
+		t := time.NewTimer(wait)
+		select {
+		case <-t.C: // loop: check it's still shown
+		case <-changed:
+			t.Stop()
+		case <-ctx.Done():
+			t.Stop()
+			return false
+		}
+	}
 }
 
 // RunInProcess runs a built-in widget, drawing frames to out, until ctx
 // ends. size reports the widget's box; a value on resize redraws. germ
-// runs its home-screen widgets this way, without a process each.
+// runs its home-screen widgets this way, without a process each, and
+// hides them (shown) while the home tab isn't on screen.
 func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
-	size func() (cols, rows int), resize <-chan struct{}) error {
+	size func() (cols, rows int), resize <-chan struct{}, shown *Shown) error {
 	mk, ok := builtins[name]
 	if !ok {
 		return fmt.Errorf("unknown widget %q (built-in: %s)", name, strings.Join(Names(), ", "))
@@ -93,7 +169,15 @@ func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
 
 	updated := make(chan error, 1)
 	go func() {
+		var last time.Time
 		for {
+			if !last.IsZero() && w.Every() <= 0 {
+				return // fetches once
+			}
+			if !shown.waitDue(ctx, last, w.Every()) {
+				return
+			}
+			last = time.Now()
 			uctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			err := w.Update(uctx)
 			cancel()
@@ -102,55 +186,68 @@ func RunInProcess(ctx context.Context, name string, opts Options, out io.Writer,
 			case <-ctx.Done():
 				return
 			}
-			if w.Every() <= 0 {
-				return
-			}
-			select {
-			case <-time.After(w.Every()):
-			case <-ctx.Done():
-				return
-			}
 		}
 	}()
 
 	var tick <-chan time.Time
 	if d := w.Tick(); d > 0 {
-		// Align ticks to the period so a clock flips on the second.
-		first := time.NewTimer(time.Until(time.Now().Truncate(d).Add(d)))
-		defer first.Stop()
 		ch := make(chan time.Time, 1)
 		tick = ch
-		go func() {
-			select {
-			case <-first.C:
-			case <-ctx.Done():
-				return
-			}
-			t := time.NewTicker(d)
-			defer t.Stop()
-			for {
-				select {
-				case now := <-t.C:
-					select {
-					case ch <- now:
-					default:
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
+		go runTicker(ctx, d, shown, ch)
 	}
 	var lastErr error
+	dirty := true
 	for {
-		cols, rows := size()
-		draw(out, w.Draw(cols, rows, lastErr), rows)
+		on, changed := shown.Get()
+		if on && dirty {
+			cols, rows := size()
+			draw(out, w.Draw(cols, rows, lastErr), rows)
+			dirty = false
+		}
 		select {
 		case <-resize:
 		case <-tick:
 		case lastErr = <-updated:
+		case <-changed: // shown again: redraw (a clock's time moved on)
 		case <-ctx.Done():
 			return nil
+		}
+		dirty = true
+	}
+}
+
+// runTicker sends on ch every d while the widget is shown, aligned to the
+// period so a clock flips on the second.
+func runTicker(ctx context.Context, d time.Duration, shown *Shown, ch chan<- time.Time) {
+	for shown.WaitShown(ctx) {
+		_, changed := shown.Get()
+		first := time.NewTimer(time.Until(time.Now().Truncate(d).Add(d)))
+		var t *time.Ticker
+		var tc <-chan time.Time
+	ticking:
+		for {
+			select {
+			case now := <-first.C:
+				t = time.NewTicker(d)
+				tc = t.C
+				select {
+				case ch <- now:
+				default:
+				}
+			case now := <-tc:
+				select {
+				case ch <- now:
+				default:
+				}
+			case <-changed:
+				break ticking
+			case <-ctx.Done():
+				break ticking
+			}
+		}
+		first.Stop()
+		if t != nil {
+			t.Stop()
 		}
 	}
 }

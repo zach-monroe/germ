@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/zach-monroe/germ/internal/share"
@@ -137,7 +139,8 @@ func Dir() string {
 // SocketPath is the socket for the germ process pid.
 func SocketPath(pid int) string { return filepath.Join(Dir(), strconv.Itoa(pid)+".sock") }
 
-// Sockets lists live-looking sockets, newest first.
+// Sockets lists live-looking sockets, newest first. It deletes the sockets
+// of windows that are gone (killed or crashed ones leave theirs behind).
 func Sockets() []string {
 	matches, _ := filepath.Glob(filepath.Join(Dir(), "*.sock"))
 	type st struct {
@@ -146,6 +149,10 @@ func Sockets() []string {
 	}
 	var out []st
 	for _, m := range matches {
+		if stale(m) {
+			os.Remove(m)
+			continue
+		}
 		if fi, err := os.Stat(m); err == nil {
 			out = append(out, st{m, fi.ModTime()})
 		}
@@ -156,6 +163,25 @@ func Sockets() []string {
 		paths[i] = s.path
 	}
 	return paths
+}
+
+// stale reports whether a socket's window is gone: the process named by
+// the file (PID.sock) doesn't exist and nothing answers. Both, so a window
+// that's still starting (bound but not yet listening) is never removed.
+func stale(path string) bool {
+	pid, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(path), ".sock"))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		return false
+	}
+	c, err := net.DialTimeout("unix", path, time.Second)
+	if err == nil {
+		c.Close()
+		return false
+	}
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 // Client is a connection to one germ window.

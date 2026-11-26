@@ -138,7 +138,12 @@ type widgetBackend struct {
 
 	// Built-in widgets run in germ as goroutines (no process each).
 	inproc bool
+	ctx    context.Context
 	cancel context.CancelFunc
+	// shown is on while the home tab is on screen; hidden widgets are
+	// dormant (built-ins and interval programs; long-running programs
+	// keep streaming).
+	shown *widgets.Shown
 }
 
 func (b *widgetBackend) Write([]byte) {}
@@ -185,7 +190,8 @@ func (a *App) newWidgetPane(name string) *pane {
 	p := a.addPane()
 	p.term = a.newTermNoReplies(p, 1, 1)
 	p.title.Store(&name)
-	b := &widgetBackend{a: a, p: p, cols: 1, rows: 1, poke: make(chan struct{}, 1)}
+	b := &widgetBackend{a: a, p: p, cols: 1, rows: 1, poke: make(chan struct{}, 1), shown: widgets.NewShown(false)}
+	b.ctx, b.cancel = context.WithCancel(context.Background())
 	p.be = b
 	w, err := a.cfg.Widget(name)
 	if err == nil && len(w.Command) == 0 && !userWidgetExists(w.Name) && widgets.IsBuiltin(w.Name) {
@@ -194,9 +200,8 @@ func (a *App) newWidgetPane(name string) *pane {
 			k, v, _ := strings.Cut(kv, "=")
 			opts[strings.ToLower(strings.TrimPrefix(k, "GERM_WIDGET_"))] = v
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		b.inproc, b.cancel = true, cancel
-		go b.runInProcess(ctx, w.Name, opts)
+		b.inproc = true
+		go b.runInProcess(b.ctx, w.Name, opts)
 		return p
 	}
 	if err == nil {
@@ -223,6 +228,9 @@ func (b *widgetBackend) run() {
 	}
 	backoff := time.Second
 	for !b.isStopped() {
+		if b.every > 0 && !b.shown.WaitShown(b.ctx) {
+			return // closed
+		}
 		start := time.Now()
 		out, err := b.runOnce()
 		if b.isStopped() {
@@ -306,6 +314,20 @@ func (b *widgetBackend) runOnce() ([]byte, error) {
 		err = fmt.Errorf("%s: %v", filepath.Base(b.argv[0]), err)
 	}
 	return collected.Bytes(), err
+}
+
+// syncHomeShown wakes the home tab's widgets while it's on screen and
+// puts them to sleep while it isn't.
+func (a *App) syncHomeShown() {
+	if len(a.tabs) == 0 || !a.tabs[0].home {
+		return
+	}
+	on := a.tab() == a.tabs[0]
+	for _, p := range a.tabs[0].panes {
+		if b, ok := p.be.(*widgetBackend); ok {
+			b.shown.Set(on)
+		}
+	}
 }
 
 // homeConfigChanged reports whether a reload needs a new home tab.
@@ -404,7 +426,7 @@ func (b *widgetBackend) runInProcess(ctx context.Context, name string, opts widg
 		b.p.term.Write(p)
 		b.a.wake()
 	})
-	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke); err != nil {
+	if err := widgets.RunInProcess(ctx, name, opts, out, size, b.poke, b.shown); err != nil {
 		b.show([]byte("\x1b[31m" + err.Error() + "\x1b[0m"))
 	}
 }

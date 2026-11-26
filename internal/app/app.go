@@ -436,6 +436,7 @@ func (a *App) view(p *pane, t *tab) render.View {
 
 func (a *App) draw() {
 	a.wakePending.Store(false)
+	a.syncHomeShown()
 	if a.drawFrame() {
 		a.win.SwapBuffers()
 	}
