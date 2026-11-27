@@ -1,12 +1,11 @@
-// Package worktrees finds the git worktrees `germ agent` makes (branches
-// named germ/...) and what each has changed, for `germ review` and the
+// Package worktrees manages the git worktrees `germ agent` makes (branches
+// named germ/...): creating them, finding them and what each has changed,
+// and merging or removing them, for `germ agent`, `germ review` and the
 // worktrees widget.
 package worktrees
 
 import (
 	"errors"
-	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -38,7 +37,7 @@ type FileStat struct {
 // MainRepo finds the main checkout of the repository dir is in (also
 // from inside one of its worktrees).
 func MainRepo(dir string) (string, error) {
-	common, err := gitOut(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common, err := Git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return "", errors.New("not in a git repository")
 	}
@@ -51,7 +50,7 @@ func MainRepo(dir string) (string, error) {
 // Load gathers repo's agent worktrees and their state; panes (from
 // list_panes) tell which have an agent or anything else open in them.
 func Load(repo string, panes []control.PaneInfo) []Item {
-	out, _ := gitOut(repo, "worktree", "list", "--porcelain")
+	out, _ := Git(repo, "worktree", "list", "--porcelain")
 	var items []Item
 	var cur Item
 	flush := func() {
@@ -72,25 +71,25 @@ func Load(repo string, panes []control.PaneInfo) []Item {
 	flush()
 	for i := range items {
 		it := &items[i]
-		cfg := func(k string) string { v, _ := gitOut(repo, "config", "branch."+it.Branch+"."+k); return v }
+		cfg := func(k string) string { v, _ := Git(repo, "config", "branch."+it.Branch+"."+k); return v }
 		it.Task, it.Base, it.From = cfg("germ-task"), cfg("germ-base"), cfg("germ-from")
 		it.Person = cfg("germ-for")
 		if it.From == "" {
-			it.From, _ = gitOut(repo, "rev-parse", "--abbrev-ref", "HEAD")
+			it.From, _ = Git(repo, "rev-parse", "--abbrev-ref", "HEAD")
 		}
 		if it.Base == "" {
-			it.Base, _ = gitOut(repo, "merge-base", it.From, it.Branch)
+			it.Base, _ = Git(repo, "merge-base", it.From, it.Branch)
 		}
 		if it.Task == "" {
 			it.Task = strings.ReplaceAll(strings.TrimPrefix(it.Branch, "germ/"), "-", " ")
 		}
-		if n, err := gitOut(it.Dir, "rev-list", "--count", it.Base+"..HEAD"); err == nil {
+		if n, err := Git(it.Dir, "rev-list", "--count", it.Base+"..HEAD"); err == nil {
 			it.Ahead, _ = strconv.Atoi(n)
 		}
-		if log, _ := gitOut(it.Dir, "log", "--format=%h %s", it.Base+"..HEAD"); log != "" {
+		if log, _ := Git(it.Dir, "log", "--format=%h %s", it.Base+"..HEAD"); log != "" {
 			it.Commits = strings.Split(log, "\n")
 		}
-		if num, _ := gitOut(it.Dir, "diff", "--numstat", it.Base); num != "" {
+		if num, _ := Git(it.Dir, "diff", "--numstat", it.Base); num != "" {
 			for _, l := range strings.Split(num, "\n") {
 				f := strings.SplitN(l, "\t", 3)
 				if len(f) < 3 {
@@ -103,10 +102,10 @@ func Load(repo string, panes []control.PaneInfo) []Item {
 				it.Removed += r
 			}
 		}
-		if u, _ := gitOut(it.Dir, "ls-files", "--others", "--exclude-standard"); u != "" {
+		if u, _ := Git(it.Dir, "ls-files", "--others", "--exclude-standard"); u != "" {
 			it.Untracked = strings.Split(u, "\n")
 		}
-		if st, _ := gitOut(it.Dir, "status", "--porcelain"); st != "" {
+		if st, _ := Git(it.Dir, "status", "--porcelain"); st != "" {
 			it.Dirty = len(strings.Split(st, "\n"))
 		}
 		for _, p := range panes {
@@ -120,18 +119,4 @@ func Load(repo string, panes []control.PaneInfo) []Item {
 		}
 	}
 	return items
-}
-
-func gitOut(dir string, args ...string) (string, error) {
-	if dir != "" {
-		args = append([]string{"-C", dir}, args...)
-	}
-	cmd := exec.Command("git", args...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return strings.TrimSpace(string(out)), fmt.Errorf("%s", strings.TrimSpace(stderr.String()+" "+err.Error()))
-	}
-	return strings.TrimSpace(string(out)), nil
 }

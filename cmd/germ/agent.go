@@ -7,16 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
-	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/worktrees"
 )
 
 // `germ agent [TASK]` runs a coding agent on its own git worktree and
@@ -91,7 +89,7 @@ func (r *agentRun) run() error {
 		return r.runFor()
 	}
 	fmt.Printf("%s◆ new agent%s  %s(%s)%s\n\n", bold+blue, reset, dim, strings.Join(r.cfg.Launch, " "), reset)
-	repo, err := gitOut("", "rev-parse", "--show-toplevel")
+	repo, err := worktrees.Git("", "rev-parse", "--show-toplevel")
 	if err != nil {
 		cwd, _ := os.Getwd()
 		fmt.Printf("%s%s isn't in a git repository, so the agent will work here directly.%s\n\n", yel, cwd, reset)
@@ -134,7 +132,7 @@ func (r *agentRun) run() error {
 // runFor makes a branch and tab for a person in a shared session.
 func (r *agentRun) runFor() error {
 	fmt.Printf("%s◆ a tab for %s%s on its own branch\n\n", bold+blue, r.person, reset)
-	repo, err := gitOut("", "rev-parse", "--show-toplevel")
+	repo, err := worktrees.Git("", "rev-parse", "--show-toplevel")
 	if err != nil {
 		cwd, _ := os.Getwd()
 		return fmt.Errorf("%s isn't in a git repository: open this from a pane in your project", cwd)
@@ -152,11 +150,10 @@ func (r *agentRun) runFor() error {
 	if slugTask == "" {
 		slugTask = r.person
 	}
-	r.slugFor = slug(r.person + " " + slugTask)
+	r.slugFor = worktrees.Slug(r.person + " " + slugTask)
 	if err := r.makeWorktree(); err != nil {
 		return err
 	}
-	gitOut(r.repo, "config", "branch."+r.branch+".germ-for", r.person)
 	r.showDiff()
 	name := r.person
 	if r.task != "" {
@@ -176,7 +173,7 @@ func (r *agentRun) runFor() error {
 	fmt.Printf("%sWhen they're done, review and merge the branch with germ review (Ctrl+Shift+R).%s\n\n", dim, reset)
 	err = r.runCommand(r.cfg.Launch)
 	r.closeDiff()
-	stat, _ := gitOut(r.dir, "diff", "--shortstat", r.base)
+	stat, _ := worktrees.Git(r.dir, "diff", "--shortstat", r.base)
 	fmt.Printf("\n%s◆ %s's shell exited%s  %s%s%s kept %s%s%s\n", bold+blue, r.person, reset, cyan, r.branch, reset, dim, strings.TrimSpace(stat), reset)
 	fmt.Printf("%sReview, merge or discard it with germ review (Ctrl+Shift+R). Press Enter to close.%s", dim, reset)
 	bufio.NewReader(os.Stdin).ReadString('\n')
@@ -198,68 +195,16 @@ func expandLaunch(launch []string, task string) []string {
 	return out
 }
 
-var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
-
-// slug makes a branch-friendly name from a task.
-func slug(task string) string {
-	s := strings.Trim(slugRE.ReplaceAllString(strings.ToLower(task), "-"), "-")
-	words := strings.Split(s, "-")
-	var out []string
-	n := 0
-	for _, w := range words {
-		if n+len(w) > 32 || len(out) == 6 {
-			break
-		}
-		out = append(out, w)
-		n += len(w) + 1
-	}
-	s = strings.Join(out, "-")
-	if s == "" {
-		s = "agent-" + time.Now().Format("0102-1504")
-	}
-	return s
-}
-
 func (r *agentRun) makeWorktree() error {
-	r.base, _ = gitOut(r.repo, "rev-parse", "HEAD")
-	r.baseName, _ = gitOut(r.repo, "rev-parse", "--abbrev-ref", "HEAD")
-	root := r.cfg.Worktrees
-	if root == "" {
-		root = r.repo + ".worktrees"
-	} else {
-		root = strings.ReplaceAll(root, "{repo}", filepath.Base(r.repo))
-		if strings.HasPrefix(root, "~/") {
-			home, _ := os.UserHomeDir()
-			root = filepath.Join(home, root[2:])
-		}
-	}
-	name := slug(r.task)
+	name := worktrees.Slug(r.task)
 	if r.slugFor != "" {
 		name = r.slugFor
 	}
-	for i := 1; ; i++ {
-		cand := name
-		if i > 1 {
-			cand = fmt.Sprintf("%s-%d", name, i)
-		}
-		_, branchErr := gitOut(r.repo, "rev-parse", "--verify", "--quiet", "refs/heads/germ/"+cand)
-		if _, statErr := os.Stat(filepath.Join(root, cand)); branchErr != nil && errors.Is(statErr, os.ErrNotExist) {
-			name = cand
-			break
-		}
-	}
-	r.branch = "germ/" + name
-	r.dir = filepath.Join(root, name)
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	it, err := worktrees.Create(r.repo, worktrees.Root(r.repo, r.cfg.Worktrees), name, r.task, r.person)
+	if err != nil {
 		return err
 	}
-	if _, err := gitOut(r.repo, "worktree", "add", "-b", r.branch, r.dir, r.base); err != nil {
-		return fmt.Errorf("git worktree add: %v", err)
-	}
-	// For germ review: what the agent was asked, and where it started.
-	gitOut(r.repo, "config", "branch."+r.branch+".germ-task", r.task)
-	gitOut(r.repo, "config", "branch."+r.branch+".germ-base", r.base)
-	gitOut(r.repo, "config", "branch."+r.branch+".germ-from", r.baseName)
+	r.dir, r.branch, r.base, r.baseName = it.Dir, it.Branch, it.Base, it.From
 	fmt.Printf("\n%s✓%s worktree %s%s%s on branch %s%s%s (from %s)\n\n", green, reset, bold, r.dir, reset,
 		cyan, r.branch, reset, r.baseName)
 	return os.Chdir(r.dir)
@@ -345,9 +290,9 @@ func isTTY(fd int) bool {
 // command to run (agent again, shell) or nil to finish.
 func (r *agentRun) menu() ([]string, error) {
 	for {
-		dirty, _ := gitOut(r.dir, "status", "--porcelain")
-		ahead, _ := gitOut(r.dir, "rev-list", "--count", r.base+"..HEAD")
-		stat, _ := gitOut(r.dir, "diff", "--shortstat", r.base)
+		dirty, _ := worktrees.Git(r.dir, "status", "--porcelain")
+		ahead, _ := worktrees.Git(r.dir, "rev-list", "--count", r.base+"..HEAD")
+		stat, _ := worktrees.Git(r.dir, "diff", "--shortstat", r.base)
 		fmt.Printf("\n%s◆ agent finished%s  %s%s%s", bold+blue, reset, cyan, r.branch, reset)
 		if stat == "" && dirty == "" && (ahead == "0" || ahead == "") {
 			fmt.Printf("  %sno changes%s\n", dim, reset)
@@ -389,10 +334,8 @@ func (r *agentRun) menu() ([]string, error) {
 			if msg == "" {
 				msg = "Agent changes"
 			}
-			if _, err := gitOut(r.dir, "add", "-A"); err == nil {
-				if _, err := gitOut(r.dir, "commit", "-q", "-m", msg); err != nil {
-					fmt.Printf("%scommit failed: %v%s\n", red, err, reset)
-				}
+			if err := worktrees.Commit(r.dir, msg); err != nil {
+				fmt.Printf("%s%v%s\n", red, err, reset)
 			}
 		case 'm':
 			if dirty != "" {
@@ -433,7 +376,7 @@ func (r *agentRun) review() {
 }
 
 func (r *agentRun) merge() error {
-	if err := mergeBranch(r.repo, r.branch, r.baseName, r.task); err != nil {
+	if err := worktrees.Merge(r.repo, r.branch, r.baseName, r.task); err != nil {
 		return err
 	}
 	fmt.Printf("%s✓ merged %s into %s%s\n", green, r.branch, r.baseName, reset)
@@ -444,52 +387,11 @@ func (r *agentRun) merge() error {
 func (r *agentRun) removeWorktree(force bool) {
 	r.closeDiff()
 	os.Chdir(r.repo)
-	if err := removeWorktreeAt(r.repo, r.dir, r.branch, force); err != nil {
+	if err := worktrees.Remove(r.repo, r.dir, r.branch, force); err != nil {
 		fmt.Printf("%s%v%s\n", red, err, reset)
 		return
 	}
 	fmt.Printf("removed %s\n", r.dir)
-}
-
-// mergeBranch merges an agent's branch into into (which must be checked
-// out, and clean, in the main repository) with a merge commit.
-func mergeBranch(repo, branch, into, task string) error {
-	if dirty, _ := gitOut(repo, "status", "--porcelain", "--untracked-files=no"); dirty != "" {
-		return fmt.Errorf("%s has uncommitted changes", repo)
-	}
-	if cur, _ := gitOut(repo, "rev-parse", "--abbrev-ref", "HEAD"); cur != into {
-		return fmt.Errorf("%s is now on %s, not %s", repo, cur, into)
-	}
-	msg := "Merge " + branch
-	if task != "" {
-		msg += ": " + task
-	}
-	if out, err := gitOut(repo, "merge", "--no-ff", "-m", msg, branch); err != nil {
-		gitOut(repo, "merge", "--abort")
-		return fmt.Errorf("%v %s", err, out)
-	}
-	return nil
-}
-
-// removeWorktreeAt deletes an agent's worktree and branch (force: even
-// with unmerged or uncommitted work).
-func removeWorktreeAt(repo, dir, branch string, force bool) error {
-	args := []string{"worktree", "remove", dir}
-	if force {
-		args = []string{"worktree", "remove", "--force", dir}
-	}
-	if _, err := gitOut(repo, args...); err != nil {
-		return err
-	}
-	del := "-d"
-	if force {
-		del = "-D"
-	}
-	if _, err := gitOut(repo, "branch", del, branch); err != nil {
-		return err
-	}
-	gitOut(repo, "config", "--remove-section", "branch."+branch)
-	return nil
 }
 
 // readKey reads one key press without waiting for Enter.
@@ -511,20 +413,6 @@ func readKey() byte {
 		return 4
 	}
 	return b[0]
-}
-
-func gitOut(dir string, args ...string) (string, error) {
-	if dir != "" {
-		args = append([]string{"-C", dir}, args...)
-	}
-	cmd := exec.Command("git", args...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return strings.TrimSpace(string(out)), fmt.Errorf("%s", strings.TrimSpace(stderr.String()+" "+err.Error()))
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 func shellQuote(s string) string {

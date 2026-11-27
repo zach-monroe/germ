@@ -313,7 +313,7 @@ func (rv *reviewer) ask(q string) bool {
 func (rv *reviewer) showDiff(it worktrees.Item) {
 	rv.cooked()
 	defer rv.raw()
-	pager, _ := gitOut(it.Dir, "var", "GIT_PAGER")
+	pager, _ := worktrees.Git(it.Dir, "var", "GIT_PAGER")
 	if pager == "" {
 		pager = "less -R"
 	}
@@ -400,21 +400,11 @@ func (rv *reviewer) commit(it worktrees.Item) {
 		rv.status = dim + "Nothing to commit." + reset
 		return
 	}
-	if err := commitAll(it); err != nil {
+	if err := worktrees.Commit(it.Dir, it.Task); err != nil {
 		rv.status = red + err.Error() + reset
 		return
 	}
 	rv.status = green + "committed: " + it.Task + reset
-}
-
-func commitAll(it worktrees.Item) error {
-	if _, err := gitOut(it.Dir, "add", "-A"); err != nil {
-		return err
-	}
-	if out, err := gitOut(it.Dir, "commit", "-q", "-m", it.Task); err != nil {
-		return fmt.Errorf("commit failed: %v %s", err, out)
-	}
-	return nil
 }
 
 // stopPanes closes the panes open in the worktree (the agent, its diff).
@@ -457,16 +447,16 @@ func (rv *reviewer) merge(it worktrees.Item) {
 	}
 	rv.stopPanes(it)
 	if it.Dirty > 0 {
-		if err := commitAll(it); err != nil {
+		if err := worktrees.Commit(it.Dir, it.Task); err != nil {
 			rv.status = red + err.Error() + reset
 			return
 		}
 	}
-	if err := mergeBranch(rv.repo, it.Branch, it.From, it.Task); err != nil {
+	if err := worktrees.Merge(rv.repo, it.Branch, it.From, it.Task); err != nil {
 		rv.status = red + "merge failed: " + err.Error() + reset
 		return
 	}
-	if err := removeWorktreeAt(rv.repo, it.Dir, it.Branch, false); err != nil {
+	if err := worktrees.Remove(rv.repo, it.Dir, it.Branch, false); err != nil {
 		rv.status = yel + "merged, but couldn't remove the worktree: " + err.Error() + reset
 		return
 	}
@@ -483,7 +473,7 @@ func (rv *reviewer) discard(it worktrees.Item) {
 		return
 	}
 	rv.stopPanes(it)
-	if err := removeWorktreeAt(rv.repo, it.Dir, it.Branch, true); err != nil {
+	if err := worktrees.Remove(rv.repo, it.Dir, it.Branch, true); err != nil {
 		rv.status = red + err.Error() + reset
 		return
 	}

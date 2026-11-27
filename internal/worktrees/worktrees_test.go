@@ -1,4 +1,4 @@
-package main
+package worktrees
 
 import (
 	"os"
@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/zach-monroe/germ/internal/control"
-	"github.com/zach-monroe/germ/internal/worktrees"
 )
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -23,7 +22,7 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestReviewLoadMergeDiscard(t *testing.T) {
+func TestLoadMergeRemove(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
 	}
@@ -57,12 +56,12 @@ func TestReviewLoadMergeDiscard(t *testing.T) {
 	// Not an agent worktree: ignored.
 	git(t, repo, "worktree", "add", "-q", "-b", "feature", filepath.Join(root, "wt", "feature"), base)
 
-	if got, err := worktrees.MainRepo(fix); err != nil || got != repo {
+	if got, err := MainRepo(fix); err != nil || got != repo {
 		t.Fatalf("mainRepo from worktree: %q %v", got, err)
 	}
 
 	panes := []control.PaneInfo{{ID: 3, Cwd: fix, Agent: "claude", State: "done"}, {ID: 4, Cwd: fix}}
-	items := worktrees.Load(repo, panes)
+	items := Load(repo, panes)
 	if len(items) != 2 {
 		t.Fatalf("got %d items", len(items))
 	}
@@ -78,13 +77,13 @@ func TestReviewLoadMergeDiscard(t *testing.T) {
 	}
 
 	// Merge: commit the untracked file, merge, remove the worktree.
-	if err := commitAll(it); err != nil {
+	if err := Commit(it.Dir, it.Task); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeBranch(repo, it.Branch, it.From, it.Task); err != nil {
+	if err := Merge(repo, it.Branch, it.From, it.Task); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeWorktreeAt(repo, it.Dir, it.Branch, false); err != nil {
+	if err := Remove(repo, it.Dir, it.Branch, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "b.go")); err != nil {
@@ -97,10 +96,53 @@ func TestReviewLoadMergeDiscard(t *testing.T) {
 		t.Errorf("branch config left behind: %s", out)
 	}
 
-	if err := removeWorktreeAt(repo, junk, "germ/try-thing", true); err != nil {
+	if err := Remove(repo, junk, "germ/try-thing", true); err != nil {
 		t.Fatal(err)
 	}
-	if items := worktrees.Load(repo, nil); len(items) != 0 {
+	if items := Load(repo, nil); len(items) != 0 {
 		t.Errorf("%d items left", len(items))
+	}
+}
+
+func TestCreate(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	for _, k := range []string{"AUTHOR", "COMMITTER"} {
+		t.Setenv("GIT_"+k+"_NAME", "t")
+		t.Setenv("GIT_"+k+"_EMAIL", "t@t")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	os.Mkdir(repo, 0o755)
+	git(t, repo, "init", "-q", "-b", "main")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := Root(repo, "")
+	a, err := Create(repo, wt, "fix", "fix it", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Create(repo, wt, "fix", "fix it again", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Branch != "germ/fix" || b.Branch != "germ/fix-2" || b.Dir != filepath.Join(repo+".worktrees", "fix-2") || a.From != "main" {
+		t.Errorf("a %+v b %+v", a, b)
+	}
+	items := Load(repo, nil)
+	if len(items) != 2 || items[1].Task != "fix it again" || items[1].Person != "alice" || items[1].Base != a.Base {
+		t.Errorf("loaded %+v", items)
+	}
+	if got := Root("/src/germ", "~/wt/{repo}"); !strings.HasSuffix(got, "/wt/germ") || strings.HasPrefix(got, "~") {
+		t.Errorf("Root = %q", got)
+	}
+}
+
+func TestSlug(t *testing.T) {
+	if s := Slug("Fix the login bug in auth/session.go!"); s != "fix-the-login-bug-in-auth" {
+		t.Errorf("slug = %q", s)
+	}
+	if s := Slug("   "); !strings.HasPrefix(s, "agent-") {
+		t.Errorf("empty slug = %q", s)
 	}
 }
