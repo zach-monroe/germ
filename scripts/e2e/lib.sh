@@ -12,8 +12,8 @@
 # DISPLAY (DISPLAY_E2E, default :99), TMP and SOCK, and `fail` for the
 # results: pass and flunk print them, and scripts end with `exit $fail`.
 
-HERE=$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)
-ROOT=$(cd "$HERE/../.." && pwd)
+HERE=$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd) # the script's directory
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 GERM=${GERM:-$ROOT/germ}
 fail=0
 

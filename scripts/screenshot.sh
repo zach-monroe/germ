@@ -1,18 +1,35 @@
 #!/bin/bash
-# Makes the README screenshot (docs/img/screenshot.png) on a virtual X
-# server: a tab with code and tests, three agents in the background (one
-# working, one waiting, one done), and the session shared with alice, who
-# joins through a local relay and chats. Isolated like the e2e tests.
+# Makes the README screenshot (docs/img/screenshot.png): a tab with code
+# and tests, three agents in the background (one working, one waiting, one
+# done), and the session shared with alice, who joins through a local relay
+# and chats. It runs on its own virtual X server (Xvfb, 1920x1080) and is
+# isolated like the e2e tests, so it never touches your desktop or tmux.
 #
-#   Xvfb :99 -screen 0 1920x1080x24 &
 #   scripts/screenshot.sh [out.png]
+#
+# Needs Xvfb, xdotool, ImageMagick (import), nvim, column and tmux.
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-GERM=${GERM:-$ROOT/germ}
-. "$ROOT/scripts/e2e/lib.sh"
-ROOT=$(cd "$(dirname "$0")/.." && pwd) # lib.sh assumes scripts/e2e/
 OUT=$(realpath -m "${1:-$ROOT/docs/img/screenshot.png}")
+for c in Xvfb xdotool import nvim column tmux go; do
+	command -v $c >/dev/null || { echo "screenshot.sh: needs $c" >&2; exit 1; }
+done
+# A free display number for our own Xvfb.
+N=90
+while [ -e /tmp/.X11-unix/X$N ] || [ -e /tmp/.X$N-lock ]; do N=$((N + 1)); done
+export DISPLAY_E2E=:$N
+GIVEN=$GERM
+. "$ROOT/scripts/e2e/lib.sh"
 e2e_init screenshot
+Xvfb :$N -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+for _ in $(seq 50); do [ -e /tmp/.X11-unix/X$N ] && break; sleep 0.1; done
+[ -e /tmp/.X11-unix/X$N ] || { echo "screenshot.sh: Xvfb didn't start" >&2; exit 1; }
+# germ as the source is now (unless GERM says otherwise).
+GERM=$GIVEN
+if [ -z "$GERM" ]; then
+	GERM=$TMP/germ
+	(cd "$ROOT" && go build -o "$GERM" ./cmd/germ)
+fi
 PORT=18097
 e2e_cleanup() { [ -n "$CTL" ] && $CTL chat /stop >/dev/null 2>&1; }
 export PS1='\[\e[1;34m\]~/germ\[\e[0m\] \[\e[35m\]❯\[\e[0m\] '
@@ -43,7 +60,9 @@ sed '/^\[tmux\]/,/^socket/d' "$TMP/host.toml" > "$TMP/guest.toml"
 
 cd "$ROOT"
 "$GERM" -config "$TMP/host.toml" 2>"$TMP/host.err" & HOST=$!
-HW=$(e2e_window $HOST); sleep 2
+HW=$(e2e_window $HOST)
+[ -n "$HW" ] || { echo "screenshot.sh: germ didn't open a window:" >&2; cat "$TMP/host.err" >&2; exit 1; }
+sleep 2
 CTL=$(e2e_ctl $HOST)
 T="tmux -L $SOCK"
 for _ in $(seq 50); do $T has-session -t germ 2>/dev/null && break; sleep 0.2; done
