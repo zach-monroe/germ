@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,13 +40,13 @@ func runReview(args []string) int {
 }
 
 type reviewer struct {
-	repo   string
-	ctl    *control.Client
-	self   string
-	items  []worktrees.Item
-	sel    int
-	status string
-	tty    *unix.Termios
+	repo    string
+	ctl     *control.Client
+	self    string
+	items   []worktrees.Item
+	sel     int
+	status  string
+	restore func() // the terminal as it was, while raw
 }
 
 func (rv *reviewer) refresh() {
@@ -61,31 +60,28 @@ func (rv *reviewer) refresh() {
 	rv.sel = max(0, min(rv.sel, len(rv.items)-1))
 }
 
-func (rv *reviewer) raw() {
-	if rv.tty == nil {
-		return
+// raw takes the screen and the keys; cooked gives them back (for the pager).
+func (rv *reviewer) raw() error {
+	restore, err := rawMode()
+	if err != nil {
+		return err
 	}
-	raw := *rv.tty
-	raw.Lflag &^= unix.ICANON | unix.ECHO | unix.ISIG
-	raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
-	unix.IoctlSetTermios(0, unix.TCSETS, &raw)
+	rv.restore = restore
 	fmt.Print("\x1b[?1049h\x1b[?25l")
+	return nil
 }
 
 func (rv *reviewer) cooked() {
 	fmt.Print("\x1b[?25h\x1b[?1049l")
-	if rv.tty != nil {
-		unix.IoctlSetTermios(0, unix.TCSETS, rv.tty)
+	if rv.restore != nil {
+		rv.restore()
 	}
 }
 
 func (rv *reviewer) loop() error {
-	t, err := unix.IoctlGetTermios(0, unix.TCGETS)
-	if err != nil {
-		return errors.New("needs a terminal")
+	if err := rv.raw(); err != nil {
+		return err
 	}
-	rv.tty = t
-	rv.raw()
 	defer rv.cooked()
 	rv.refresh()
 	for {

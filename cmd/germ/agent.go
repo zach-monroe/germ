@@ -281,11 +281,6 @@ func (r *agentRun) runCommand(argv []string) error {
 	return nil
 }
 
-func isTTY(fd int) bool {
-	_, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	return err == nil
-}
-
 // menu shows the worktree's state and asks what to do next. It returns a
 // command to run (agent again, shell) or nil to finish.
 func (r *agentRun) menu() ([]string, error) {
@@ -396,17 +391,13 @@ func (r *agentRun) removeWorktree(force bool) {
 
 // readKey reads one key press without waiting for Enter.
 func readKey() byte {
-	old, err := unix.IoctlGetTermios(0, unix.TCGETS)
+	restore, err := rawMode()
 	if err != nil {
 		var b [1]byte
 		os.Stdin.Read(b[:])
 		return b[0]
 	}
-	raw := *old
-	raw.Lflag &^= unix.ICANON | unix.ECHO | unix.ISIG
-	raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
-	unix.IoctlSetTermios(0, unix.TCSETS, &raw)
-	defer unix.IoctlSetTermios(0, unix.TCSETS, old)
+	defer restore()
 	var b [8]byte
 	n, _ := os.Stdin.Read(b[:])
 	if n == 0 {

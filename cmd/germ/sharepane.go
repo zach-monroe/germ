@@ -14,8 +14,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/zach-monroe/germ/internal/chatview"
 	"github.com/zach-monroe/germ/internal/control"
 	"github.com/zach-monroe/germ/internal/desktop"
@@ -191,23 +189,13 @@ func (p *sharePane) head(people []share.Participant, st share.State, cols int) [
 
 // run shows the pane until sharing stops (ctx is done).
 func (p *sharePane) run(ctx context.Context) {
-	tty := isTTY(0)
-	var old *unix.Termios
-	if tty {
-		if t, err := unix.IoctlGetTermios(0, unix.TCGETS); err == nil {
-			old = t
-			raw := *t
-			raw.Lflag &^= unix.ICANON | unix.ECHO | unix.ISIG | unix.IEXTEN
-			raw.Iflag &^= unix.IXON | unix.ICRNL
-			raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
-			unix.IoctlSetTermios(0, unix.TCSETS, &raw)
-		}
-	}
+	restore, err := rawMode()
+	tty := err == nil
 	p.write("\x1b[?1049h\x1b[?2004h")
 	defer func() {
 		p.write("\x1b[?2004l\x1b[?25h\x1b[?1049l")
-		if old != nil {
-			unix.IoctlSetTermios(0, unix.TCSETS, old)
+		if tty {
+			restore()
 		}
 	}()
 
