@@ -188,7 +188,7 @@ func (a *App) handleControl(req control.Request, reply func(*control.Response)) 
 			return
 		}
 		if req.Text != "" {
-			a.chat.input, a.chat.cur = []rune(req.Text), len([]rune(req.Text))
+			a.chat.in.Text, a.chat.in.Cur = []rune(req.Text), len([]rune(req.Text))
 			a.chatSend()
 			a.chat.dirty, a.forceRedraw = true, true
 		}

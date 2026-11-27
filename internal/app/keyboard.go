@@ -80,38 +80,19 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	if key == glfw.KeyLeftControl || key == glfw.KeyRightControl {
 		a.updateLinkHover() // Ctrl toggles hyperlink hover
 	}
-	if a.palette != nil {
-		if a.tabOf(a.palette.pane) != a.tab() || a.palette.pane.exited.Load() {
-			a.closePalette()
-		} else {
-			a.paletteKey(key, mods, action)
-			if action != glfw.Release {
-				a.suppressChar = mods&(glfw.ModControl|glfw.ModAlt) != 0
-			}
-			return
+	for _, p := range a.popups() {
+		if !p.open {
+			continue
 		}
-	}
-	if a.hints != nil {
-		if a.hints.pane != a.active() || a.hints.pane.exited.Load() {
-			a.closeHints()
-		} else {
-			a.hintsKey(key, action)
-			if action != glfw.Release {
-				a.suppressChar = mods&(glfw.ModControl|glfw.ModAlt) != 0
-			}
-			return
+		if p.stale {
+			p.close() // focus moved on
+			continue
 		}
-	}
-	if a.search != nil {
-		if a.search.pane != a.active() || a.search.pane.exited.Load() {
-			a.closeSearch() // focus moved on
-		} else {
-			a.searchKey(key, mods, action)
-			if action != glfw.Release {
-				a.suppressChar = mods&(glfw.ModControl|glfw.ModAlt) != 0 // typed text arrives in onChar
-			}
-			return
+		p.key(key, mods, action)
+		if action != glfw.Release {
+			a.suppressChar = mods&(glfw.ModControl|glfw.ModAlt) != 0 // typed text arrives in onChar
 		}
+		return
 	}
 	if a.chat.focused && a.chat.visible() {
 		if action == glfw.Release {
@@ -170,22 +151,42 @@ func (a *App) onKey(_ *glfw.Window, key glfw.Key, scancode int, action glfw.Acti
 	}
 }
 
+// popup is a pop-up that takes the keyboard while it's open.
+type popup struct {
+	open  bool
+	stale bool // its pane went away or isn't the one in use: close it
+	close func()
+	key   func(glfw.Key, glfw.ModifierKey, glfw.Action)
+	char  func(rune)
+}
+
+// popups lists the command palette, hints and scrollback search, in the
+// order they get keys (the first open one does).
+func (a *App) popups() [3]popup {
+	var ps [3]popup
+	if s := a.palette; s != nil {
+		ps[0] = popup{true, a.tabOf(s.pane) != a.tab() || s.pane.exited.Load(), a.closePalette, a.paletteKey, a.paletteType}
+	}
+	if s := a.hints; s != nil {
+		ps[1] = popup{true, s.pane != a.active() || s.pane.exited.Load(), a.closeHints, a.hintsKey, a.hintsType}
+	}
+	if s := a.search; s != nil {
+		ps[2] = popup{true, s.pane != a.active() || s.pane.exited.Load(), a.closeSearch, a.searchKey,
+			func(r rune) { a.searchType(string(r)) }}
+	}
+	return ps
+}
+
 // onChar handles printable text (already composed by the OS/IME).
 func (a *App) onChar(_ *glfw.Window, r rune, mods glfw.ModifierKey) {
 	if a.suppressChar {
 		return
 	}
-	if a.palette != nil {
-		a.paletteType(r)
-		return
-	}
-	if a.hints != nil {
-		a.hintsType(r)
-		return
-	}
-	if a.search != nil {
-		a.searchType(string(r))
-		return
+	for _, p := range a.popups() {
+		if p.open {
+			p.char(r)
+			return
+		}
 	}
 	if a.chat.focused && a.chat.visible() {
 		a.chatType(r)

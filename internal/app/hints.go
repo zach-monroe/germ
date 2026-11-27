@@ -189,7 +189,7 @@ func sortHints(hs []hint) {
 }
 
 // hintsKey handles keys while hints are shown; it consumes every key.
-func (a *App) hintsKey(key glfw.Key, action glfw.Action) {
+func (a *App) hintsKey(key glfw.Key, _ glfw.ModifierKey, action glfw.Action) {
 	if action == glfw.Release {
 		return
 	}

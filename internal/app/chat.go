@@ -53,13 +53,10 @@ type chatState struct {
 	seen   map[string]bool   // requests already announced
 
 	open, focused bool
-	input         []rune
-	cur           int
-	sent          []string // sent messages, for Up
-	sentAt        int
-	scroll        int    // rows scrolled up from the newest
-	readSeq       uint64 // newest message read with the panel open
-	divider       uint64 // "new" goes before the first message after this
+	in            chatview.Input // the message box
+	scroll        int            // rows scrolled up from the newest
+	readSeq       uint64         // newest message read with the panel open
+	divider       uint64         // "new" goes before the first message after this
 	unread        int
 	toast         string
 	toastUntil    time.Time
@@ -489,14 +486,11 @@ func (a *App) chatAct(act share.Action) {
 // send sends the message box (or runs a /command).
 func (a *App) chatSend() {
 	c := a.chat
-	text := strings.TrimSpace(string(c.input))
+	text := c.in.Take()
 	if text == "" {
 		return
 	}
-	c.input, c.cur, c.scroll, c.help = nil, 0, 0, false
-	c.sent = append(c.sent, text)
-	c.sentAt = len(c.sent)
-	c.dirty = true
+	c.scroll, c.help, c.dirty = 0, false, true
 	if share.IsCommand(text) {
 		a.chatCommand(text)
 		return
@@ -928,46 +922,30 @@ func (a *App) chatKey(key glfw.Key, mods glfw.ModifierKey) bool {
 		} else {
 			a.chatSend()
 		}
+	case key == glfw.KeyBackspace && ctrl, ctrl && key == glfw.KeyW:
+		c.in.DeleteWord()
 	case key == glfw.KeyBackspace:
-		if ctrl {
-			a.chatDeleteWord()
-		} else if c.cur > 0 {
-			c.input = append(c.input[:c.cur-1], c.input[c.cur:]...)
-			c.cur--
-		}
+		c.in.Backspace()
 	case key == glfw.KeyDelete:
-		if c.cur < len(c.input) {
-			c.input = append(c.input[:c.cur], c.input[c.cur+1:]...)
-		}
+		c.in.Delete()
 	case key == glfw.KeyLeft:
-		c.cur = max(0, c.cur-1)
+		c.in.Left()
 	case key == glfw.KeyRight:
-		c.cur = min(len(c.input), c.cur+1)
+		c.in.Right()
 	case key == glfw.KeyHome || (ctrl && key == glfw.KeyA):
-		c.cur = 0
+		c.in.Home()
 	case key == glfw.KeyEnd || (ctrl && key == glfw.KeyE):
-		c.cur = len(c.input)
+		c.in.End()
 	case ctrl && key == glfw.KeyU:
-		c.input, c.cur = c.input[c.cur:], 0
+		c.in.KillToStart()
 	case ctrl && key == glfw.KeyK:
-		c.input = c.input[:c.cur]
-	case ctrl && key == glfw.KeyW:
-		a.chatDeleteWord()
+		c.in.KillToEnd()
 	case ctrl && key == glfw.KeyV:
 		a.chatInsert(glfw.GetClipboardString())
-	case key == glfw.KeyUp && (len(c.input) == 0 || c.sentAt < len(c.sent)):
-		if c.sentAt > 0 {
-			c.sentAt--
-			c.input = []rune(c.sent[c.sentAt])
-			c.cur = len(c.input)
-		}
-	case key == glfw.KeyDown && c.sentAt < len(c.sent):
-		c.sentAt++
-		c.input = nil
-		if c.sentAt < len(c.sent) {
-			c.input = []rune(c.sent[c.sentAt])
-		}
-		c.cur = len(c.input)
+	case key == glfw.KeyUp && (c.in.Empty() || c.in.Recalling()):
+		c.in.Up()
+	case key == glfw.KeyDown && c.in.Recalling():
+		c.in.Down()
 	case key == glfw.KeyPageUp:
 		c.scroll += 10
 	case key == glfw.KeyPageDown:
@@ -985,7 +963,7 @@ func (a *App) chatKey(key glfw.Key, mods glfw.ModifierKey) bool {
 // a pending request when the box is empty.
 func (a *App) chatType(r rune) {
 	c := a.chat
-	if len(c.input) == 0 {
+	if c.in.Empty() {
 		if _, _, ok := a.chatDecision(); ok && strings.ContainsRune("yYnN", r) {
 			a.chatDecide(r == 'y' || r == 'Y')
 			return
@@ -996,38 +974,14 @@ func (a *App) chatType(r rune) {
 
 func (a *App) chatInsert(text string) {
 	c := a.chat
-	var rs []rune
-	for _, r := range strings.ReplaceAll(text, "\r\n", "\n") {
-		if r == '\t' {
-			r = ' '
-		}
-		if r == '\n' || !unicode.IsControl(r) {
-			rs = append(rs, r)
-		}
-	}
-	if len(rs) == 0 || len(c.input)+len(rs) > 4000 {
+	if !c.in.Insert(text) {
 		return
 	}
-	c.input = append(c.input[:c.cur], append(rs, c.input[c.cur:]...)...)
-	c.cur += len(rs)
 	c.dirty, a.forceRedraw = true, true
 	if time.Since(c.lastComposing) > 2*time.Second {
 		c.lastComposing = time.Now()
 		a.chatAct(share.Action{Op: share.OpComposing})
 	}
-}
-
-func (a *App) chatDeleteWord() {
-	c := a.chat
-	i := c.cur
-	for i > 0 && unicode.IsSpace(c.input[i-1]) {
-		i--
-	}
-	for i > 0 && !unicode.IsSpace(c.input[i-1]) {
-		i--
-	}
-	c.input = append(c.input[:i], c.input[c.cur:]...)
-	c.cur = i
 }
 
 // ---- mouse -----------------------------------------------------------------
@@ -1123,7 +1077,7 @@ func (a *App) chatText() string {
 // chatView is what the panel draws.
 func (a *App) chatView(cols int) chatview.View {
 	c := a.chat
-	v := chatview.View{Msgs: c.msgs, People: c.people, You: c.you, Host: c.host, Input: c.input, Cur: c.cur,
+	v := chatview.View{Msgs: c.msgs, People: c.people, You: c.you, Host: c.host, Input: c.in.Text, Cur: c.in.Cur,
 		Focused: c.focused, Scroll: c.scroll, Divider: c.divider}
 	if c.host {
 		v.Head = chatview.HostHead(c.session, c.via, c.link, c.people, c.state, cols)

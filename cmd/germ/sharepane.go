@@ -35,10 +35,7 @@ type sharePane struct {
 
 	mu          sync.Mutex
 	msgs        []share.ChatMsg // the chat, and this pane's own log lines
-	input       []rune
-	cur         int
-	sent        []string
-	sentAt      int
+	in          chatview.Input  // the message box
 	scroll      int
 	notice      string
 	noticeUntil time.Time
@@ -169,7 +166,7 @@ func (p *sharePane) draw() {
 	}
 	v := chatview.View{
 		Msgs: p.msgs, People: people, Host: true, Me: share.ShortName(p.h.Name),
-		Input: p.input, Cur: p.cur, Focused: true, Scroll: p.scroll,
+		Input: p.in.Text, Cur: p.in.Cur, Focused: true, Scroll: p.scroll,
 		Decision: label, MoreAsks: n - 1, Notice: p.notice,
 		Hint: "message · /help for commands",
 		Head: p.head(people, st, cols),
@@ -315,32 +312,19 @@ func (p *sharePane) escape(seq string) {
 	case "\x1b":
 		p.quitting = false
 	case "\x1b[D", "\x1bOD":
-		p.cur = max(0, p.cur-1)
+		p.in.Left()
 	case "\x1b[C", "\x1bOC":
-		p.cur = min(len(p.input), p.cur+1)
+		p.in.Right()
 	case "\x1b[H", "\x1bOH", "\x1b[1~":
-		p.cur = 0
+		p.in.Home()
 	case "\x1b[F", "\x1bOF", "\x1b[4~":
-		p.cur = len(p.input)
+		p.in.End()
 	case "\x1b[3~":
-		if p.cur < len(p.input) {
-			p.input = append(p.input[:p.cur], p.input[p.cur+1:]...)
-		}
+		p.in.Delete()
 	case "\x1b[A", "\x1bOA":
-		if p.sentAt > 0 && (len(p.input) == 0 || p.sentAt < len(p.sent)) {
-			p.sentAt--
-			p.input = []rune(p.sent[p.sentAt])
-			p.cur = len(p.input)
-		}
+		p.in.Up()
 	case "\x1b[B", "\x1bOB":
-		if p.sentAt < len(p.sent) {
-			p.sentAt++
-			p.input = nil
-			if p.sentAt < len(p.sent) {
-				p.input = []rune(p.sent[p.sentAt])
-			}
-			p.cur = len(p.input)
-		}
+		p.in.Down()
 	case "\x1b[5~":
 		p.scroll += 10
 	case "\x1b[6~":
@@ -350,7 +334,7 @@ func (p *sharePane) escape(seq string) {
 
 func (p *sharePane) key(r rune) {
 	p.mu.Lock()
-	empty := len(p.input) == 0
+	empty := p.in.Empty()
 	p.mu.Unlock()
 	switch r {
 	case '\r', '\n':
@@ -358,8 +342,8 @@ func (p *sharePane) key(r rune) {
 		return
 	case 3, 4: // Ctrl+C, Ctrl+D: clear the box, or ask to stop sharing
 		p.mu.Lock()
-		if len(p.input) > 0 {
-			p.input, p.cur = nil, 0
+		if !p.in.Empty() {
+			p.in.Clear()
 		} else {
 			p.quitting = true
 		}
@@ -376,27 +360,17 @@ func (p *sharePane) key(r rune) {
 	defer p.mu.Unlock()
 	switch r {
 	case 127, 8: // Backspace
-		if p.cur > 0 {
-			p.input = append(p.input[:p.cur-1], p.input[p.cur:]...)
-			p.cur--
-		}
+		p.in.Backspace()
 	case 1: // Ctrl+A
-		p.cur = 0
+		p.in.Home()
 	case 5: // Ctrl+E
-		p.cur = len(p.input)
+		p.in.End()
 	case 21: // Ctrl+U
-		p.input, p.cur = p.input[p.cur:], 0
+		p.in.KillToStart()
 	case 11: // Ctrl+K
-		p.input = p.input[:p.cur]
+		p.in.KillToEnd()
 	case 23: // Ctrl+W
-		i := p.cur
-		for i > 0 && unicode.IsSpace(p.input[i-1]) {
-			i--
-		}
-		for i > 0 && !unicode.IsSpace(p.input[i-1]) {
-			i--
-		}
-		p.input, p.cur = append(p.input[:i], p.input[p.cur:]...), i
+		p.in.DeleteWord()
 	default:
 		if !unicode.IsControl(r) {
 			p.insertLocked(string(r))
@@ -411,20 +385,9 @@ func (p *sharePane) insert(text string) {
 }
 
 func (p *sharePane) insertLocked(text string) {
-	var rs []rune
-	for _, r := range strings.ReplaceAll(text, "\r\n", "\n") {
-		if r == '\t' || r == '\r' {
-			r = ' '
-		}
-		if r == '\n' || !unicode.IsControl(r) {
-			rs = append(rs, r)
-		}
-	}
-	if len(rs) == 0 || len(p.input)+len(rs) > 4000 {
+	if !p.in.Insert(text) {
 		return
 	}
-	p.input = append(p.input[:p.cur], append(rs, p.input[p.cur:]...)...)
-	p.cur += len(rs)
 	p.scroll = 0
 	if time.Since(p.composedAt) > 2*time.Second {
 		p.composedAt = time.Now()
@@ -435,11 +398,9 @@ func (p *sharePane) insertLocked(text string) {
 // send sends the message box, or runs the /command in it.
 func (p *sharePane) send() {
 	p.mu.Lock()
-	text := strings.TrimSpace(string(p.input))
+	text := p.in.Take()
 	if text != "" {
-		p.input, p.cur, p.scroll = nil, 0, 0
-		p.sent = append(p.sent, text)
-		p.sentAt = len(p.sent)
+		p.scroll = 0
 	}
 	p.mu.Unlock()
 	switch {
