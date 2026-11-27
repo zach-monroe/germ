@@ -1,5 +1,6 @@
 #!/bin/bash
-# Records the README demo video (docs/img/demo.mp4): you share your session
+# Records the README demo (docs/img/demo.mp4, and demo.gif beside it,
+# which GitHub plays inline): you share your session
 # (right), alice joins (left), you chat, she asks for the helm, runs tests
 # in your tab, and you take it back. Captions are burned in. It runs on its
 # own virtual X server (Xvfb, 1920x1080) and is isolated like the e2e
@@ -140,4 +141,6 @@ for ((i = 0; i < ${#L[@]} - 1; i++)); do
 	f+="${f:+,}drawtext=fontfile=$FONT:textfile=$TMP/cap$i.txt:fontsize=40:fontcolor=0xc0caf5:x=(w-tw)/2:y=h-90:enable='between(t,$s,$e)'"
 done
 ffmpeg -loglevel error -y -i "$TMP/raw.mp4" -vf "$f" -c:v libx264 -preset slow -crf 22 -pix_fmt yuv420p -movflags +faststart "$OUTV"
-echo "$OUTV"
+# A GIF too: GitHub plays those in a README, not videos in the repo.
+ffmpeg -loglevel error -y -i "$OUTV" -vf "fps=10,scale=1600:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" "${OUTV%.mp4}.gif"
+echo "$OUTV ${OUTV%.mp4}.gif"
