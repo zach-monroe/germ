@@ -52,6 +52,16 @@ func (a *App) timerWait() time.Duration {
 	if a.animating {
 		soonest(100 * time.Millisecond)
 	}
+	if t := a.tab(); t != nil {
+		for _, p := range t.visible() { // a synchronized update that may never end
+			p.term.Lock()
+			left := p.term.SyncWait()
+			p.term.Unlock()
+			if left > 0 {
+				soonest(left + time.Millisecond)
+			}
+		}
+	}
 	if a.autoscroll() {
 		soonest(50 * time.Millisecond)
 	}

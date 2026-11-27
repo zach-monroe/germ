@@ -155,6 +155,9 @@ type Terminal struct {
 
 	resp []byte // pending responses, flushed after unlocking
 
+	syncBuf   []byte    // a synchronized update being held (sync.go)
+	syncSince time.Time // when it began; zero when not holding
+
 	// pushed counts lines ever pushed into scrollback. Together with the
 	// scrollback length it gives every line a stable absolute row number,
 	// so selections survive new output.
@@ -221,7 +224,7 @@ func (t *Terminal) resetTabs() {
 // Write feeds output from the child process into the terminal.
 func (t *Terminal) Write(p []byte) (int, error) {
 	t.mu.Lock()
-	t.parser.Advance(p)
+	t.advance(p)
 	var resp []byte
 	if len(t.resp) > 0 {
 		resp = append([]byte(nil), t.resp...)

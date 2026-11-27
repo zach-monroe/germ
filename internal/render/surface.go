@@ -1,8 +1,6 @@
 package render
 
 import (
-	"time"
-
 	"github.com/zach-monroe/germ/internal/font"
 	"github.com/zach-monroe/germ/internal/term"
 	"github.com/zach-monroe/germ/internal/theme"
@@ -72,16 +70,15 @@ type Highlight struct {
 // Surface is one terminal's place in the window and its cached instance
 // data. Create one per pane with NewSurface.
 type Surface struct {
-	r         *Renderer
-	rows      []rowCache
-	cols      int
-	cursor    cursorState
-	reverse   bool
-	view      View
-	pushed    int64
-	theme     theme.Theme // effective colors, copied when the terminal's change
-	colorGen  uint64
-	syncSince time.Time
+	r        *Renderer
+	rows     []rowCache
+	cols     int
+	cursor   cursorState
+	reverse  bool
+	view     View
+	pushed   int64
+	theme    theme.Theme // effective colors, copied when the terminal's change
+	colorGen uint64
 
 	ox, oy   int // pixel origin of cell (0,0)
 	gutter   int // pixels left of the origin available for marks
@@ -102,17 +99,8 @@ func (s *Surface) Update(t *term.Terminal, v View, ox, oy, gutter int) bool {
 	force, focused := v.Force, v.Focused
 	t.Lock()
 	defer t.Unlock()
+	t.SyncWait() // applies a synchronized update that never ended
 	modes := t.Modes()
-	if modes.SyncOutput && !force {
-		if s.syncSince.IsZero() {
-			s.syncSince = time.Now()
-		}
-		if time.Since(s.syncSince) < syncTimeout {
-			return false
-		}
-	} else {
-		s.syncSince = time.Time{}
-	}
 
 	cols, rows := t.Size()
 	dirty, all := t.TakeDirty()

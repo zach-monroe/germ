@@ -8,7 +8,6 @@
 package render
 
 import (
-	"time"
 	"unsafe"
 
 	"github.com/go-gl/gl/v3.3-core/gl"
@@ -17,10 +16,6 @@ import (
 	"github.com/zach-monroe/germ/internal/term"
 	"github.com/zach-monroe/germ/internal/theme"
 )
-
-// syncTimeout bounds how long synchronized output (mode 2026) may hold
-// back frames, in case an app never ends its update.
-const syncTimeout = 200 * time.Millisecond
 
 type rgba [4]uint8
 
