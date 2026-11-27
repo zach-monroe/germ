@@ -139,6 +139,18 @@ func NameMatches(name, want string) bool {
 	return false
 }
 
+// Whoami is how this user appears to others: user@host.
+func Whoami() string {
+	user := os.Getenv("USER")
+	if user == "" {
+		user = "someone"
+	}
+	if host, _ := os.Hostname(); host != "" {
+		return user + "@" + host
+	}
+	return user
+}
+
 func ShortName(n string) string {
 	if i := strings.IndexByte(n, '@'); i > 0 {
 		rest := ""

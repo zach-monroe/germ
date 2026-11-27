@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"runtime/pprof"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/zach-monroe/germ/internal/app"
 	"github.com/zach-monroe/germ/internal/config"
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/mcp"
 	"github.com/zach-monroe/germ/internal/share"
 	"github.com/zach-monroe/germ/internal/widgets"
@@ -170,9 +170,7 @@ func main() {
 		g, err := prepareJoin(joinLink)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "germ join:", err)
-			if p, lerr := exec.LookPath("notify-send"); lerr == nil { // launched from a browser: no terminal
-				exec.Command(p, "--app-name=germ", "germ: couldn't join", err.Error()).Run()
-			}
+			desktop.Notify("germ: couldn't join", err.Error()) // launched from a browser: no terminal
 			os.Exit(1)
 		}
 		remote = g

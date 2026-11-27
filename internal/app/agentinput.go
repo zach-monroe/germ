@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/input"
 )
 
@@ -186,7 +187,7 @@ func (a *App) sendToAgent() bool {
 	}
 	target := a.recentAgent(src)
 	if target == nil {
-		go desktopNotify("germ", "No agent pane to send to. Start one with Ctrl+Shift+A.")
+		go desktop.Notify("germ", "No agent pane to send to. Start one with Ctrl+Shift+A.")
 		return true
 	}
 	from := src.titleString()

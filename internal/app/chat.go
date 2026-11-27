@@ -13,6 +13,7 @@ import (
 
 	"github.com/zach-monroe/germ/internal/chatview"
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/render"
 	"github.com/zach-monroe/germ/internal/share"
 	"github.com/zach-monroe/germ/internal/term"
@@ -399,7 +400,7 @@ func (a *App) chatMessage(m share.ChatMsg) {
 	first, _, _ := strings.Cut(m.Text, "\n")
 	a.chatToast(shortName(m.Name)+": "+first, 6*time.Second)
 	if a.mentioned(m.Text) {
-		desktopNotify("germ · "+shortName(m.Name), first)
+		desktop.Notify("germ · "+shortName(m.Name), first)
 		a.win.RequestAttention()
 	}
 }
@@ -408,7 +409,7 @@ func (a *App) chatMessage(m share.ChatMsg) {
 func (a *App) mentioned(text string) bool {
 	me := strings.ToLower(shortName(a.chat.names[a.chat.you]))
 	if a.chat.host {
-		me = strings.ToLower(shortName(whoami()))
+		me = strings.ToLower(shortName(share.Whoami()))
 	}
 	t := strings.ToLower(text)
 	for _, w := range strings.FieldsFunc(t, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune(",.:;!?()", r) }) {
@@ -426,7 +427,7 @@ func (a *App) chatAlert(text string) {
 	}
 	a.chatToast("» "+text, 10*time.Second)
 	if !a.focused || !(a.chat.visible() || a.inSharePane()) {
-		desktopNotify("germ", text)
+		desktop.Notify("germ", text)
 	}
 	a.win.RequestAttention()
 }
@@ -769,7 +770,7 @@ func (a *App) chatTabName(window string) string {
 
 func (a *App) personName(id uint32) string {
 	if id == 0 && a.chat.host {
-		return whoami()
+		return share.Whoami()
 	}
 	for _, p := range a.chat.people {
 		if p.ID == id {
@@ -1269,7 +1270,7 @@ func (a *App) chatView(cols int) chatview.View {
 		}
 	}
 	if c.host {
-		v.Me = shortName(whoami())
+		v.Me = shortName(share.Whoami())
 	} else {
 		v.Me = shortName(c.names[c.you])
 	}
@@ -1303,18 +1304,6 @@ func (a *App) chatView(cols int) chatview.View {
 }
 
 func shortName(n string) string { return share.ShortName(n) }
-
-// whoami is how the host appears in the session (as germ share names it).
-func whoami() string {
-	user := os.Getenv("USER")
-	if user == "" {
-		user = "someone"
-	}
-	if host, _ := os.Hostname(); host != "" {
-		return user + "@" + host
-	}
-	return user
-}
 
 // shareStatus summarizes the window's shared session, or nil.
 func (a *App) shareStatus() *control.ShareStatus {

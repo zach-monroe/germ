@@ -2,12 +2,12 @@ package app
 
 import (
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/zach-monroe/germ/internal/config"
+	"github.com/zach-monroe/germ/internal/desktop"
 )
 
 // notifyAfter is how long a command must run before germ notifies you
@@ -150,9 +150,5 @@ func (a *App) onCommandDone(exit int, d time.Duration) {
 	if exit != 0 {
 		body = fmt.Sprintf("failed (exit %d) after %s", exit, d.Round(time.Second))
 	}
-	go func() {
-		if p, err := exec.LookPath("notify-send"); err == nil {
-			_ = exec.Command(p, "--app-name=germ", "Command "+body).Run()
-		}
-	}()
+	go desktop.Notify("Command "+body, "")
 }

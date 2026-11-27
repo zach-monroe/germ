@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,6 +11,8 @@ import (
 	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
+
+	"github.com/zach-monroe/germ/internal/desktop"
 )
 
 // Agent attention: germ notices which panes run coding agents (Claude
@@ -251,7 +252,7 @@ func (a *App) notifyAgent(p *pane, body string) {
 	if !a.focused {
 		a.attention.Store(true)
 	}
-	go desktopNotify("germ · "+who, body)
+	go desktop.Notify("germ · "+who, body)
 }
 
 // visiblePanes are the panes you can see now (none while unfocused).
@@ -343,12 +344,6 @@ func (a *App) onAgentEvent(p *pane, agent, event, msg string) error {
 		ag.needsYou = false
 	}
 	return nil
-}
-
-func desktopNotify(title, body string) {
-	if p, err := exec.LookPath("notify-send"); err == nil {
-		_ = exec.Command(p, "--app-name=germ", title, body).Run()
-	}
 }
 
 // detectAgent names the agent running in p's foreground, or "".

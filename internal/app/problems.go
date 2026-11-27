@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/zach-monroe/germ/internal/desktop"
 )
 
 // Problems with the config, tmux, or a previous crash are shown in the
@@ -30,7 +32,7 @@ func (a *App) reportProblems(problems []string) {
 	if a.opts.ConfigPath != "" {
 		body += "\n\n" + a.opts.ConfigPath
 	}
-	go desktopNotify("germ: config problem", body)
+	go desktop.Notify("germ: config problem", body)
 }
 
 // StateDir is where germ keeps logs ($XDG_STATE_HOME/germ).
@@ -104,7 +106,7 @@ func (a *App) reportLastCrash() {
 	}
 	os.Remove(marker)
 	a.setStatus("⚠ germ crashed last time · log: "+tildeHome(CrashLog()), 30*time.Second)
-	go desktopNotify("germ crashed last time",
+	go desktop.Notify("germ crashed last time",
 		"The error is in "+CrashLog()+". Please report it at https://github.com/zach-monroe/germ/issues")
 }
 

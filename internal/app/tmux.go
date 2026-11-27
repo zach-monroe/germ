@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/share"
 	"github.com/zach-monroe/germ/internal/shellint"
 )
@@ -445,7 +446,7 @@ func (c *tmuxController) notification(line string) {
 				reason = "the shared session ended"
 			}
 			fmt.Fprintln(os.Stderr, "germ:", reason)
-			go desktopNotify("germ", reason)
+			go desktop.Notify("germ", reason)
 		}
 	}
 }

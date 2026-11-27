@@ -21,6 +21,7 @@ import (
 
 	"github.com/zach-monroe/germ/internal/config"
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/share"
 )
 
@@ -31,17 +32,6 @@ func loadConfig() config.Config {
 	}
 	cfg, _, _ := config.Load(path)
 	return cfg
-}
-
-func whoami() string {
-	user := os.Getenv("USER")
-	if user == "" {
-		user = "someone"
-	}
-	if host, _ := os.Hostname(); host != "" {
-		return user + "@" + host
-	}
-	return user
 }
 
 // logTo, when set, takes log lines (tunnels, reconnects) for the share pane.
@@ -132,7 +122,7 @@ func runShare(args []string) int {
 			via = "directly from this machine (" + exp.URL.Host + ", plain http)"
 		}
 	}
-	h.Name = whoami()
+	h.Name = share.Whoami()
 	h.Approval = cfg.Share.Approve
 	if h.Approval == "typing" { // from before the helm: everyone can type now (with it)
 		h.Approval = "all"
@@ -548,12 +538,10 @@ func prepareJoin(link string) (*share.Guest, error) {
 	}
 	ensureURLHandler(true)
 	ctx := context.Background()
-	return share.Join(ctx, l, whoami(), func() {
+	return share.Join(ctx, l, share.Whoami(), func() {
 		msg := "waiting for the host to let you in…"
 		fmt.Fprintln(os.Stderr, "germ:", msg)
-		if p, err := exec.LookPath("notify-send"); err == nil { // launched from a browser: no terminal
-			exec.Command(p, "--app-name=germ", "germ", msg).Run()
-		}
+		desktop.Notify("germ", msg) // launched from a browser: no terminal
 	})
 }
 
@@ -645,13 +633,6 @@ func randomToken() string {
 	b := make([]byte, 24)
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
-}
-
-// notify shows a desktop notification, if notify-send is installed.
-func notify(msg string) {
-	if p, err := exec.LookPath("notify-send"); err == nil {
-		exec.Command(p, "--app-name=germ", "germ", msg).Run()
-	}
 }
 
 // temporaryBuild reports whether the binary at self lives in a temporary

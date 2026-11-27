@@ -11,6 +11,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/share"
 )
 
@@ -87,25 +88,12 @@ func (a *App) startRemote(g *share.Guest) {
 	c.findHost()
 }
 
-// guestName is how this user appears to others.
-func guestName() string {
-	user := os.Getenv("USER")
-	host, _ := os.Hostname()
-	if user == "" {
-		user = "guest"
-	}
-	if host == "" {
-		return user
-	}
-	return user + "@" + host
-}
-
 // shareSession shares this tmux session: `germ share` runs in the
 // background (in no pane, so guests can't see it) and the controls are in
 // the chat panel. Already sharing, it shows the panel.
 func (a *App) shareSession() {
 	if a.tmux == nil || a.tmux.remote != nil {
-		go desktopNotify("germ", "Sharing needs germ's tmux mode ([tmux] enabled = true).")
+		go desktop.Notify("germ", "Sharing needs germ's tmux mode ([tmux] enabled = true).")
 		return
 	}
 	c := a.chat
@@ -156,7 +144,7 @@ func (a *App) shareSession() {
 			a.shareStarted = time.Time{}
 			if err != nil {
 				a.chatToast("sharing stopped: "+lastLine(logPath), 12*time.Second)
-				go desktopNotify("germ", "Sharing stopped: "+lastLine(logPath))
+				go desktop.Notify("germ", "Sharing stopped: "+lastLine(logPath))
 			}
 		})
 	}()

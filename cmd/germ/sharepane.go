@@ -19,6 +19,7 @@ import (
 
 	"github.com/zach-monroe/germ/internal/chatview"
 	"github.com/zach-monroe/germ/internal/control"
+	"github.com/zach-monroe/germ/internal/desktop"
 	"github.com/zach-monroe/germ/internal/share"
 )
 
@@ -106,7 +107,7 @@ func (p *sharePane) asked(key, question string) {
 	}
 	if !p.br.window() {
 		p.write("\a")
-		go notify(question)
+		go desktop.Notify("germ", question)
 	}
 	p.changed()
 }
