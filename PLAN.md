@@ -188,7 +188,7 @@ The terminal side is just parsing OSC 133 and OSC 7, so other shells (zsh, bash)
 | **16. Agent tuning** ✅ | Tune working/done/needs-you against real agents; clickable widgets (agents widget jumps to the pane); agent activity timeline | Badges match what agents are actually doing |
 | **17. Agent precision** ✅ | Agents report their own state: `germ setup agents` installs Claude Code hooks and Codex `notify` that call `germ ctl agent-event`, overriding screen heuristics; "finished" notifications; keyboard hints mode (Ctrl+Shift+E: label every URL, `file:line`, git hash, IP on screen; a letter opens, Shift+letter copies) | Badges and `wait_for` are exact for Claude Code, and you never reach for the mouse to open what an agent printed |
 | **18. Agent review & throughput** ✅ | Review tab for `germ agent` worktrees: diff with file list, merge / discard / send feedback to the agent in one key; throughput, latency and memory benchmarks against kitty and alacritty, then fixes | Three agents finish, and you review and merge each from one tab; a 100 MB log scrolls past without germ falling behind |
-| **19. Daily-driver core** ✅ | Native Wayland (GLFW 3.4) with fractional scaling and IME; opt-in ligatures (go-text shaping); synthetic italic/bold; DPI changes across monitors; crash log, `germ doctor`, config errors shown in the window; base16/iTerm2/Alacritty theme import | Crisp text on a 1.25× Wayland display, and a broken config tells you what's wrong |
+| **19. Daily-driver core** ✅ | Opt-in ligatures (go-text shaping); synthetic italic/bold; DPI changes across monitors; crash log, `germ doctor`, config errors shown in the window; base16/iTerm2/Alacritty theme import | A broken config tells you what's wrong |
 | **20. Survive a reboot** ✅ | Snapshot each tmux session's windows, layouts, directories and agents every 30 s; rebuild them when the session is created afresh; type agents' resume commands | Reboot, open germ: your tabs and splits are back in their directories, with `claude --continue` waiting in each agent pane |
 | **21. Command palette** ✅ | Ctrl+Shift+Space: fuzzy-searchable list of every action (with its key) | Every feature is findable without memorizing chords |
 | **22. Input latency** ✅ | Measure key-to-screen latency against kitty/ghostty; fix what's slow | germ is as quick to echo a key as the fastest terminal here |
@@ -236,7 +236,7 @@ same window; the socket is 0600.
 ## Coworking v3 design (Phase 23)
 
 **One link.** Everyone who joins can watch and chat; typing is by turns.
-The read-only link is gone (`[share] approve = "typing"` now means "all").
+There is no read-only link.
 
 **The helm, per tab.** Each tab (tmux window) has an owner (the host
 unless assigned) and a helm holder (the owner unless handed over). Only
@@ -296,177 +296,79 @@ throttled.
 3. **Ligatures are optional.** v1 uses `golang.org/x/image/font/opentype` with one glyph per cell and no shaping. HarfBuzz-style shaping (`go-text/typesetting`) can be added later behind the `font` package interface.
 4. **XWayland is fine to start.** We use GLFW 3.3 on X11 and can switch to GLFW 3.4 for native Wayland later.
 
-## Status (Phase 24)
-- Widget clicks: `germ-widget:TOKEN` / `germ-open:DIR` OSC 8 links are accepted only by terminals with `term.Options.ActionLinks` (widget panes; `AllowActionLinks`), so shell output can't plant them; `openURL` ignores them. Built-ins implement `widgets.Clicker` (clicks arrive on `RunInProcess`'s clicks channel, then redraw); live programs get `TOKEN\n` on stdin with echo off (`pty.Session.NoEcho`, via SyscallConn so reads stay interruptible); interval programs rerun at once with `GERM_WIDGET_CLICK`. `germ-open:` → `newTabIn(dir)`. e2e: scripts/e2e/widgets.sh.
-- New built-ins (all in-process): `system` (/proc, /sys), `ports` (/proc/net/tcp{,6} → socket inode → topmost owning pid → ppid walk to a pane's `pid`), `prs` (one `gh api graphql` with two searches), `worktrees` (`internal/worktrees`, shared with `germ review`; repos from panes' cwds), `coworking` (`share_status`), `calendar` (`ical.go`: a small RFC 5545 reader with RRULE/EXDATE/RECURRENCE-ID/TZID), `todo` (markdown checklist, `Clicker`, line-hash tokens so stale clicks are no-ops, atomic save through symlinks). `list_panes` gained `pid`, `window`, `tab_label`.
-- Known pre-existing failure (also on v0.7.0): share.sh "right-click alice in the panel: hand her the helm".
+## Notes
 
-## Status (themes, after v0.6.0)
-- Palette lists bundled and installed themes (`theme.Installed`); selecting previews (`paletteItem.preview`), Enter keeps (`config.SetTheme`: rewrites only the top-level `theme =` line, keeps comments, follows symlinks), Esc/close restores the theme and the status it covered.
-- `germ theme new [-from T] NAME` (commented template, `theme.Template`, round-trip tested) and `germ theme use NAME`; `germ theme list` / `-list-themes` mark yours and the current one. The watcher picks up a themes dir created later. docs/themes.md.
+What building it taught us that the code doesn't make obvious. The
+history of each phase is in `git log`.
 
-## Status (Phase 23)
-- One invite link (protocol v3; the watch-only link and `approve = "typing"` are gone). People are identified by client ID across reconnects (`share.Participant.ID` is a person ID); names are unique by short name ("alice", "alice (2)").
-- The room (`internal/share/room.go`): chat (host-stamped sender, seq and time; 500 kept, 200 sent to newcomers; 4 KB, 5-message burst then 1/s; mute), per-tab owner and helm, helm requests (approver: the tab's owner if a guest owns and holds it, else the host; host can always decide), events in the chat, 90 s grace for people who leave. Saved only on command (`~/.local/share/germ/chats/`).
-- Enforcement in `germ share`: guest tmux commands allowlisted by class (view / needs the helm of the -t target's tab / new-window needs the helm of the guest's current tab); `send-keys -K` never. Browser guests get grouped sessions too (tab strip, follow the host) and type via `send-keys -H`. Not `attach -r`: a read-only client makes tmux refuse command-line commands, the host's own included (found testing the browser).
-- germ: `internal/app/chat.go`, a docked panel drawn as a small `term.Terminal` (Ctrl+Shift+M `toggle_chat`), Ctrl+Shift+O `helm`; the host's own keystrokes and mouse reports are dropped in a tab a guest holds; `⎈alice` tab tags; toasts and unread count in the tab bar; @mentions notify; y/n answer requests with an empty box; `/give /takeback /mute /unmute /save /yes /no /helm`; palette items. The host's window talks to `germ share` with `share_update` / `share_wait` (long poll) on its own control connection.
-- Browser: chat panel, tab strip, Request / Hand back the helm, mention highlights, unread count in the title; mouse and focus reports never sent.
-- A branch for a guest: `germ agent -for NAME [TASK]` makes a worktree on `germ/NAME-task` (git config `germ-for`), runs a shell with the live diff beside it, and gives the tab away (`share_give` control command → the window → `germ share`). `/branch NAME TASK` in the chat and "New tab for NAME on its own branch" in the palette open it. `germ review` labels it "NAME: task" and won't type feedback into a person's shell.
-- Fixed: a guest following the host could show the wrong tab after a reconnect (tmux says nothing when the session is already on the host's window). `germ share`'s control connection was used from several goroutines at once. Guests' chat panels didn't hear about people joining after them.
-- Tests: `TestHelmAndChat` (in-process relay, host, three guests), `TestFilterCommand`, chat rendering tests; `scripts/e2e/share.sh` drives two germ guests through the helm, chat, `/give`, a relay restart and removal (21 checks, including /branch). The browser viewer was checked by hand in Firefox on Xvfb.
+**Performance** (i3-4030U, 4 cores; benchmarks on Xvfb/llvmpipe, which caps
+germ near 22 fps, so judge the pipeline from logs, not fps)
+- Headless throughput (`internal/term` benchmarks): ~112 MB/s plain text,
+  ~42 MB/s SGR-heavy, 0 allocs once scrollback is full. End to end, the
+  kernel PTY bounds `cat`, which is why the grid never became a ring buffer.
+- scripts/bench/throughput.sh (100x30): plain germ 2.4 / 1.2 / 2.1 s for 40 MB
+  log / 20 MB SGR / 20 MB UTF-8 vs kitty 3.0 / 1.5 / 3.8 and ghostty
+  7.6 / 7.1 / 3.6. In tmux mode the tmux server pegs a core and is the
+  ceiling (germ 5.6 / 6.0 / 15.9 vs kitty+tmux 5.8 / 6.7 / 20.3).
+- scripts/bench/latency.sh (key to screen, terminals running `cat`): germ
+  ~5 ms median, tmux mode 6–9 ms; kitty 54–68 ms and ghostty ~45 ms (their
+  deliberate repaint delays).
+- Synchronized output (mode 2026) is held *unparsed* until it ends
+  (`term/sync.go`, 200 ms timeout). Under tmux, a `%output` chunk often
+  ends one frame and begins the next, so gating draws on the mode (what
+  the renderer used to do) hid finished frames: nvim with smear-cursor or
+  snacks.scroll felt sluggish.
+- fc-match answers are cached (~/.cache/germ/fontmatch.json): a warm font
+  load is ~7 ms instead of ~95.
 
-## Status (Phase 22)
-- Key-to-screen latency (scripts/bench/latency.sh + keylat.c: XTest key, XGetImage poll until the window changes; terminals run `cat`; Xvfb/llvmpipe): germ ~5 ms median (p95 10–21 ms, one emulated 60 Hz swap), tmux mode ~6–9 ms; kitty 54–68 ms, ghostty ~45 ms (their deliberate input/repaint delays, tuned for real vsync). No fix needed.
-- Fixed (found by the benchmark): session restore ran for `germ -tmux -shell PROGRAM` and replaced the program; restore and snapshots are now skipped for explicit commands. e2e/bench scripts use a temporary XDG_STATE_HOME.
+**tmux**
+- Kill a tmux server before removing its socket, or it lives on (share
+  tests once leaked 73).
+- Guests' grouped sessions make `@w` ambiguous: window targets are
+  session-qualified (`$id:@w`) everywhere.
+- The host waits for `%session-changed` before welcoming a guest, or early
+  commands return empty. tmux says nothing when a session is already on
+  the window it's told to select (this broke following after a reconnect).
+- Session restore types agents' resume commands 1.5 s after rebuilding
+  (sooner, shells echo them before the prompt). `%exit` deletes the
+  snapshot unless systemd says the system is stopping or the login
+  session is closing. Restore and snapshots are skipped when germ runs an
+  explicit command.
+- The parser swallows screen/tmux `ESC k … ST` window-name strings.
 
-## Status (Phase 21)
-- Command palette (Ctrl+Shift+Space, `command_palette`): `render.View.TopOverlay` (rows drawn instead of the top rows, no cursor; the cursor no longer draws over the search bar either). Items: every labeled action with up to two keys from the live bindings, plus Open config file, germ doctor / germ setup agents in a tab, and live theme previews. Running agents come first ("Go to agent: claude · needs you · <tab> · <message>", most urgent first). Fuzzy subsequence scoring (word starts, runs). Enter runs, ↑↓/Tab/Ctrl+N/P move, Esc closes.
+**Sharing**
+- Browser guests aren't `attach -r`: command-line tmux commands run as the
+  most recently active client, and a read-only one makes tmux refuse them,
+  the host's own included.
+- NaCl secretbox, not Web Crypto: Web Crypto needs a secure context and
+  direct links are plain http.
+- The relay requires `X-Germ-Host-Token` from the host because tunnels make
+  every request look local.
+- Tailscale Funnel needs a Running backend and the `funnel` node attribute;
+  it runs in the foreground on 443, 8443 or 10000.
+- A goodbye (`msgBye`) is read with its own context so it gets out while
+  the connection is being torn down.
 
-## Status (Phase 20)
-- Snapshots: `list-panes -s` every 30 s (agent tick) into $XDG_STATE_HOME/germ/sessions/<session>.json (window name/layout/active, pane cwd/agent/active), only once restore is done. Restore when startTmux creates a session that didn't exist: one command line per window (new-window -c, split-window -c, select-layout, select-pane {next}), kill the initial window, select the active one relative to `:^`; resume commands typed 1.5 s later by pane ID (typed earlier, shells echo them before the prompt). `%exit` not caused by germ deletes the snapshot unless systemd says the system is stopping or the login session is closing. e2e verified by hand (simulated reboot: kill -9 germ, kill-server, relaunch); `[tmux] restore`.
+**Shells and agents**
+- zsh integration bootstraps through ZDOTDIR (restoring it and sourcing the
+  user's .zshenv) and adds a PS1 suffix, since Oh My Zsh replaces
+  zle-line-init. fish's `XDG_DATA_DIRS` change is for fish only and
+  restored for its children.
+- `germ ctl agent-event` never prints, always exits 0, gives up after 2 s.
+  A hook-reported "working" lapses after 15 s without events or output
+  (Claude Code sends no Stop on Esc).
 
-## Status (Phase 19)
-- Native Wayland deferred: the user runs Xorg + i3, and go-gl's GLFW 3.4 bindings are pre-release (v0.1.0-pre.2).
-- Config problems (parse errors, unknown keys, bad theme, font load, tmux start failure) go to the tab bar status for 20 s and a desktop notification, at startup and on reload.
-- Crash log: `debug.SetCrashOutput` to a per-process temp in $XDG_STATE_HOME/germ, renamed to crash.log when its process is gone and non-empty; the next launch reports it once.
-- Synthetic italic (0.2 shear around the baseline, sub-pixel) and bold (n-px horizontal dilation) when fontconfig returns the upright/regular face for a style; checked by face identity.
-- Content-scale callback reloads fonts and padding at the new DPI (no-op on X11, where the scale is global).
-- `germ theme import FILE` (base16/base24 YAML incl. tinted `palette:` layout, iTerm2 .itermcolors plist, Alacritty TOML; validated by theme.Parse) and `germ theme list`.
-- Ligatures (`[font] ligatures`, off by default): runs of ASCII punctuation in one style are shaped with go-text HarfBuzz; when the font substitutes glyphs one-for-one (calt-style coding ligatures), cells draw those glyph IDs (sfnt outline + x/image/vector, `atlas.getGlyph`). Fewer-glyph shapings are ignored, so the grid never changes. Cached per (text, style); no throughput cost measured.
-- `germ doctor`: config, theme, font (fc-match family vs requested), emoji font, tmux ≥ 3.2, shell integration, notify-send, xdg-open, germ:// handler, git, Claude/Codex hooks, relay reachability / Funnel / cloudflared, last crash.
+**Rendering**
+- Hinted freetype is used only for runes in its cmap (some Nerd Font icons
+  fall back to x/image). Ligatures only use one-for-one glyph
+  substitutions, so the grid never changes. Synthetic italic and bold are
+  chosen by comparing face identity with the regular face.
+- Native Wayland is deferred: the user runs Xorg + i3, and go-gl's GLFW 3.4
+  bindings are pre-release.
 
-## Status (Phase 18)
-- `germ review` / Ctrl+Shift+R (`review_agents`): lists `germ/*` worktrees of the repo (from any of its worktrees), task/base/from from `branch.<b>.germ-*` git config (written by `germ agent`; merge-base fallback), commits, numstat, untracked, dirty; agent pane matched by cwd with live state and message. Enter diff in git's pager, f feedback (send_text), o focus, c commit, m merge (commit + close panes + merge --no-ff + remove), d discard. Polls stdin (no reader goroutine) so the pager/prompt get keys. `mergeBranch` / `removeWorktreeAt` shared with the post-exit menu.
-
-- Throughput (scripts/bench/throughput.sh, Xvfb/llvmpipe, 4 cores, 100x30): plain germ 2.4 s / 1.2 s / 2.1 s for 40 MB log / 20 MB SGR / 20 MB UTF-8 vs kitty 3.0 / 1.5 / 3.8 and ghostty 7.6 / 7.1 / 3.6. tmux mode 5.6 / 6.0 / 15.9 vs kitty+tmux 5.8 / 6.7 / 20.3: the tmux server pegs a core, so it's the ceiling there. RSS after 40 MB: germ 237 MB, kitty 245 MB. No optimization needed; latency not measured yet.
-- Fixed: `-shell` ignored in tmux mode (now the first pane's command of a new session); share tests leaked a tmux server per run (socket removed before kill-server; 73 orphans).
-
-## Status (Phase 17)
-- Agent self-reporting: `agent_event` control command; `germ ctl agent-event` (claude: hook JSON on stdin; codex: notify JSON arg; or a plain state). Never prints to stdout, always exits 0, 2 s cap, only reports to the window owning its pane (requires GERM_SOCKET). ~9 ms per call.
-- `paneAgent.hook` overrides screen/output heuristics while the reporting foreground pgid lives; reported "working" lapses after 15 s without events or output (no Stop on Esc); OSC/bell notes ignored for hook-reporting agents (no duplicates); "finished" notifications (`[agents] notify_done`).
-- Hints mode (Ctrl+Shift+E, `hints` action): URLs, OSC 8 links, existing `file:line` refs, git hashes, IPs and host:port; labels drawn via `render.Highlight.Label`; newest output gets home-row keys; lowercase opens (host:port as http), uppercase copies. `urlMatches` / `resolveFile` shared with Ctrl+click.
-- `germ setup agents [-remove] [-n]`: Claude Code hooks (10 events) merged into settings.json preserving key order and the user's hooks, backup `.germ-bak`; Codex top-level `notify` (left alone if set to another program). e2e: scripts/e2e/agents.sh.
-
-## Status (after the polish pass)
-- Scrollback search (Ctrl+Shift+F): bar on the pane's bottom row (render.View.Overlay), highlights (View.Highlights), smart case, matches across soft wraps, Enter/Shift+Enter or Up/Down, Esc. Guest follow moved to Ctrl+Shift+G.
-- CI on every push/PR (`ci.yml`): gofmt, vet, race tests, builds; Xvfb e2e suites (non-blocking for now; green so far).
-- Built-in widgets run in-process (`widgets.RunInProcess`, per-widget Options); custom widgets still run as programs.
-- Rendering: anti-aliased rounded corners; cursor blink when requested (solid while active); selection autoscroll past pane edges (unclamped pointer row); color emoji via go-text bitmap glyphs into a second RGBA atlas and a fourth draw pass (pictographs + Emoji_Presentation chars prefer color).
-- Startup: fc-match answers cached in ~/.cache/germ/fontmatch.json (invalidated when fontconfig caches are newer); style lookups in parallel. Warm font load ~7 ms (was ~95 ms of fc-match).
-
-## Status (after sharing security pass)
-- Exposure order: Tailscale Funnel (`tailscale funnel --https=443|8443|10000` in the foreground; needs Running backend + `funnel` node attribute; clear errors for operator/enablement) → Cloudflare quick tunnel. Direct/UPnP only with `mode = "direct"`.
-- Join approval (`[share] approve`, default all): host sends `Q` (waiting), `OnRequest` → share pane y/N with bell + notify-send; 2-minute timeout; max 5 waiting. Approved `client` IDs (random per guest, kept across reconnects) get back in without asking.
-- Built-in relay: host must present `X-Germ-Host-Token` (tunnels make every request look local); 20 guest connections/minute per room.
-- Verified: approval flow in Firefox through the Cloudflare tunnel; `TestApproval` (wait, deny, token, reconnect without re-asking).
-
-## Status (after zero-setup sharing)
-- `germ share` without `[share] relay` runs a private relay in-process (one room; host only from loopback and not via the tunnel) and exposes it: UPnP port mapping on the router (public, non-CGNAT address required) else a Cloudflare quick tunnel (`cloudflared` downloaded once to ~/.cache/germ/bin).
-- Browser viewer at the invite link: xterm.js + addon-fit + tweetnacl vendored in `internal/share/web` (THIRD_PARTY_LICENSES.txt). Browser guests get a plain `tmux attach` in a pty (watchers: `-r -f ignore-size`, input dropped on the host); native germ guests keep control mode.
-- Crypto switched to NaCl secretbox (protocol v2) because Web Crypto needs a secure context and direct links are http; `TestBrowserCrypto` checks Go ↔ tweetnacl.
-- Verified: direct (manual address) and tunnel modes with Firefox on Xvfb (type / watch-only), native join through the tunnel.
-
-## Status (after Phase 16)
-- Agent state also comes from the screen: the bottom 12 non-blank lines are matched against `[agents] working_patterns` ("esc to interrupt", which Claude Code and Codex show while working) and `waiting_patterns` (permission/question prompts). A prompt appearing acts like a notification (desktop notify when not visible; the question line becomes the message) and shows as waiting while it lasts. Works without the agent's notification setup.
-- Per-second state history (30 min ring) → `PaneInfo.History` (10 s buckets) with `list_panes {"history": true}`; the agents widget draws a one-cell-per-minute timeline.
-- `germ-pane:PID/PANE` hyperlinks focus a pane via that window's control socket (raising the window); agents widget rows use them.
-- Verified on Xvfb with a fake Claude Code UI: working held across slow updates, prompt → waiting with the question as message, click → focused.
-
-## Status (after Phase 15)
-- Shell integration for zsh (ZDOTDIR bootstrap that restores ZDOTDIR and sources the user's .zshenv; zle line-init hook after `zmodload zsh/zle`, plus a PS1 suffix since Oh My Zsh replaces zle-line-init) and bash (PROMPT_COMMAND bootstrap + DEBUG-trap preexec). tmux mode sets the variables on germ's session too. Tests run real interactive shells in a pty.
-- OSC 8 hyperlinks: `Cell.Link` indexes a per-terminal URI table (survives SGR resets; http/https/mailto/file/ftp/sftp/ssh/man only); Ctrl+hover underlines the run, Ctrl+click opens via `$BROWSER`/xdg-open, hand cursor. Widget panes need no Ctrl; news/stocks/weather emit links.
-- Drag separators: native tabs set the split ratio; tmux tabs send `resize-pane -L/-R/-U/-D` for the pane bordering the separator.
-- Combining characters: NFC-compose with the previous cell when possible, else `Cell.Mark` (one per cell) drawn after the base (fonts place zero-advance marks back over it). Joiners/variation selectors dropped.
-- `germ <command>` skips the home tab.
-
-## Status (after Phase 14)
-- Guests get grouped tmux sessions (`<session>-guest-N-xxx`, tagged `@germ-guest`, removed on leave, swept on start); window targets are session-qualified (`$id:@w`) everywhere since `@w` is ambiguous in a group; watchers may only `select-window -t $own:@w`.
-- Follow mode: guests track `%session-window-changed` for the host's session until they switch tabs; Ctrl+Shift+G resumes. Each germ only reacts to its own session's window changes.
-- Presence carries IDs and typing (send-keys within 3 s); share pane is interactive (copy links, remove by number, rotate links, quit).
-- Reconnect: guests retry for 90 s unless removed/said goodbye (`msgBye` before an intentional stop; reads use their own context so the goodbye gets out); the stream restarts with `%germ-reconnect`, on which the controller drops stale callbacks and re-reads everything (commands are dropped while offline). The host waits for tmux's `%session-changed` before welcoming, or early commands return empty. `germ share` reconnects to the relay with backoff.
-- `germ <command>` skips the home tab. `GERM_DEBUG_TMUX=file` logs the control-mode conversation.
-- Tests: `TestShareV2` (grouped sessions, typing, removal, relay drop + reconnect); `scripts/e2e/share.sh` now 10 checks incl. follow, independent tabs, relay restart, removal.
-
-## Status (after Phase 13)
-- `germ share` / Ctrl+Shift+P: per-guest `tmux -C attach` tunnelled over WebSocket through `germ-relay`; two links (can-type / watch-only) with separate AES-256-GCM keys in the URL fragment; host-side command filter (allowlist for watchers, denylist for typists, no `;` or `#(`); presence in the tab bar via `set_status`.
-- `germ join LINK`: germ's tmux controller runs over the tunnel (no pane PIDs or local file links for remote panes). `germ setup` registers `germ://` links. Join page served by the relay.
-- `cmd/germ-relay` (pure Go) + `deploy/relay` (Dockerfile). `docs/coworking.md`.
-- Verified: `internal/share` in-process test with real tmux; `scripts/e2e/share.sh` (relay + host + two guests on Xvfb).
-- TODO: prebuilt binaries so guests can install without Go; per-guest independent window (grouped sessions); host UI to kick guests; guest cursors.
-
-## Status (after Phase 12)
-- Shift+Enter → ESC CR in agent panes when no extended key protocol is on (`[agents] shift_enter_newline`).
-- Ctrl+Shift+V with an image on the clipboard: saved to `~/.cache/germ/paste/` via wl-paste/xclip, path pasted. File drops paste quoted paths.
-- Ctrl+Shift+S (`send_to_agent`): selection or last output → most recently used agent pane, fenced with its source, then focused.
-- Verified on Xvfb with a key logger posing as `claude`.
-
-## Status (after Phase 11)
-- `germ agent [TASK]` / Ctrl+Shift+A: worktree on `germ/<slug>` in `<repo>.worktrees/`, tab renamed via the control socket (`rename_tab`), `git` widget opened as a 35% split (`open_pane` size), agent run in its own foreground process group (so attention detection sees it), then a review menu (diff / commit / merge --no-ff + cleanup / resume / shell / keep / discard).
-- Ctrl+click `path:line[:col]` (existing files, relative to the pane's cwd) opens `$EDITOR` in a split (GUI editors detached).
-- Ctrl+Shift+` toggles the home tab (tmux's own window keys can't reach it).
-- `GERM_CONFIG` is exported so subcommands read the launching window's config.
-
-## Status (after Phases 8–10)
-- Home tab: widgets are PTY-run programs (live or interval), built-ins via `germ widget NAME` (clock, weather, news, stocks, agents). `docs/widgets.md`.
-- Agent attention: `/proc` tpgid → foreground command matched against `[agents] commands`; OSC 9/777/99 + BEL → "needs you"; output not explained by typing echo, or OSC 9;4 progress → "working"; tab badges (spinner / ● / ✓) clear on view; notify-send when not visible. Main loop ticks at 10 fps only while a spinner shows, plus a 1 s detection tick.
-- Control socket `$XDG_RUNTIME_DIR/germ/<pid>.sock` (JSON lines, executed on the main thread), `GERM_SOCKET` exported (and `set-environment` in tmux sessions). `germ ctl` CLI; `germ mcp` stdio MCP server with list_panes / read_pane / send_text / open_pane / wait_for. `docs/agents.md`.
-- Verified on Xvfb: fake agent badges; ctl open/wait/read/send in tmux and local modes; MCP session over stdio.
-- TODO: agent working/done heuristics need tuning against real Claude Code/Codex sessions; mouse clicks on widgets; `wait_for` push notifications instead of polling.
-
-## Status (after Phase 7) — all planned phases complete
-- tmux control mode: `germ -tmux [-session NAME]` or `[tmux] enabled = true`. tmux windows ↔ germ tabs, panes ↔ native splits with exact tmux geometry (layout strings parsed into the same split tree), per-pane germ scrollback/selection/clipboard, output via `%output`, input via `send-keys -H`, existing screens loaded with `capture-pane`, zoom via the visible layout, session kept on exit and restored on reattach. The tab bar shows the session name.
-- Parser now swallows screen/tmux `ESC k … ST` window-name strings (apps emit them whenever TERM is tmux*/screen*).
-- E2E: `scripts/e2e/tmux.sh` (isolated tmux server on Xvfb) checks splits, focus, and input routing.
-- Possible next steps: drag-to-resize separators (tmux `resize-pane` / native ratios), OSC 8 hyperlinks, kitty keyboard flags 4/16, color emoji, combining characters, native Wayland (GLFW 3.4), zsh/bash shell integration.
-
-## Status (after Phase 6)
-- Native tabs and splits: binary split tree in cells with tmux-style 1-cell separators; new panes open in the active pane's directory (OSC 7, else /proc). Tab bar appears with 2+ tabs (click or wheel to switch).
-- Defaults: Ctrl+Shift+T new tab, Ctrl+Shift+Q close tab, Ctrl+Tab / Ctrl+Shift+Tab or Ctrl+Shift+Left/Right switch, Ctrl+Shift+Enter split right, Ctrl+Shift+D split down, Ctrl+Shift+W close pane, Ctrl+Shift+H/J/K/L focus, Ctrl+Shift+Z zoom pane. Click a pane to focus it.
-- Renderer split into a shared Renderer (GL, fonts, atlas) and per-pane Surfaces with their own row caches; one frame draws all visible panes in three instanced draws.
-- Panes have pluggable backends (local PTY now, tmux next).
-- Perf: profiling showed the kernel PTY, not germ, bounds `cat` throughput (see Phase 2), so the planned ring-buffer grid was not needed.
-- TODO: drag separators to resize; per-tab layouts persisted across restarts.
-
-## Status (after Phase 5)
-- `TERM=xterm-germ`: terminfo compiled with `tic -x` into `~/.local/share/germ/terminfo` and exposed via `TERMINFO_DIRS`; the `xterm*` name makes tmux enable clipboard/cstyle/ccolour/focus/title by default. `[shell] term` overrides.
-- OSC 52 clipboard writes (reads refused for safety), DECRQSS (SGR, margins, cursor style), XTGETTCAP, xterm modifyOtherKeys levels 1–2 (tmux `extended-keys`).
-- Verified on Xvfb: tmux 3.7 reports `bpaste,ccolour,clipboard,cstyle,focus,RGB,title`; `set-buffer -w` reaches the system clipboard. `docs/tmux.md` has the recommended tmux.conf.
-
-## Status (after Phase 4.5)
-- fish integration is automatic: germ writes `germ-shell-integration.fish` to `~/.local/share/germ/shell-integration/fish/vendor_conf.d/` and prepends that dir to `XDG_DATA_DIRS` for fish only; the script restores the variable for children. Disable with `[shell_integration] mode = "off"`.
-- OSC 133 A/B/C/D and OSC 7 are tracked: prompt marks live on lines (survive scrollback and reflow), last command output range, exit status, cwd.
-- Actions: `previous_prompt`/`next_prompt` (Ctrl+Shift+Up/Down), `copy_last_output` (Ctrl+Shift+X). Failed commands get a red mark in the left padding. Commands over 10 s that finish while unfocused trigger notify-send + window urgency.
-- Fonts: hinted golang/freetype rendering is used only for runes its cmap maps; others (e.g. some Nerd Font icons) fall back to x/image.
-- TODO: clear the prompt before reflow so resizing doesn't duplicate fish's prompt; zsh/bash scripts.
-
-## Status (after Phase 4)
-- Config: `~/.config/germ/config.toml` (see `config.example.toml`), layered over defaults, unknown keys warned, errors keep the previous config. Command-line flags override it.
-- 9 bundled themes (`germ -list-themes`), user themes in `~/.config/germ/themes/`, `[colors]` overrides.
-- Live reload via fsnotify (directory watch, debounced): theme, colors, font, padding, keybindings.
-- Keybindings are configurable chords → actions; `none` unbinds.
-- OSC 4/10/11/12 set and query, OSC 104/110/111/112 reset; app overrides survive theme reloads.
-- TODO: importers for base16/iTerm2/Alacritty themes.
-
-## Status / known gaps (after Phase 3)
-- Input: full xterm legacy key encoding plus the kitty keyboard protocol (flags 1, 2, 8; per-screen flag stack; fish 4 enables it automatically).
-- Mouse: X10/normal/button/any reporting with default, UTF-8, SGR, URXVT, and SGR-pixel encodings; Shift bypasses reporting.
-- Selection: drag, double-click word, triple-click line; copies to PRIMARY (xclip/xsel) on select; Ctrl+Shift+C/V clipboard; middle-click pastes PRIMARY; bracketed paste with end-marker stripping.
-- Scrollback viewing: wheel / Shift+PgUp/PgDn, anchored while new output arrives; alt screen wheel sends arrows (mode 1007).
-- Ctrl+hover underlines URLs, Ctrl+click opens them (xdg-open). Ctrl+Shift+=/-/0 zoom.
-- E2E: `scripts/e2e/xtest.sh` drives germ on Xvfb with xdotool and logs the bytes it sends.
-- TODO: kitty flags 4 (alternate keys) and 16 (associated text); OSC 8 hyperlinks; cursor blink; selection auto-scroll while dragging past the edge.
-
-## Status / known gaps (after Phase 2)
-- Renderer: three instanced draw calls per frame (backgrounds, glyphs, decorations) with per-row instance caches rebuilt only for dirty rows; idle = 0 CPU; synchronized output (2026) holds frames up to 200 ms.
-- Box drawing (U+2500–257F) and block elements (U+2580–259F) are drawn procedurally so tmux borders join seamlessly.
-- End-to-end `cat` of a 22 MB file: ~4 s, versus ~3.5 s for a do-nothing PTY reader on the same machine — the kernel PTY is the bottleneck.
-- TODO: synthetic italic when the font has no italic face; proper double-line junctions; rounded corners as arcs.
-- TODO: color emoji (CBDT/COLR) are not rendered; handle DPI changes when moving between monitors.
-- TODO: font discovery shells out to `fc-match` (~100 ms at startup); cache results or use fontconfig directly.
-- Testing: `germ -screenshot out.png -- <cmd>` saves a PNG of the window; `GERM_CPUPROFILE=file` writes a CPU profile.
-
-- Phase 1 baseline throughput (headless) (i3-4030U @ 1.9 GHz): plain text ~82 MB/s, color-heavy ~32 MB/s, 0 allocs once scrollback is full. Parser alone: ~130 MB/s.
-- TODO: combining characters (zero-width runes are currently dropped).
-- TODO: the grid scrolls by shifting row slices; switch to a ring-buffer grid in the Phase 6 perf pass.
-- TODO: DECRQSS / XTGETTCAP (Phase 5), OSC colors (Phase 4), OSC 7/133 (Phase 4.5), kitty keyboard protocol (Phase 3).
-- Debug tool: `go run ./cmd/germ-vtdump -- <cmd>` renders a program's screen headlessly.
+**Testing**
+- e2e scripts source `scripts/e2e/lib.sh`, which keeps them off your desktop,
+  tmux sessions and state (see its header). Run them on `Xvfb :99`.
+- `germ -screenshot out.png`, `GERM_CPUPROFILE=file` (written only on a
+  normal exit), `GERM_DEBUG_TMUX=file` (the control-mode conversation),
+  `go run ./cmd/germ-vtdump -- CMD` (a program's screen, headless).
