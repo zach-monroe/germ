@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.8.1 (2026-11-27)
+
+### Fixed
+- **Smoother nvim and other apps that use synchronized output**, most of
+  all in tmux mode. germ now holds each update until the app finishes
+  drawing it, then shows it at once. Before, it skipped drawing while an
+  update was open, and tmux often delivers the end of one frame with the
+  start of the next, so finished frames stayed hidden and forced redraws
+  showed half-drawn ones. Cursor and scroll animations (smear-cursor,
+  snacks.scroll) no longer stutter.
+- Ctrl+S no longer freezes `germ review` or the menu after `germ agent`.
+
+### Changed
+- The chat panel and the share pane understand the same host /commands
+  (`/give`, `/take all`, `/branch`, ...), with the same answers.
+- `[share] approve` is "all" or "none"; the old "typing" value (already
+  the same as "all") is no longer mentioned.
+- Internal cleanup: one worktree package for `germ agent`, `germ review`
+  and the widget; one message box for both chat UIs; one key dispatch for
+  the palette, hints and search; shared setup for the end-to-end tests.
+
 ## v0.8.0 (2026-11-26)
 
 ### Home screen
