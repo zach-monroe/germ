@@ -48,18 +48,6 @@ func (s *Scrollback) push(l Line) Line {
 	return old
 }
 
-// popNewest removes and returns the most recent line.
-func (s *Scrollback) popNewest() (Line, bool) {
-	if s.n == 0 {
-		return Line{}, false
-	}
-	i := (s.start + s.n - 1) % len(s.lines)
-	l := s.lines[i]
-	s.lines[i] = Line{}
-	s.n--
-	return l, true
-}
-
 func (s *Scrollback) clear() {
 	clear(s.lines)
 	s.lines = s.lines[:0]

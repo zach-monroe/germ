@@ -617,13 +617,3 @@ func (c *Config) Bindings() (map[Chord]Action, error) {
 	}
 	return out, nil
 }
-
-// Actions lists all valid action names (for docs and errors).
-func Actions() []string {
-	var out []string
-	for a := range actions {
-		out = append(out, string(a))
-	}
-	sort.Strings(out)
-	return out
-}
