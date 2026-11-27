@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -354,9 +353,9 @@ func (a *App) chatState(s share.State) {
 			was := old.HelmOf(t.Window)
 			switch {
 			case t.Helm == c.you && was != c.you:
-				a.chatToast("⎈ you have the helm of "+a.chatTabName(t.Window)+": type away", 6*time.Second)
+				a.chatToast("⎈ you have the helm of "+a.chat.state.TabName(t.Window)+": type away", 6*time.Second)
 			case was == c.you && t.Helm != c.you && old.Tab(t.Window) != nil:
-				a.chatToast("⎈ "+shortName(a.personName(t.Helm))+" has the helm of "+a.chatTabName(t.Window)+" now", 6*time.Second)
+				a.chatToast("⎈ "+shortName(a.personName(t.Helm))+" has the helm of "+a.chat.state.TabName(t.Window)+" now", 6*time.Second)
 			}
 		}
 	}
@@ -364,7 +363,7 @@ func (a *App) chatState(s share.State) {
 		mine := r.Approver == c.you || (c.host && r.Approver == 0)
 		if k := fmt.Sprintf("helm/%d", r.ID); mine && !c.seen[k] {
 			c.seen[k] = true
-			a.chatAlert(fmt.Sprintf("%s wants the helm of %s", shortName(r.Name), a.chatTabName(r.Window)))
+			a.chatAlert(fmt.Sprintf("%s wants the helm of %s", shortName(r.Name), a.chat.state.TabName(r.Window)))
 		}
 	}
 	c.dirty, a.forceRedraw = true, true
@@ -498,7 +497,7 @@ func (a *App) chatSend() {
 	c.sent = append(c.sent, text)
 	c.sentAt = len(c.sent)
 	c.dirty = true
-	if strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "//") {
+	if share.IsCommand(text) {
 		a.chatCommand(text)
 		return
 	}
@@ -506,147 +505,60 @@ func (a *App) chatSend() {
 	a.chatAct(share.Action{Op: share.OpSay, Text: text})
 }
 
-// hostHelp lists the host's /commands (shown in the panel by /help).
-var hostHelp = []string{
-	"/copy: copy the invite link · /newlink: a new link (the old one stops working)",
-	"/helm NAME [TAB]: hand NAME the helm · /take [TAB|all]: take it back",
-	"/give NAME [TAB]: make it NAME's tab · /takeback [TAB]: take it back",
-	"/branch NAME [task]: a tab on a new branch for NAME",
-	"/kick NAME: remove someone · /mute NAME · /unmute NAME · /save",
-	"/yes /no: answer (or y/n, box empty) · /stop: stop sharing",
-	"NAME: a name or its number · TAB: a tab's number (default: yours) · //text sends /text",
-}
-
 // chatCommand runs a /command typed in the chat.
 func (a *App) chatCommand(line string) {
 	c := a.chat
-	cmd, arg, _ := strings.Cut(strings.TrimPrefix(line, "/"), " ")
-	args := strings.Fields(arg)
+	toast := func(text string) { a.chatToast(text, 4*time.Second) }
+	if !c.host { // guests: the helm and answers
+		word, _, _ := strings.Cut(strings.TrimPrefix(line, "/"), " ")
+		switch word {
+		case "help", "h", "?":
+			a.chatToast("/helm: ask for the helm, or hand it back · /yes /no · //text sends /text", 10*time.Second)
+		case "helm", "release", "take":
+			a.helmKey()
+		case "yes", "y", "no", "n":
+			a.chatDecide(word[0] == 'y')
+		default:
+			toast("only the host can do that")
+		}
+		return
+	}
 	win := a.chatWindow()
-	if c.host && c.state.Current != "" {
+	if c.state.Current != "" {
 		win = c.state.Current // the host's tab
 	}
-	person := func(i int) (uint32, bool) {
-		if len(args) <= i {
-			a.chatToast("whom? · /help", 4*time.Second)
-			return 0, false
-		}
-		if n, err := strconv.Atoi(strings.TrimPrefix(args[i], "#")); err == nil && n >= 1 && n < len(c.people) {
-			return c.people[n].ID, true // the number in the header
-		}
-		id, ok := a.personNamed(args[i])
-		if !ok {
-			a.chatToast("nobody here called "+args[i], 4*time.Second)
-		}
-		return id, ok
+	cmd, err := share.ParseCommand(line, c.people, c.state, win)
+	if err != nil {
+		a.chatToast(err.Error(), 5*time.Second)
+		return
 	}
-	tab := func(i int) (string, bool) {
-		if len(args) <= i {
-			if win == "" {
-				a.chatToast("which tab? give its number", 4*time.Second)
-			}
-			return win, win != ""
-		}
-		for _, t := range c.state.Tabs {
-			if strings.TrimPrefix(args[i], "#") == strconv.Itoa(t.Index) {
-				return t.Window, true
-			}
-		}
-		a.chatToast("no tab "+args[i], 4*time.Second)
-		return "", false
-	}
-	hostOnly := func() bool {
-		if !c.host {
-			a.chatToast("only the host can do that", 4*time.Second)
-		}
-		return c.host
-	}
-	switch cmd {
-	case "help", "h", "?":
-		c.help = c.host
-		if !c.host {
-			a.chatToast("/helm: ask for the helm, or hand it back · /yes /no · //text sends /text", 10*time.Second)
-		}
-	case "copy", "link":
-		if hostOnly() {
-			glfw.SetClipboardString(c.link)
-			a.chatToast("copied the invite link", 4*time.Second)
-		}
-	case "newlink", "rotate":
-		if hostOnly() {
-			a.chatAct(share.Action{Op: share.OpRotate})
-			c.copyNew = true
-		}
-	case "stop", "quit":
-		if hostOnly() {
-			a.chatAct(share.Action{Op: share.OpStop})
-		}
-	case "kick", "remove":
-		if hostOnly() {
-			if id, ok := person(0); ok {
-				a.chatAct(share.Action{Op: share.OpKick, Person: id})
-			}
-		}
-	case "save":
-		if hostOnly() {
-			a.chatAct(share.Action{Op: share.OpSave})
-		}
-	case "give":
-		if hostOnly() {
-			if id, ok := person(0); ok {
-				if w, ok := tab(1); ok {
-					a.chatAct(share.Action{Op: share.OpGive, Window: w, Person: id})
-				}
-			}
-		}
+	switch cmd.Name {
+	case "help":
+		c.help = true
+		return
+	case "copy":
+		glfw.SetClipboardString(c.link)
+		toast("copied the invite link")
+		return
+	case "yes", "no":
+		a.chatDecide(cmd.Name == "yes")
+		return
 	case "branch":
-		if hostOnly() {
-			id, ok := person(0)
-			if !ok {
-				return
-			}
-			a.branchFor(shortName(a.personName(id)), strings.Join(args[1:], " "))
-		}
-	case "takeback", "untake":
-		if hostOnly() {
-			if w, ok := tab(0); ok {
-				a.chatAct(share.Action{Op: share.OpUntake, Window: w})
-			}
-		}
-	case "take":
-		if !c.host {
-			a.helmKey()
+		a.branchFor(shortName(cmd.Person.Name), cmd.Task)
+		return
+	case "helm":
+		if len(cmd.Actions) == 0 {
+			a.helmKey() // takes it back
 			return
 		}
-		text, err := a.ctlHelm(nil, "take "+arg)
-		if err != nil {
-			text = err.Error()
-		}
-		a.chatToast(text, 4*time.Second)
-	case "helm", "release":
-		if !c.host || len(args) == 0 {
-			a.helmKey() // guests: ask for it or hand it back; the host: take it back
-			return
-		}
-		if id, ok := person(0); ok {
-			if w, ok := tab(1); ok {
-				a.chatAct(share.Action{Op: share.OpHand, Window: w, Person: id})
-			}
-		}
-	case "mute", "unmute":
-		if hostOnly() {
-			if id, ok := person(0); ok {
-				op := share.OpMute
-				if cmd == "unmute" {
-					op = share.OpUnmute
-				}
-				a.chatAct(share.Action{Op: op, Person: id})
-			}
-		}
-	case "yes", "no", "y", "n":
-		a.chatDecide(cmd[0] == 'y')
-	default:
-		a.chatToast("no command /"+cmd+" · /help lists them", 5*time.Second)
+	case "newlink":
+		c.copyNew = true
+	}
+	for _, act := range cmd.Actions {
+		a.chatAct(act)
+	}
+	if cmd.Note != "" {
+		toast(cmd.Note)
 	}
 }
 
@@ -710,7 +622,7 @@ func (a *App) chatDecision() (label string, act share.Action, ok bool) {
 	}
 	for _, r := range c.state.Requests {
 		if r.Approver == c.you || c.host {
-			return fmt.Sprintf("%s wants the helm of %s", shortName(r.Name), a.chatTabName(r.Window)),
+			return fmt.Sprintf("%s wants the helm of %s", shortName(r.Name), a.chat.state.TabName(r.Window)),
 				share.Action{Op: share.OpDecide, Request: r.ID}, true
 		}
 	}
@@ -755,17 +667,6 @@ func (a *App) chatWindow() string {
 		return t.tmuxID
 	}
 	return ""
-}
-
-// chatTabName is "tab 2 (zsh)".
-func (a *App) chatTabName(window string) string {
-	if t := a.chat.state.Tab(window); t != nil {
-		if t.Name != "" {
-			return fmt.Sprintf("tab %d (%s)", t.Index, t.Name)
-		}
-		return fmt.Sprintf("tab %d", t.Index)
-	}
-	return "a tab"
 }
 
 func (a *App) personName(id uint32) string {
@@ -845,18 +746,11 @@ func (a *App) ctlHelm(p *pane, line string) (string, error) {
 		sub, args = args[0], args[1:]
 	}
 	tabArg := func(i int) (string, error) {
-		if len(args) <= i {
-			if win == "" {
-				return "", fmt.Errorf("which tab? give its number")
-			}
-			return win, nil
+		t, err := share.FindTab(c.state, args, i, win)
+		if err != nil {
+			return "", err
 		}
-		for _, t := range c.state.Tabs {
-			if strings.TrimPrefix(args[i], "#") == fmt.Sprint(t.Index) {
-				return t.Window, nil
-			}
-		}
-		return "", fmt.Errorf("no tab %s", args[i])
+		return t.Window, nil
 	}
 	host := func() error {
 		if !c.host {
@@ -905,51 +799,25 @@ func (a *App) ctlHelm(p *pane, line string) (string, error) {
 			return "", fmt.Errorf("you don't have the helm there")
 		}
 		return a.helmAct(w), nil
-	case "give", "hand":
+	case "give", "hand", "take":
 		if err := host(); err != nil {
 			return "", err
 		}
-		if len(args) == 0 {
-			return "", fmt.Errorf("usage: germ helm give NAME [TAB]")
+		line := "/take "
+		if sub != "take" {
+			if len(args) == 0 {
+				return "", fmt.Errorf("usage: germ helm give NAME [TAB]")
+			}
+			line = "/helm "
 		}
-		id, ok := a.personNamed(args[0])
-		if !ok {
-			return "", fmt.Errorf("nobody called %s is in the session", args[0])
-		}
-		w, err := tabArg(1)
+		cmd, err := share.ParseCommand(line+strings.Join(args, " "), c.people, c.state, win)
 		if err != nil {
 			return "", err
 		}
-		a.chatAct(share.Action{Op: share.OpHand, Window: w, Person: id})
-		return "⎈ gave " + shortName(a.personName(id)) + " the helm of " + a.chatTabName(w), nil
-	case "take":
-		if err := host(); err != nil {
-			return "", err
+		for _, act := range cmd.Actions {
+			a.chatAct(act)
 		}
-		var wins []string
-		if len(args) > 0 && args[0] == "all" || len(args) == 0 && c.state.HelmOf(win) == 0 {
-			// all, or no tab given and a guest doesn't have this one: wherever one does
-			for _, t := range c.state.Tabs {
-				wins = append(wins, t.Window)
-			}
-		} else {
-			w, err := tabArg(0)
-			if err != nil {
-				return "", err
-			}
-			wins = []string{w}
-		}
-		n := 0
-		for _, w := range wins {
-			if c.state.HelmOf(w) != 0 {
-				a.chatAct(share.Action{Op: share.OpTake, Window: w})
-				n++
-			}
-		}
-		if n == 0 {
-			return "⎈ you already have the helm", nil
-		}
-		return fmt.Sprintf("⎈ took the helm back (%d tab%s)", n, map[bool]string{true: "s"}[n > 1]), nil
+		return cmd.Note, nil
 	}
 	return "", fmt.Errorf("usage: germ helm [status|ask|back|give NAME [TAB]|take [TAB|all]]")
 }
@@ -1264,7 +1132,7 @@ func (a *App) chatView(cols int) chatview.View {
 		}
 		if c.help {
 			v.Msgs = append([]share.ChatMsg(nil), c.msgs...)
-			for _, l := range hostHelp {
+			for _, l := range share.HostHelp {
 				v.Msgs = append(v.Msgs, share.ChatMsg{Event: true, Text: l})
 			}
 		}
@@ -1295,7 +1163,7 @@ func (a *App) chatView(cols int) chatview.View {
 	if !c.host {
 		for _, t := range c.state.Tabs {
 			if t.Helm == c.you {
-				v.MyHelm = fmt.Sprintf("⎈ yours: %s", a.chatTabName(t.Window))
+				v.MyHelm = fmt.Sprintf("⎈ yours: %s", a.chat.state.TabName(t.Window))
 				break
 			}
 		}

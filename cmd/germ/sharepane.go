@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -144,7 +143,7 @@ func (p *sharePane) decision() (label string, answer func(bool), n int) {
 	}
 	if len(st.Requests) > 0 {
 		r := st.Requests[0]
-		return fmt.Sprintf("%s asks for the helm of %s", share.ShortName(r.Name), tabName(st, r.Window)), func(yes bool) {
+		return fmt.Sprintf("%s asks for the helm of %s", share.ShortName(r.Name), st.TabName(r.Window)), func(yes bool) {
 			p.h.Act(share.Action{Op: share.OpDecide, Request: r.ID, Allow: yes})
 		}, n
 	}
@@ -445,7 +444,7 @@ func (p *sharePane) send() {
 	p.mu.Unlock()
 	switch {
 	case text == "":
-	case strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "//"):
+	case share.IsCommand(text):
 		p.command(text)
 	default:
 		p.h.Act(share.Action{Op: share.OpSay, Text: strings.TrimPrefix(text, "/")}) // "//x" sends "/x"
@@ -454,160 +453,56 @@ func (p *sharePane) send() {
 
 // ---- commands ----------------------------------------------------------------
 
-const shareHelp = `/copy · copy the invite link      /newlink · a new link (the old one stops working)
-/helm NAME [TAB] · hand NAME the helm (of TAB; default the underlined tab)
-/take [TAB|all] · take the helm back (default: where a guest has it)   /yes /no
-/give NAME [TAB] · make it NAME's tab       /takeback [TAB] · take a given tab back
-/branch NAME [task] · a tab on a new branch for NAME
-/kick NAME|N · remove someone   /mute NAME   /unmute NAME   /save · save the chat
-/stop · stop sharing (or Ctrl+C)            //text · send a message starting with /`
-
 func (p *sharePane) command(line string) {
-	cmd, arg, _ := strings.Cut(strings.TrimPrefix(line, "/"), " ")
-	args := strings.Fields(arg)
 	st := p.h.State()
-	switch cmd {
-	case "help", "h", "?":
-		for _, l := range strings.Split(shareHelp, "\n") {
+	c, err := share.ParseCommand(line, p.h.Participants(), st, st.Current)
+	if err != nil {
+		p.say("%v", err)
+		return
+	}
+	switch c.Name {
+	case "help":
+		for _, l := range share.HostHelp {
 			p.log("%s", l)
 		}
-	case "copy", "c", "link":
+		p.log("%s", "Ctrl+C also stops sharing")
+		return
+	case "copy":
 		p.copyLink()
 		p.say("copied the invite link")
-	case "newlink", "rotate":
-		if err := p.h.RotateLinks(); err != nil {
-			p.say("couldn't make a new link: %v", err)
-			return
-		}
-		p.copyLink()
-		p.br.changed()
-		p.say("new link copied: the old one no longer works (people here stay)")
-	case "save":
-		p.say("%s", saveChat(p.h, p.br))
-	case "stop", "quit", "q":
-		p.stop()
-	case "yes", "y", "no", "n":
+		return
+	case "yes", "no":
 		if _, answer, _ := p.decision(); answer != nil {
-			answer(cmd[0] == 'y')
+			answer(c.Name == "yes")
 		} else {
 			p.say("nothing to answer")
 		}
-	case "kick", "remove":
-		if pp, ok := p.person(args, 0); ok {
-			p.h.Remove(pp.ID)
-			p.say("removed %s · /newlink so they can't come back", share.ShortName(pp.Name))
-		}
-	case "mute", "unmute":
-		if pp, ok := p.person(args, 0); ok {
-			op := share.OpMute
-			if cmd == "unmute" {
-				op = share.OpUnmute
-			}
-			p.h.Act(share.Action{Op: op, Person: pp.ID})
-		}
-	case "helm", "hand", "give":
-		pp, ok := p.person(args, 0)
-		if !ok {
-			return
-		}
-		t, ok := p.tab(st, args, 1)
-		if !ok {
-			return
-		}
-		op := share.OpHand
-		if cmd == "give" {
-			op = share.OpGive
-		}
-		p.h.Act(share.Action{Op: op, Window: t.Window, Person: pp.ID})
-	case "take", "takeback", "untake":
-		var tabs []share.Tab
-		switch {
-		case len(args) > 0 && args[0] == "all":
-			tabs = st.Tabs
-		case len(args) == 0 && cmd == "take":
-			// The tab you're on if a guest has it, else wherever one does.
-			if t := st.Tab(st.Current); t != nil && t.Helm != 0 {
-				tabs = []share.Tab{*t}
-			} else {
-				tabs = st.Tabs
-			}
-		default:
-			t, ok := p.tab(st, args, 0)
-			if !ok {
-				return
-			}
-			tabs = []share.Tab{*t}
-		}
-		did := false
-		for _, t := range tabs {
-			switch {
-			case cmd == "take" && t.Helm != 0:
-				p.h.Act(share.Action{Op: share.OpTake, Window: t.Window})
-				did = true
-			case cmd != "take" && (t.Owner != 0 || t.Helm != 0):
-				p.h.Act(share.Action{Op: share.OpUntake, Window: t.Window})
-				did = true
-			}
-		}
-		if !did {
-			p.say("you already have the helm there")
-		}
+		return
 	case "branch":
-		pp, ok := p.person(args, 0)
-		if !ok {
+		p.branch(share.ShortName(c.Person.Name), c.Task)
+		return
+	case "helm":
+		if len(c.Actions) == 0 {
+			p.say("whom? · /help")
 			return
 		}
-		p.branch(share.ShortName(pp.Name), strings.Join(args[1:], " "))
-	default:
-		p.say("no command /%s · /help lists them", cmd)
+	}
+	for _, a := range c.Actions {
+		if msg := hostAction(p.h, p.stop, a); msg != "" {
+			p.say("%s", msg)
+		}
+	}
+	if c.Name == "newlink" {
+		p.copyLink()
+		p.br.changed()
+	}
+	if c.Note != "" {
+		p.say("%s", c.Note)
 	}
 }
 
 func (p *sharePane) copyLink() {
 	p.write(fmt.Sprintf("\x1b]52;c;%s\x07", base64.StdEncoding.EncodeToString([]byte(p.h.Link().String()))))
-}
-
-// person finds a guest by name, short name or number (as listed in the
-// header) in args[i].
-func (p *sharePane) person(args []string, i int) (share.Participant, bool) {
-	if len(args) <= i {
-		p.say("whom? · /help")
-		return share.Participant{}, false
-	}
-	ps := p.h.Participants()
-	if n, err := strconv.Atoi(strings.TrimPrefix(args[i], "#")); err == nil && n >= 1 && n < len(ps) {
-		return ps[n], true
-	}
-	for _, pp := range ps {
-		if !pp.Host && share.NameMatches(pp.Name, args[i]) {
-			return pp, true
-		}
-	}
-	p.say("nobody here called %s", args[i])
-	return share.Participant{}, false
-}
-
-// tab finds the tab numbered args[i] (by its tmux index), or the host's
-// current tab without one.
-func (p *sharePane) tab(st share.State, args []string, i int) (*share.Tab, bool) {
-	if len(args) <= i {
-		if t := st.Tab(st.Current); t != nil {
-			return t, true
-		}
-		if len(st.Tabs) == 1 {
-			return &st.Tabs[0], true
-		}
-		p.say("which tab? give its number")
-		return nil, false
-	}
-	n, err := strconv.Atoi(strings.TrimPrefix(args[i], "#"))
-	for j := range st.Tabs {
-		if err == nil && st.Tabs[j].Index == n {
-			return &st.Tabs[j], true
-		}
-	}
-	p.say("no tab %s", args[i])
-	return nil, false
 }
 
 // branch opens a tab on a new branch for a guest (germ agent -for), in

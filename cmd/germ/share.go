@@ -246,30 +246,35 @@ func runShare(args []string) int {
 	return finishShare(err)
 }
 
-// tabName is "tab 2 (zsh)".
-func tabName(st share.State, window string) string {
-	if t := st.Tab(window); t != nil {
-		if t.Name != "" {
-			return fmt.Sprintf("tab %d (%s)", t.Index, t.Name)
+// hostAction carries out one of the host's actions (from the share pane
+// or the host's window) and returns what to tell them, or "".
+func hostAction(h *share.Host, stop func(), a share.Action) string {
+	switch a.Op {
+	case share.OpSave:
+		path, err := h.SaveChat()
+		if err != nil {
+			return "couldn't save the chat: " + err.Error()
 		}
-		return fmt.Sprintf("tab %d", t.Index)
+		h.Event("%s saved the chat", share.ShortName(h.Name))
+		return "chat saved to " + tildePath(path)
+	case share.OpRotate:
+		if err := h.RotateLinks(); err != nil {
+			return "couldn't make a new link: " + err.Error()
+		}
+		return "new link copied: the old one no longer works (people here stay)"
+	case share.OpKick:
+		for _, p := range h.Participants() {
+			if p.ID == a.Person && !p.Host {
+				h.Remove(p.ID)
+				return "removed " + share.ShortName(p.Name) + " · /newlink so they can't come back"
+			}
+		}
+	case share.OpStop:
+		stop()
+	default:
+		h.Act(a)
 	}
-	return "a tab"
-}
-
-// saveChat saves the chat to a file, tells the window, and returns what
-// happened.
-func saveChat(h *share.Host, br *shareBridge) string {
-	path, err := h.SaveChat()
-	if err != nil {
-		msg := "couldn't save the chat: " + err.Error()
-		br.notice(msg)
-		return msg
-	}
-	h.Event("%s saved the chat", share.ShortName(h.Name))
-	msg := "chat saved to " + tildePath(path)
-	br.notice(msg)
-	return msg
+	return ""
 }
 
 // shareBridge keeps the host's germ window up to date with the session
@@ -445,28 +450,8 @@ func (b *shareBridge) waitLoop(ctx context.Context) {
 			continue
 		}
 		for _, a := range resp.Actions {
-			switch a.Op {
-			case share.OpSave:
-				saveChat(b.h, b)
-			case share.OpJoin:
-				b.h.Decide(a.Request, a.Allow)
-			case share.OpRotate:
-				if err := b.h.RotateLinks(); err != nil {
-					b.notice("couldn't make a new link: " + err.Error())
-				} else {
-					b.notice("new link, copied: the old one no longer works; people here stay")
-				}
-			case share.OpKick:
-				for _, p := range b.h.Participants() {
-					if p.ID == a.Person && !p.Host {
-						b.h.Remove(p.ID)
-						b.notice("removed " + share.ShortName(p.Name) + " · /newlink so they can't come back")
-					}
-				}
-			case share.OpStop:
-				b.stop()
-			default:
-				b.h.Act(a)
+			if msg := hostAction(b.h, b.stop, a); msg != "" {
+				b.notice(msg)
 			}
 		}
 		if len(resp.Actions) > 0 {

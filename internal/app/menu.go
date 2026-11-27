@@ -301,7 +301,7 @@ func (a *App) personItems(pp share.Participant, t *tab) []paletteItem {
 	id, name := pp.ID, shortName(pp.Name)
 	var items []paletteItem
 	if t != nil && t.tmuxID != "" {
-		win, tabName := t.tmuxID, a.chatTabName(t.tmuxID)
+		win, tabName := t.tmuxID, a.chat.state.TabName(t.tmuxID)
 		if c.state.HelmOf(win) == id {
 			items = append(items, paletteItem{label: "Take the helm of " + tabName + " back from " + name,
 				run: func(a *App) { a.chatAct(share.Action{Op: share.OpTake, Window: win}) }})
