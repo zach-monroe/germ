@@ -720,8 +720,33 @@ func (c *tmuxController) newPane(id, cols, rows int) *pane {
 
 // capture loads a pane's existing screen and history. The callbacks run on
 // the reader goroutine so they stay ordered with %output.
+//
+// History and screen are captured apart: the history is scrolled into the
+// terminal's scrollback, so the screen starts on its top row and tmux's
+// cursor position is right for it. (Written as one, any history that fit
+// on the screen pushed it down, and output after that landed rows too
+// high: a guest joining a pane tmux had reflowed saw this.)
 func (c *tmuxController) capture(id int, p *pane) {
-	c.send(fmt.Sprintf("capture-pane -p -e -t %%%d -S -2000", id), tmuxCallback{immediate: true,
+	history := 0
+	c.send(fmt.Sprintf(`display -p -t %%%d "#{history_size}"`, id), tmuxCallback{immediate: true,
+		fn: func(lines []string, failed bool) {
+			if !failed && len(lines) > 0 {
+				history, _ = strconv.Atoi(lines[0])
+			}
+		}})
+	c.send(fmt.Sprintf("capture-pane -p -e -t %%%d -S -2000 -E -1", id), tmuxCallback{immediate: true,
+		fn: func(lines []string, failed bool) {
+			// With no history, tmux answers with a screen line instead.
+			if failed || history == 0 {
+				return
+			}
+			lines = lines[max(0, len(lines)-history):]
+			p.term.Lock()
+			_, rows := p.term.Size()
+			p.term.Unlock()
+			p.term.Write([]byte("\x1b[H\x1b[2J" + strings.Join(lines, "\r\n") + strings.Repeat("\r\n", rows)))
+		}})
+	c.send(fmt.Sprintf("capture-pane -p -e -t %%%d", id), tmuxCallback{immediate: true,
 		fn: func(lines []string, failed bool) {
 			if failed {
 				return
