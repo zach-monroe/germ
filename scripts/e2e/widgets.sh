@@ -6,14 +6,8 @@
 #   Xvfb :99 -screen 0 1280x800x24 &
 #   scripts/e2e/widgets.sh
 set -e
-unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET
-HERE=$(cd "$(dirname "$0")" && pwd)
-GERM=${GERM:-$(cd "$HERE/../.." && pwd)/germ}
-export DISPLAY=${DISPLAY_E2E:-:99}
-TMP=$(mktemp -d)
-export XDG_STATE_HOME="$TMP/state" XDG_DATA_HOME="$TMP/data" BROWSER=/bin/false
-GPID=
-trap '[ -n "$GPID" ] && kill $GPID 2>/dev/null; rm -rf "$TMP"' EXIT
+. "$(dirname "$0")/lib.sh"
+e2e_init widgets
 mkdir -p "$TMP/opened here"
 
 # Every widget fills its box with one link, so any click in it lands.
@@ -65,16 +59,15 @@ for i in $(seq 40); do echo "- [ ] item $i"; done > "$TMP/todo.md"
 
 "$GERM" -config "$TMP/config.toml" 2>"$TMP/germ.err" &
 GPID=$!
-for _ in $(seq 60); do WID=$(xdotool search --pid $GPID 2>/dev/null | head -1); [ -n "$WID" ] && break; sleep 0.1; done
+WID=$(e2e_window $GPID)
 sleep 2
 eval "$(xdotool getwindowgeometry --shell "$WID")" # WIDTH HEIGHT
 export GERM_SOCKET=${XDG_RUNTIME_DIR:-/tmp}/germ/$GPID.sock
 
-fail=0
 clickat() { xdotool mousemove --window "$WID" "$1" "$2" click 1; sleep 0.7; }
 check() { # name file expected
-	if [ "$(cat "$2" 2>/dev/null)" = "$3" ]; then echo "ok   $1"
-	else echo "FAIL $1: got '$(cat "$2" 2>/dev/null)', want '$3'"; fail=1; fi
+	if [ "$(cat "$2" 2>/dev/null)" = "$3" ]; then pass "$1"
+	else flunk "$1: got '$(cat "$2" 2>/dev/null)', want '$3'"; fi
 }
 
 clickat $((WIDTH / 4)) $((HEIGHT / 6))
@@ -84,19 +77,19 @@ check "interval widget rerun with GERM_WIDGET_CLICK" "$TMP/interval.got" "iv"
 
 clickat $((WIDTH / 2)) $((HEIGHT / 2))
 sleep 1
-if "$GERM" ctl json '{"cmd":"list_panes"}' | grep -q "opened here"; then echo "ok   germ-open: opened a tab there"
-else echo "FAIL germ-open: no pane in '$TMP/opened here'"; "$GERM" ctl json '{"cmd":"list_panes"}'; fail=1; fi
+if "$GERM" ctl json '{"cmd":"list_panes"}' | grep -q "opened here"; then pass "germ-open: opened a tab there"
+else flunk "germ-open: no pane in '$TMP/opened here'"; "$GERM" ctl json '{"cmd":"list_panes"}'; fi
 
 xdotool key ctrl+shift+grave; sleep 0.7 # germ-open moved us to the new tab: back home
 clickat $((WIDTH / 2)) $((HEIGHT - 15)) # the todo box's last row: an item
 n=$(grep -c '^- \[x\]' "$TMP/todo.md" || true)
-[ "$n" = 1 ] && echo "ok   clicking a todo ticked it in the file" || { echo "FAIL todo: $n ticked"; fail=1; }
+[ "$n" = 1 ] && pass "clicking a todo ticked it in the file" || flunk "todo: $n ticked"
 clickat $((WIDTH / 2)) $((HEIGHT - 15)) # the todo box's last row: an item
 n=$(grep -c '^- \[x\]' "$TMP/todo.md" || true)
-[ "$n" = 0 ] && echo "ok   clicking it again unticked it" || { echo "FAIL todo untick: $n ticked"; fail=1; }
+[ "$n" = 0 ] && pass "clicking it again unticked it" || flunk "todo untick: $n ticked"
 # The click focused the todo box: typing adds an item, Enter saves it.
 xdotool type --delay 40 "buy eggs"; xdotool key Return; sleep 0.7
-tail -1 "$TMP/todo.md" | grep -qx -- '- \[ \] buy eggs' && echo "ok   typing in the todo box added an item" || { echo "FAIL todo add: $(tail -1 "$TMP/todo.md")"; fail=1; }
+tail -1 "$TMP/todo.md" | grep -qx -- '- \[ \] buy eggs' && pass "typing in the todo box added an item" || flunk "todo add: $(tail -1 "$TMP/todo.md")"
 xdotool type --delay 40 "nope"; xdotool key Escape; xdotool key Return; xdotool key Return; sleep 0.7
-! grep -q nope "$TMP/todo.md" && echo "ok   Esc dropped the draft" || { echo "FAIL Esc saved the draft"; fail=1; }
+! grep -q nope "$TMP/todo.md" && pass "Esc dropped the draft" || flunk "Esc saved the draft"
 exit $fail

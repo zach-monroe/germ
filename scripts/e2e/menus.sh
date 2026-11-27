@@ -5,31 +5,21 @@
 #
 #   Xvfb :99 -screen 0 1280x800x24 &
 #   scripts/e2e/menus.sh [shots-dir]
-HERE=$(cd "$(dirname "$0")" && pwd)
-ROOT=$HERE/../..
-GERM=${GERM:-$ROOT/germ}
-export DISPLAY=${DISPLAY_E2E:-:99}
+. "$(dirname "$0")/lib.sh"
+e2e_init menus
 SHOTS=${1:-}
-unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET GERM_CONFIG
-TMP=$(mktemp -d)
-export XDG_STATE_HOME="$TMP/state" XDG_DATA_HOME="$TMP/data"
-SOCK=germ-menus-e2e
-cleanup() { kill $HOST 2>/dev/null; tmux -L $SOCK kill-server 2>/dev/null; rm -rf "$TMP"; }
-trap cleanup EXIT
-tmux -L $SOCK kill-server 2>/dev/null; rm -f "/tmp/tmux-$(id -u)/$SOCK"
 printf '[tmux]\nsocket = "%s"\n[home]\nenabled = false\n[agents]\nnotify = false\n' $SOCK > "$TMP/c.toml"
 "$GERM" -config "$TMP/c.toml" 2>"$TMP/err" & HOST=$!
-for _ in $(seq 50); do HW=$(xdotool search --pid $HOST 2>/dev/null | head -1); [ -n "$HW" ] && break; sleep 0.1; done
+HW=$(e2e_window $HOST)
 sleep 2; xdotool windowfocus --sync "$HW"
-CTL="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl"
+CTL=$(e2e_ctl $HOST)
 eval $(xdotool getwindowgeometry --shell "$HW")
 SIZE=$($CTL list | awk 'NR==2{print $(NF-1)}')
 GCOLS=${SIZE%x*}; GROWS=$((${SIZE#*x} + 1)); CW=$((WIDTH/GCOLS)); CH=$((HEIGHT/GROWS))
 at() { xdotool mousemove --window "$HW" $(( $1*CW + CW/2 )) $(( $2*CH + CH/2 )); } # grid col, row
 panes() { tmux -L $SOCK list-panes -t germ -F '#{pane_id}' | wc -l; }
 windows() { tmux -L $SOCK list-windows -t germ -F '#{window_index}' | tr '\n' ' '; }
-fail=0
-check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
+check() { if eval "$2"; then pass "$1"; else flunk "$1"; fi; }
 
 # The pane menu: Paste, Split right, ... (row 0 the tab bar, 1 the menu's line).
 at 50 15; xdotool click 3; sleep 0.5

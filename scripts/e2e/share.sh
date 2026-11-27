@@ -8,32 +8,12 @@
 #   Xvfb :99 -screen 0 1280x800x24 &
 #   scripts/e2e/share.sh [shots-dir]
 set -e
-HERE=$(cd "$(dirname "$0")" && pwd)
-ROOT=$HERE/../..
-GERM=${GERM:-$ROOT/germ}
-export DISPLAY=${DISPLAY_E2E:-:99}
+. "$(dirname "$0")/lib.sh"
+e2e_init share
 SHOTS=${1:-}
-# Never talk to the real germ window or tmux this shell may be running in.
-unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET GERM_CONFIG
-TMP=$(mktemp -d)
-export XDG_STATE_HOME="$TMP/state" # no session snapshots in the real state dir
-export XDG_DATA_HOME="$TMP/data"   # no germ:// handler or saved chats in the real data dir
-SOCK=germ-share-e2e
 PORT=18093
-cleanup() {
-	[ -n "$CTL" ] && { $CTL chat /stop >/dev/null 2>&1 || true; } # germ share runs on its own; it also quits when the session goes
-	kill $HOST $ALICE $BOB $RELAY 2>/dev/null || true
-	tmux -L $SOCK kill-server 2>/dev/null || true
-	rm -rf "$TMP"
-}
-trap cleanup EXIT
-# Record desktop notifications instead of showing them.
-mkdir -p "$TMP/bin"
-printf '#!/bin/sh\necho "$*" >> %s/notified\n' "$TMP" > "$TMP/bin/notify-send"
-chmod +x "$TMP/bin/notify-send"
-export PATH="$TMP/bin:$PATH"
-tmux -L $SOCK kill-server 2>/dev/null || true
-rm -f "/tmp/tmux-$(id -u)/$SOCK" # a stale socket makes tmux fail to start
+# germ share runs on its own (it also quits when the session goes).
+e2e_cleanup() { [ -n "$CTL" ] && $CTL chat /stop >/dev/null 2>&1; }
 
 (cd "$ROOT" && CGO_ENABLED=0 go build -o "$TMP/germ-relay" ./cmd/germ-relay)
 "$TMP/germ-relay" -addr 127.0.0.1:$PORT 2>"$TMP/relay.log" & RELAY=$!
@@ -51,33 +31,30 @@ approve = "all"
 CFG
 printf '[home]\nenabled = false\n[agents]\nnotify = false\n' > "$TMP/guest.toml"
 
-winof() { for _ in $(seq 50); do w=$(xdotool search --pid "$1" 2>/dev/null | head -1); [ -n "$w" ] && { echo "$w"; return; }; sleep 0.1; done; }
-
 "$GERM" -config "$TMP/host.toml" 2>"$TMP/host.err" & HOST=$!
-HW=$(winof $HOST); sleep 2
+HW=$(e2e_window $HOST); sleep 2
 # The grid's cell size, for clicks (before the panel takes columns).
 eval $(xdotool getwindowgeometry --shell "$HW")
-SIZE=$(env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl list | awk 'NR==2{print $(NF-1)}')
+CTL=$(e2e_ctl $HOST)
+SIZE=$($CTL list | awk 'NR==2{print $(NF-1)}')
 GCOLS=${SIZE%x*}; GROWS=$((${SIZE#*x} + 1)); CW=$((WIDTH/GCOLS)); CH=$((HEIGHT/GROWS))
 xdotool windowfocus --sync "$HW"
 xdotool key ctrl+shift+p; sleep 2
-CTL="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl"
 # germ share runs in the background; the controls are in the window's
 # chat panel (germ ctl chat reads it, or types into it).
 for _ in $(seq 40); do $CTL chat > "$TMP/share.txt" 2>/dev/null && grep -q '^http' "$TMP/share.txt" && break; sleep 0.5; done
 # The link wraps over full-width rows.
 LINK=$(awk '/^http/{l=$0; w=length($0); while ((getline n) > 0 && length(l)%w==0 && n !~ / /) l=l n; print l; exit}' "$TMP/share.txt")
-[ -n "$LINK" ] || { echo "FAIL no link"; cat "$TMP/share.txt" "$XDG_STATE_HOME/germ/share.log"; exit 1; }
-echo "ok   the panel shows the link"
+[ -n "$LINK" ] || { flunk "no link"; cat "$TMP/share.txt" "$XDG_STATE_HOME/germ/share.log"; exit 1; }
+pass "the panel shows the link"
 check_panes_none() { ! tmux -L $SOCK list-panes -a -F '#{pane_current_command}' | grep -qx germ; }
 sharelog() { $CTL chat; }
 # The panel's text with wrapped lines joined, for grep.
 SL="$CTL chat | tr '\\n' ' ' | tr -s ' '"
 pane0() { tmux -L $SOCK capture-pane -p -t %0; }
-fail=0
 check() { # description command...
 	local what=$1; shift
-	if "$@"; then echo "ok   $what"; else echo "FAIL $what"; fail=1; fi
+	if "$@"; then pass "$what"; else flunk "$what"; fi
 }
 typein() { # window text
 	xdotool windowfocus --sync "$1"; sleep 0.2
@@ -93,8 +70,8 @@ check "the panel asks to let alice in" sh -c "$SL | grep -q 'alice.* wants to jo
 [ -n "$SHOTS" ] && { xdotool windowraise "$HW"; sleep 0.3; import -window root "$SHOTS/host-join.png"; }
 inpanel; xdotool type y; sleep 2; outpanel
 check "let alice in from the panel" sh -c "$SL | grep -q 'alice joined'"
-AW=$(winof $ALICE); sleep 2
-[ -n "$AW" ] || { echo "FAIL guest window"; cat "$TMP/alice.err"; exit 1; }
+AW=$(e2e_window $ALICE); sleep 2
+[ -n "$AW" ] || { flunk "guest window"; cat "$TMP/alice.err"; exit 1; }
 xdotool windowfocus --sync "$AW"; sleep 0.2; xdotool type --delay 15 "echo typed-without-helm"; sleep 1
 check "a guest can't type without the helm" sh -c "! tmux -L $SOCK capture-pane -p -t %0 | grep -q typed-without-helm"
 xdotool key ctrl+shift+t; sleep 1
@@ -159,7 +136,7 @@ USER=bob "$GERM" -config "$TMP/guest.toml" join "$LINK" 2>"$TMP/bob.err" & BOB=$
 sleep 2
 $CTL chat /yes; sleep 2
 check "let bob in" sh -c "$SL | grep -q 'bob joined'"
-BW=$(winof $BOB); sleep 2
+BW=$(e2e_window $BOB); sleep 2
 inpanel
 xdotool type --delay 15 '/give bob'; xdotool key Return; sleep 1; outpanel
 check "the host gave bob the tab" sh -c "$SL | grep -q 'gave tab 0 (.*) to bob'"
@@ -206,21 +183,21 @@ kill $RELAY 2>/dev/null || { echo "relay had exited:"; tail -5 "$TMP/relay.log";
 for _ in $(seq 40); do grep -q "host connected" <(tail -3 "$TMP/relay.log") && break; sleep 0.5; done
 sleep 7
 typein "$BW" after-reconnect # bob follows the host, who is back on tab 0
-if pane0 | grep -qx 'after-reconnect'; then echo "ok   reconnected after the relay restarted, tab still bob's"
-else echo "FAIL reconnect"; tail -5 "$TMP/relay.log"; sharelog | tail -4; tail -5 "$TMP/bob.err"; tmux -L $SOCK list-panes -a -F '#{session_name} #{window_index} #{pane_id} active=#{pane_active} win_active=#{window_active}'; [ -n "$SHOTS" ] && { xdotool windowraise "$BW"; sleep 0.3; import -window root "$SHOTS/bob-reconnect.png"; }; fail=1; fi
+if pane0 | grep -qx 'after-reconnect'; then pass "reconnected after the relay restarted, tab still bob's"
+else flunk "reconnect"; tail -5 "$TMP/relay.log"; sharelog | tail -4; tail -5 "$TMP/bob.err"; tmux -L $SOCK list-panes -a -F '#{session_name} #{window_index} #{pane_id} active=#{pane_active} win_active=#{window_active}'; [ -n "$SHOTS" ] && { xdotool windowraise "$BW"; sleep 0.3; import -window root "$SHOTS/bob-reconnect.png"; }; fi
 
 # Remove bob from the share pane, without a new link.
 sleep 1
 $CTL chat "/kick bob" >/dev/null
 for _ in $(seq 30); do kill -0 $BOB 2>/dev/null || break; sleep 0.2; done
-if kill -0 $BOB 2>/dev/null; then echo "FAIL bob still connected after removal"; fail=1
-else echo "ok   removed bob ($(cat "$TMP/bob.err"))"; fi
+if kill -0 $BOB 2>/dev/null; then flunk "bob still connected after removal"
+else pass "removed bob ($(cat "$TMP/bob.err"))"; fi
 
 xdotool windowfocus --sync "$HW"; sleep 0.5
 [ -n "$SHOTS" ] && import -window root "$SHOTS/host.png"
 # Stopping the share disconnects guests.
 $CTL chat "/stop" >/dev/null
 for _ in $(seq 30); do kill -0 $ALICE 2>/dev/null || break; sleep 0.2; done
-if kill -0 $ALICE 2>/dev/null; then echo "FAIL guest still connected after sharing stopped"; fail=1
-else echo "ok   guests disconnected when sharing stopped ($(cat "$TMP/alice.err"))"; fi
+if kill -0 $ALICE 2>/dev/null; then flunk "guest still connected after sharing stopped"
+else pass "guests disconnected when sharing stopped ($(cat "$TMP/alice.err"))"; fi
 exit $fail

@@ -8,34 +8,17 @@
 #   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core CHROME=/path/to/chrome \
 #     scripts/e2e/browser.sh [shots-dir]
 set -e
-HERE=$(cd "$(dirname "$0")" && pwd)
-ROOT=$HERE/../..
-GERM=${GERM:-$ROOT/germ}
-export DISPLAY=${DISPLAY_E2E:-:99}
+. "$(dirname "$0")/lib.sh"
 SHOTS=${1:-}
 if ! node -e "require(process.env.PLAYWRIGHT_CORE || 'playwright-core')" 2>/dev/null; then
 	echo "skip: no playwright-core (set PLAYWRIGHT_CORE)"; exit 0
 fi
-# Never talk to the real germ window or tmux this shell may be running in.
-unset TMUX TMUX_PANE GERM_PANE_ID GERM_SOCKET GERM_CONFIG
-TMP=$(mktemp -d)
-export XDG_STATE_HOME="$TMP/state" XDG_DATA_HOME="$TMP/data"
-SOCK=germ-browser-e2e
+e2e_init browser
 PORT=18095
-cleanup() {
-	exec 3>&- 2>/dev/null || true
-	[ -n "$CTL" ] && { $CTL chat /stop >/dev/null 2>&1 || true; }
-	kill $HOST $RELAY $NODE 2>/dev/null || true
-	tmux -L $SOCK kill-server 2>/dev/null || true
-	rm -rf "$TMP"
+e2e_cleanup() {
+	exec 3>&- 2>/dev/null
+	[ -n "$CTL" ] && $CTL chat /stop >/dev/null 2>&1
 }
-trap cleanup EXIT
-mkdir -p "$TMP/bin"
-printf '#!/bin/sh\necho "$*" >> %s/notified\n' "$TMP" > "$TMP/bin/notify-send"
-chmod +x "$TMP/bin/notify-send"
-export PATH="$TMP/bin:$PATH"
-tmux -L $SOCK kill-server 2>/dev/null || true
-rm -f "/tmp/tmux-$(id -u)/$SOCK"
 
 (cd "$ROOT" && CGO_ENABLED=0 go build -o "$TMP/germ-relay" ./cmd/germ-relay)
 "$TMP/germ-relay" -addr 127.0.0.1:$PORT 2>"$TMP/relay.log" & RELAY=$!
@@ -50,21 +33,19 @@ notify = false
 relay = "http://127.0.0.1:$PORT"
 CFG
 
-winof() { for _ in $(seq 50); do w=$(xdotool search --pid "$1" 2>/dev/null | head -1); [ -n "$w" ] && { echo "$w"; return; }; sleep 0.1; done; }
 "$GERM" -config "$TMP/host.toml" 2>"$TMP/host.err" & HOST=$!
-HW=$(winof $HOST); sleep 2
+HW=$(e2e_window $HOST); sleep 2
 xdotool windowfocus --sync "$HW"
 xdotool key ctrl+shift+p; sleep 2
-CTL="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM ctl"
+CTL=$(e2e_ctl $HOST)
 GHELM="env GERM_SOCKET=$XDG_RUNTIME_DIR/germ/$HOST.sock $GERM helm"
 for _ in $(seq 40); do $CTL chat 2>/dev/null | grep -q '^http' && break; sleep 0.5; done
 LINK=$($CTL chat | awk '/^http/{l=$0; w=length($0); while ((getline n) > 0 && length(l)%w==0 && n !~ / /) l=l n; print l; exit}')
-[ -n "$LINK" ] || { echo "FAIL no link"; exit 1; }
+[ -n "$LINK" ] || { flunk "no link"; exit 1; }
 SL() { $CTL chat | tr '\n' ' ' | tr -s ' '; }
-fail=0
 check() { # description shell-condition: polled for up to 20 s
-	for _ in $(seq 40); do eval "$2" && { echo "ok   $1"; return; }; sleep 0.5; done
-	echo "FAIL $1"; fail=1
+	for _ in $(seq 40); do eval "$2" && { pass "$1"; return; }; sleep 0.5; done
+	flunk "$1"
 }
 
 mkfifo "$TMP/b"
