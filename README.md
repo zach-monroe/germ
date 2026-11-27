@@ -8,6 +8,8 @@ built-in tmux and fish integration.
 
 ![germ: code and tests in one tab, three agents in the tab bar (working, waiting on you, done), and the session shared with alice in the chat panel](docs/img/screenshot.png)
 
+▶ [Watch the one-minute demo](docs/img/demo.mp4): sharing a session, chatting, and handing over the helm.
+
 - **Fast**: OpenGL 3.3 renderer (glyph atlas, three instanced draw calls per
   frame, only changed rows rebuilt, zero CPU when idle), a zero-allocation
   escape-sequence parser, and synchronized output.
