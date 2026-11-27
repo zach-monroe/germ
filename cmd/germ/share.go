@@ -124,9 +124,6 @@ func runShare(args []string) int {
 	}
 	h.Name = share.Whoami()
 	h.Approval = cfg.Share.Approve
-	if h.Approval == "typing" { // from before the helm: everyone can type now (with it)
-		h.Approval = "all"
-	}
 	h.TmuxArgs = tmuxArgs
 	if inSession && !*headless { // guests don't type into this pane
 		h.Protect = os.Getenv("TMUX_PANE")

@@ -146,8 +146,8 @@ type Share struct {
 	// "direct" (a UPnP port forward and a plain-http link to your public
 	// IP; only when chosen explicitly).
 	Mode string `toml:"mode"`
-	// Approve says whose joins you approve: "all" (default), "typing"
-	// (only can-type guests), or "none".
+	// Approve says whether you approve each person who joins: "all"
+	// (default) or "none".
 	Approve string `toml:"approve"`
 	// Port for direct connections (0: any free port).
 	Port int `toml:"port"`
