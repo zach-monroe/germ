@@ -6,6 +6,8 @@ A fast, GPU-accelerated terminal for Linux, built for coding agents and
 for sharing your session with anyone, with a link. Written in Go, with
 built-in tmux and fish integration.
 
+![germ: code and tests in one tab, three agents in the tab bar (working, waiting on you, done), and the session shared with alice in the chat panel](docs/img/screenshot.png)
+
 - **Fast**: OpenGL 3.3 renderer (glyph atlas, three instanced draw calls per
   frame, only changed rows rebuilt, zero CPU when idle), a zero-allocation
   escape-sequence parser, and synchronized output.
